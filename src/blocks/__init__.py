@@ -1,0 +1,9 @@
+"""业务/组合功能块集合。
+
+按阶段二《02-business-blocks》规则：每一个 FB 一个 Python 类，
+严格复用 ``src.primitives`` 中已迁移的基础原语。
+"""
+
+from .apchxhcl import APCHXHCL
+
+__all__ = ["APCHXHCL"]

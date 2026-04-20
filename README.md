@@ -14,12 +14,20 @@
 cursor提示词功能/            # 原始提示词文件（人读参考）
 src/
   config.py                  # 项目默认常量：CYCLE_MS、STARTUP_INHIBIT_MS
-  validation.py              # PT_ms 配置校验
+  validation.py              # PT_ms / TB 配置校验
+  compat/                    # ST / CODESYS 兼容 helper（conversions.py）
   primitives/                # 阶段一：TON/TOF/TP/R_TRIG/F_TRIG/SR/RS
-  blocks/                    # 阶段二：业务基础块（待填）
+  blocks/                    # 阶段二：业务基础块（已有 APCHXHCL）
   main/                      # 阶段三：主程序与扫描调度（待填）
-tests/                       # 单元测试（39 个用例，全部通过）
+tests/                       # 单元测试（97 个用例，全部通过）
+docs/
+  RISKS.md                   # 唯一的风险与待完善事项登记簿（必读）
 ```
+
+## 风险与待完善事项
+
+**全部已知风险与延后项集中在 [`docs/RISKS.md`](docs/RISKS.md)。**
+每次交付后必须同步更新。禁止把风险只写在对话或 docstring 里。
 
 ## 项目级运行契约（要点）
 
@@ -67,19 +75,41 @@ sr.step(SET1=valid_request, RESET=False)
 final_output  = sr.Q1 and system_ready and safety_ok and interlock_ok and output_enable
 ```
 
-## PT_ms 配置校验
+## PT_ms / TB 配置校验
 
 ```python
-from src.validation import check_pt_ms
+from src.validation import check_pt_ms, check_tb_sample_n_integer
 
 check_pt_ms(100,   name="Sensor.Debounce")
 check_pt_ms(1300,  name="Alarm.Delay")
 check_pt_ms(5000,  name="Motor.Start")
+
+check_tb_sample_n_integer(tb=0.5, name="APCHXHCL_1")   # OK
+check_tb_sample_n_integer(tb=0.7, name="APCHXHCL_2")   # warning: 60/0.7 非整数
 ```
 
 固定扫描周期模式下：
 - `PT_ms < cycle_ms` → 发 warning，提示无意义；
 - `PT_ms` 不是 `cycle_ms` 整数倍 → 发 warning，提示将被量化。
+- `60 / TB` 非整数 → 发 warning（APCHXHCL R4）。
+
+## CODESYS 类型转换兼容层
+
+所有 ST `REAL_TO_INT` / `REAL_TO_TIME` 在 Python 侧统一走 `src/compat/conversions.py`，
+不允许在业务块内直接使用裸 `int(...)`。详见 `docs/RISKS.md` 的 **APCHXHCL-R4** 条目。
+
+```python
+from src.compat import real_to_int, real_to_time_ms
+
+sample_n = real_to_int(60.0 / TB)              # 银行家舍入
+pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
+```
+
+## 已迁移业务块
+
+| 模块 | 来源 | 说明 |
+|---|---|---|
+| `src.blocks.APCHXHCL` | `APCHXHCL1.txt`（v2） | 信号处理：故障检测 + 最近一分钟均值 + 一阶 IIR 滤波 + 故障首拍均值冻结 |
 
 ## 运行测试
 
@@ -87,13 +117,15 @@ check_pt_ms(5000,  name="Motor.Start")
 python3 -m unittest discover -s tests -v
 ```
 
-当前：**39 个用例全部通过**，覆盖：
+当前：**97 个用例全部通过**，覆盖：
 - 7 个原语的基础行为
 - SR / RS 完整真值表（含置位/复位优先）
 - R_TRIG / F_TRIG 冷启动首拍（`CLK=True` / `CLK=False` 两种情况）
 - 长周期无漂移（10000 周期）与阈值边界
 - R_TRIG + SR 在 `system_ready` 门控下的冷启动防误动作模式
-- `check_pt_ms` 的三类校验路径
+- `check_pt_ms` / `check_tb_sample_n_integer` 校验路径
+- `src.compat.conversions` 三类 helper（21 个用例）
+- `APCHXHCL` 30 个契约验证：EN 开关、首拍初始化、每拍入列、三类故障、故障冻结、helper 接入、R1 / R3 / R5~R9 保留行为锁定
 
 ## 依赖
 
