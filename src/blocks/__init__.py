@@ -4,7 +4,8 @@
 严格复用 ``src.primitives`` 中已迁移的基础原语。
 """
 
+from .apchsfop import APCHSFOP
 from .apchxhcl import APCHXHCL
 from .apcstatistics import APCSTATISTICS
 
-__all__ = ["APCHXHCL", "APCSTATISTICS"]
+__all__ = ["APCHSFOP", "APCHXHCL", "APCSTATISTICS"]

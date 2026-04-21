@@ -17,9 +17,9 @@ src/
   validation.py              # PT_ms / TB 配置校验
   compat/                    # ST / CODESYS 兼容 helper（conversions.py）
   primitives/                # 阶段一：TON/TOF/TP/R_TRIG/F_TRIG/SR/RS
-  blocks/                    # 阶段二：业务基础块（已有 APCHXHCL、APCSTATISTICS）
+  blocks/                    # 阶段二：业务基础块（已有 APCHXHCL、APCSTATISTICS、APCHSFOP）
   main/                      # 阶段三：主程序与扫描调度（待填）
-tests/                       # 单元测试（117 个用例，全部通过）
+tests/                       # 单元测试（详见文末"运行测试"章节）
 docs/
   RISKS.md                   # 唯一的风险与待完善事项登记簿（必读）
 ```
@@ -39,6 +39,8 @@ docs/
 4. **冷启动保护**：`R_TRIG` / `F_TRIG` 本体按 IEC 标准实现（允许上电首拍产生一次边沿），冷启动防误动作由主程序的 `system_ready` 门控承担。默认 `STARTUP_INHIBIT_MS = 500`，可叠加 `io_ready / bus_ready / comm_ready / safety_ok`。
 5. **主程序五步式**：`输入快照 → 功能块推进 → request 生成 → 输出门控 → 一次性提交输出`。
 6. **输出安全链**：`final_output = system_ready AND output_enable AND safety_ok AND interlock_ok AND request`。扫描异常/超时/主循环失败 → 物理输出落到预定义安全默认值。首次接设备前先走 shadow mode / write disable。
+7. **业务块显式时间输入脚 vs runtime `dt_ms`**（R7）：业务块的显式时间参数（`TB / TC / TL` 等）按 PLC 输入脚语义取值，单位由 FB 源码决定（通常**秒**），**不等于** `dt_ms/1000`，也不得被 runtime 自动替代。文档/注释/测试中**禁止**出现"`TB` 必须等于 `cycle_ms/1000`"等绝对化表述。
+8. **业务时间参数非负约束（项目级参数契约，R7 第 7 条）**：`TB ≥ 0`、`TC ≥ 0`、`PT_ms ≥ 0`、`TL ≥ 0` 等。此约束由**配置装载层（Runtime 阶段）**集中硬拦截，**不允许业务块内部**为处理负值擅自加入分支/限幅/兜底逻辑。当前承接项：`APCHSFOP-H6`（详见 `docs/RISKS.md::APCHSFOP-H6` 与 `RUNTIME-PARAM-VALIDATION`）。
 
 ## 基础原语使用示例
 
@@ -111,6 +113,7 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 |---|---|---|
 | `src.blocks.APCHXHCL` | `APCHXHCL1.txt`（v2） | 信号处理：故障检测 + 最近一分钟均值 + 一阶 IIR 滤波 + 故障首拍均值冻结 |
 | `src.blocks.APCSTATISTICS` | `statistics.txt`（修正版） | 运行统计：min / max / 累计算术平均（Welford 增量式），支持 RESET 清零；ULINT 计数、LREAL 平均值 |
+| `src.blocks.APCHSFOP` | `HSFOP.txt` | 一阶惯性低通滤波（IIR）：`AV = (TC·Ok_1 + KG·TB·IN)/(TB+TC)`；含 `(TB+TC)>0.001` 与 `\|AV_TEMP\|<1e10` 双重守护 |
 
 ## 运行测试
 
@@ -118,7 +121,7 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 python3 -m unittest discover -s tests -v
 ```
 
-当前：**121 个用例全部通过**，覆盖：
+当前：**150 个用例全部通过**，覆盖：
 - 7 个原语的基础行为
 - SR / RS 完整真值表（含置位/复位优先）
 - R_TRIG / F_TRIG 冷启动首拍（`CLK=True` / `CLK=False` 两种情况）
@@ -128,6 +131,7 @@ python3 -m unittest discover -s tests -v
 - `src.compat.conversions` 三类 helper（21 个用例）
 - `APCHXHCL` 30 个契约验证：EN 开关、首拍初始化、每拍入列、三类故障、故障冻结、helper 接入、R1 / R3 / R5~R9 保留行为锁定
 - `APCSTATISTICS` 24 个契约验证（任务书 §7.1~§7.10）：初值统一 / RESET 当拍不采样 / 首样本 / 递增/递减/常量/负数/小数序列 / RESET 二次统计 / 长序列 10000 样本 / 跨 2e9 不减半 / Welford 公式数值 / 无 SUM / 修正版决策锁定
+- `APCHSFOP` 29 个契约验证：首拍 α·KG·IN 数值 / 稳态收敛到 KG·IN / 阶跃响应单调性 / α 强弱对比 / 公式字面数值 / `(TB+TC)≤0.001` 跳过 / `\|AV_TEMP\|≥1e10` 冻结 / KG=0/KG<0 / 与 APCHXHCL 内嵌段一致 / RETAIN 状态保持 / **R7 时间语义：TB 与 cycle_ms 解耦**
 
 ## 依赖
 

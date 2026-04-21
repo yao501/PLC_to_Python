@@ -3,7 +3,8 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
-> 最后一次更新对应任务书：`STATISTICS_修正版语义说明_与_Python改写任务书`（ST 基线：`/Users/guangyaosun/Desktop/statistics.txt`）
+> 最后一次更新对应任务书：`H6 收尾补充任务书（负 TB / 负 TC）`
+> （`APCHSFOP` H6 收尾：从 in-progress 推到 deferred，定性为项目级参数契约）
 
 ---
 
@@ -70,6 +71,7 @@
 | **RUNTIME-HAL** | 硬件抽象层 | recommended | ⏸ deferred | 现场 I/O 对接、协议驱动、时钟源。需要与具体部署环境一起决策。 |
 | **RUNTIME-WATCHDOG** | 扫描周期看门狗 | recommended | ⏸ deferred | 扫描超时时的安全响应。 |
 | **RUNTIME-INTEGRATION-TESTS** | APCHXHCL 与 Runtime 门控的集成测试 | recommended | ⏸ deferred | RUNTIME-GATE + APCHXHCL-R3 联调后补集成测试，验证"门控有效期内冻结的均值不会误导下游"。 |
+| **RUNTIME-PARAM-VALIDATION** | 业务参数配置装载层（统一非负校验） | blocker | ⏸ deferred | **所有业务块参数契约的统一落地位置**。待 Runtime 阶段建立配置装载入口后，集中实现对业务参数的非负 / 范围 / 类型校验。<br/><br/>**（A）当前已确认契约（必须落地）**：<br/>• `TB ≥ 0`、`TC ≥ 0`（承接 `APCHSFOP-H6`、以及 `APCHXHCL` 中同名参数）<br/>• 所有定时器 `PT_ms ≥ 0`（现有 `check_pt_ms` 逻辑归并到此）<br/>• `60 / TB` 整数性（现有 `check_tb_sample_n_integer` 归并到此）<br/><br/>**（B）未来可能的项目增强约束（非当前契约，需独立立项讨论后再决定是否采纳）**：<br/>• `TB > 0`（严格正，用于避免零除；当前 H6 契约**不包含**此条，`APCHSFOP` 的 `(TB+TC)>0.001` 门槛在 `TB=0` 且 `TC` 足够大时仍可工作）<br/>• 其他未来业务块新增的参数约束<br/><br/>建议实现为"加载期集中校验 + 启动前硬拦截"模式（与 `check_*` 的 warning 模式区分开），参数非法直接拒绝启动，而不是运行时降级。对应契约见 `00a-runtime-contract.mdc` R7 第 7 条。<br/><br/>**边界提示**：上述 (A) 与 (B) 不得混写 —— (A) 是已锁定的 H6 / 项目契约，落地 RUNTIME-PARAM-VALIDATION 即可直接实现；(B) 需要独立走"新增契约"流程，不得以 H6 收尾名义顺带植入。 |
 
 ---
 
@@ -106,6 +108,26 @@
 
 ---
 
+## 五-B、APCHSFOP 业务块相关（H 系列，任务书修订版）
+
+> 一阶惯性滤波（IIR low-pass）。ST 源：`/Users/guangyaosun/Desktop/HSFOP.txt`。
+> 公式与 APCHXHCL 内嵌滤波段完全一致。
+> **本节口径按 `hsfop_risk_and_time_semantics_cursor_task.md` 任务书重写**：
+> H1 / H2 / H3 / H7 是 ST 原语义（保留，非 bug）；H4 降级为说明项；
+> H5 已泛化为项目级规则（见 00a 契约 R7 条）；H6 改为项目级参数契约。
+
+| ID | 标题 | 分类 | 状态 | 详情 / 处理方式 |
+|---|---|---|---|---|
+| **APCHSFOP-H1** | 首拍从 `Ok_1=0` 爬升 | accepted | 🔒 locked | **ST 原行为，非缺陷。** 首拍 `AV = α·KG·IN`，**不等于** `IN`，从 0 起爬，约 `TC/TB` 拍到 63.2% 稳态。通用 `APCHSFOP` 内部**不应**引入 `INIT_OK`；若某业务上下文需要"首拍贴输入"，应由外层主程序/业务上下文门控实现（例如业务上下文用 `system_ready` 延迟放 EN）。APCHXHCL 在其内部自己用 `INIT_OK` 是**它自己**的设计，不适用于通用滤波块。`tests/test_blocks_apchsfop.py::TestFirstTick` 锁死首拍数值。 |
+| **APCHSFOP-H2** | `\|AV_TEMP\| ≥ 1e10` 时冻结 `AV / Ok_1` | accepted | 🔒 locked | **ST 原语义。** 注意：这是**冻结**（保持上一合法值），**不是限幅/饱和/clamp**——不会把输出裁到 `±1e10`。实现顺序严格为：(1) 算 `AV_TEMP`；(2) 判定 `|AV_TEMP| < 1e10`；(3) 通过才一起提交 `AV = AV_TEMP`、`Ok_1 = AV`。异常值监控由主程序承担。`TestGuardAvTempExplodes` 锁死行为。 |
+| **APCHSFOP-H3** | `(TB + TC) ≤ 0.001` 时整拍跳过 | accepted | 🔒 locked | **ST 原语义。** 整段逻辑不执行，`AV / Ok_1 / AV_TEMP` 保持原值。**不是告警后继续算，也不是自动替换参数**。`TestGuardTbPlusTcTooSmall` 锁死。 |
+| **APCHSFOP-H4** | `AV_TEMP` 的 RETAIN 冗余 | nice-to-have | 🟩 resolved（说明项） | **降级为说明项**。真正的关键跨周期状态是 `AV` 与 `Ok_1`。`AV_TEMP` 每拍都被覆盖，ST 侧标 RETAIN 对语义无影响；Python 侧保留为实例属性仅为调试/观察，不作高优先级风险跟踪。 |
+| **APCHSFOP-H5** | `TB` 与 `dt_ms` 的关系（**已泛化**） | project-rule | 🟩 resolved（已上升为契约 R7） | **原表述"`TB ≠ dt_ms/1000` 就是风险"不准确。修订口径**：`TB` 是 FB 显式输入脚，按 PLC 输入脚语义取值（有外部赋值用外部值，无赋值用声明默认 `0.5`）；`TB` **不天然等于** runtime 的 `dt_ms/1000`。真正的风险是"实现或文档把 `dt_ms` 错误替代显式输入脚 `TB`"——这条已泛化为 **00a 契约 R7 条**，作为项目级规则，不再作为本块单独风险。本次排查未发现代码层面误绑（见本文件末尾"排查结论"）。`TestTbDecoupledFromScanCycle` 新增测试锁死"`TB` 与 `cycle_ms` 不对齐时 FB 仍按 FB 语义正确工作"。 |
+| **APCHSFOP-H6** | 负 `TB` / 负 `TC` → 项目级参数契约 | project-contract | ⏸ deferred（pending-runtime-validation） | **H6 收尾定论**：这**不是**业务块内部 bug，也**不是**待修复的块内逻辑缺陷。已定性为**项目级参数契约**，契约内容：`TB ≥ 0`、`TC ≥ 0`（可推广到一切业务时间参数）。此契约已写入 **`00a-runtime-contract.mdc` R7 第 7 条**。<br/><br/>**`APCHSFOP` 本体保持 ST 原语义**：只保留原有 `(TB+TC) > 0.001` 门槛，**不**在块内部新增任何"负值保护型"分支/限幅/自动修正/兜底替换。<br/><br/>**代码层校验延后到 Runtime 阶段统一落地**（见本文件 `RUNTIME-PARAM-VALIDATION` 条目），理由：当前项目没有统一的配置装载层，孤立增加一个 `check_nonneg_time` 会与现有 `check_pt_ms`/`check_tb_sample_n_integer` 风格不一致且无统一调用点，反而劣化结构。<br/><br/>**H6 不再作为 `APCHSFOP` 业务块内部待修复问题**。 |
+| **APCHSFOP-H7** | 无 `EN` / `RESET` 端口 | accepted | 🔒 locked | **设计边界，非缺陷。** 符合 00a 契约 R2 条："基础/通用块接口纯净"——是否执行、是否复位由主程序/运行时统一门控。**本次任务不给 `APCHSFOP` 擅自加 EN/RESET**。 |
+
+---
+
 ## 六、业务块未来扩展
 
 | ID | 标题 | 分类 | 状态 | 详情 |
@@ -115,7 +137,58 @@
 
 ---
 
-## 七、更新约定
+## 七、排查结论存档
+
+### 2026-04-20 HSFOP H5 泛化排查结论
+
+**起因**：`hsfop_risk_and_time_semantics_cursor_task.md` 任务书要求把
+`APCHSFOP-H5` 从"单块风险"上升为"项目级时间语义规则"，并排查既有
+实现/文档中是否存在同类误解。
+
+**排查范围**：
+
+- `.cursor/rules/` 全部 5 份规则文件（00/00a/01/02/03）
+- `src/primitives/` 全部 3 个原语文件（timers/edges/latches）
+- `src/blocks/` 全部 3 个业务块文件（apchxhcl/apcstatistics/apchsfop）
+- `src/compat/conversions.py` / `src/validation.py` / `src/config.py`
+- `README.md` / `docs/RISKS.md`
+- `cursor提示词功能/` 下 5 份提示词源文件（人读参考，非生效规则）
+
+**代码层面**：
+
+- 所有业务块的显式时间输入脚（`APCHXHCL.TB/TC/TL`、`APCHSFOP.TB/TC`）
+  均以**关键字参数**暴露在 `step` 签名上，由调用方显式传入，**未**被 `dt_ms`
+  隐式替代。
+- 基础原语（`TON/TOF/TP`）的 `PT_ms` 亦是显式关键字参数，`dt_ms` 只负责
+  驱动内部 `ET_ms += dt_ms`，**未**与 `PT_ms` 混用。
+- **代码层面未发现 H5 同类误绑**。
+
+**文档/注释层面**：发现 3 处"过宽表述"已修正：
+
+| 位置 | 原表述 | 修正后 |
+|---|---|---|
+| `src/blocks/apchsfop.py` docstring | "调用方有义务保证 `TB ≈ dt_ms/1000`" | 显式输入脚语义；对齐是业务配置决策，不是契约强制 |
+| `src/blocks/apchxhcl.py` docstring | "主程序应保证 `TB * 1000 == cycle_ms`" | 同上，改为业务配置建议，并说明 TB 可以解耦扫描周期 |
+| `docs/RISKS.md` `APCHSFOP-H5` 条目 | "`TB ≠ dt_ms/1000` 时时间常数偏离" | 按任务书口径重写，并指向 00a 契约 R7 条 |
+
+**规则层面**：新增 **00a 契约 R7 条**——《业务块显式时间输入脚 vs runtime
+`dt_ms`》，明确 5 条硬约束 + Cursor 自检清单。
+
+**提示词源文件**：未发现把"显式时间脚 = dt_ms/1000"写死的绝对化表述；
+提示词 `01_1基础原语功能块迁移提示词1.md` 里的所有"时间统一 int ms"
+都仅针对**基础原语的 PT_ms 接口**，不会误导到业务块的业务参数。
+
+**结论**：
+
+- 代码层面无需修复（原设计正确）；
+- 文档/风险表层面的 3 处过宽表述已全部修正；
+- 项目级规则 R7 已在 00a 契约落地，作为后续所有业务块迁移的必过检查项；
+- 新增测试 `TestTbDecoupledFromScanCycle` 锁死"`TB` 与 `cycle_ms` 不对齐"
+  的正确行为。
+
+---
+
+## 八、更新约定
 
 每次完成交付后，**必须**：
 

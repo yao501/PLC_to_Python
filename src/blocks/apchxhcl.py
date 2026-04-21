@@ -23,11 +23,18 @@
 * :func:`~src.compat.real_to_int`、:func:`~src.compat.real_to_time_ms`
   —— ST 类型转换兼容 helper（所有 ``REAL_TO_INT / REAL_TO_TIME`` 统一走此）
 
-时间语义：
-    - 主程序以 ``cycle_ms`` 周期推进，``dt_ms`` 用于 ``TOF`` 内部累积；
-    - ``TB`` 仅用于计算 ``SAMPLE_N``（最近一分钟样本数）和滤波系数；
-    - 为获得业务准确性，主程序应保证 ``TB * 1000 == cycle_ms``；
-    - 业务上推荐 ``60/TB`` 为整数（详见
+时间语义（严格按 00a 契约 R7 条）：
+    - 主程序以 ``cycle_ms`` 周期推进，``dt_ms`` 只用于驱动 ``TOF1/TOF2``
+      内部累积；``dt_ms`` **不替代** ``TB / TC / TL`` 等显式输入脚。
+    - ``TB / TC / TL`` 是 ST 显式输入脚，按 PLC 输入脚语义取值；单位是
+      **秒**，由 FB 源码决定。
+    - ``TB`` 的业务语义是 "窗口分辨率"——``SAMPLE_N = 60 / TB`` 决定了
+      "最近一分钟"窗口被切成多少个样本；``TB`` 同时也作为一阶 IIR 滤波
+      离散化步长。
+    - 调用方若希望 ``SAMPLE_N`` 准确对应 "每扫描周期一个样本"，可以传入
+      ``TB = cycle_ms / 1000``——这是**业务配置决策**，不是契约强制。如
+      业务需要 "若干扫描周期合并为一个业务样本"，``TB`` 取对应秒数同样合法。
+    - 业务上推荐 ``60 / TB`` 为整数（详见
       :func:`~src.validation.check_tb_sample_n_integer`）。
 
 风险契约（对应 ``docs/RISKS.md`` 中的条目，此处锁死行为）：
