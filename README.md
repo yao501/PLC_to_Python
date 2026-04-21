@@ -17,9 +17,9 @@ src/
   validation.py              # PT_ms / TB 配置校验
   compat/                    # ST / CODESYS 兼容 helper（conversions.py）
   primitives/                # 阶段一：TON/TOF/TP/R_TRIG/F_TRIG/SR/RS
-  blocks/                    # 阶段二：业务基础块（已有 APCHXHCL）
+  blocks/                    # 阶段二：业务基础块（已有 APCHXHCL、APCSTATISTICS）
   main/                      # 阶段三：主程序与扫描调度（待填）
-tests/                       # 单元测试（97 个用例，全部通过）
+tests/                       # 单元测试（117 个用例，全部通过）
 docs/
   RISKS.md                   # 唯一的风险与待完善事项登记簿（必读）
 ```
@@ -110,6 +110,7 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 | 模块 | 来源 | 说明 |
 |---|---|---|
 | `src.blocks.APCHXHCL` | `APCHXHCL1.txt`（v2） | 信号处理：故障检测 + 最近一分钟均值 + 一阶 IIR 滤波 + 故障首拍均值冻结 |
+| `src.blocks.APCSTATISTICS` | `statistics.txt`（修正版） | 运行统计：min / max / 累计算术平均（Welford 增量式），支持 RESET 清零；ULINT 计数、LREAL 平均值 |
 
 ## 运行测试
 
@@ -117,7 +118,7 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 python3 -m unittest discover -s tests -v
 ```
 
-当前：**97 个用例全部通过**，覆盖：
+当前：**121 个用例全部通过**，覆盖：
 - 7 个原语的基础行为
 - SR / RS 完整真值表（含置位/复位优先）
 - R_TRIG / F_TRIG 冷启动首拍（`CLK=True` / `CLK=False` 两种情况）
@@ -126,6 +127,7 @@ python3 -m unittest discover -s tests -v
 - `check_pt_ms` / `check_tb_sample_n_integer` 校验路径
 - `src.compat.conversions` 三类 helper（21 个用例）
 - `APCHXHCL` 30 个契约验证：EN 开关、首拍初始化、每拍入列、三类故障、故障冻结、helper 接入、R1 / R3 / R5~R9 保留行为锁定
+- `APCSTATISTICS` 24 个契约验证（任务书 §7.1~§7.10）：初值统一 / RESET 当拍不采样 / 首样本 / 递增/递减/常量/负数/小数序列 / RESET 二次统计 / 长序列 10000 样本 / 跨 2e9 不减半 / Welford 公式数值 / 无 SUM / 修正版决策锁定
 
 ## 依赖
 

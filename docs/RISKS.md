@@ -3,7 +3,7 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
-> 最后一次更新对应任务书：`APCHXHCL_v2_最小转换层与风险收口任务书`
+> 最后一次更新对应任务书：`STATISTICS_修正版语义说明_与_Python改写任务书`（ST 基线：`/Users/guangyaosun/Desktop/statistics.txt`）
 
 ---
 
@@ -85,7 +85,28 @@
 
 ---
 
-## 五、业务块未来扩展
+## 五、APCSTATISTICS 业务块相关（S 系列）
+
+> 本块已切换为**修正版 ST 语义**（ST 基线：`/Users/guangyaosun/Desktop/statistics.txt`；
+> 任务书：`STATISTICS_修正版语义说明_与_Python改写任务书.md`）。
+> 原始 `STATISTICS.txt` 的 4 处"怪癖"均由修正版 ST 从源头消除，Python 侧直接对齐修正版，
+> **不再保留任何原始怪癖行为**。
+
+| ID | 标题 | 分类 | 状态 | 详情 / 处理方式 |
+|---|---|---|---|---|
+| **APCSTATISTICS-S1** | `MN/MX` 声明初值 与 RESET 赋值统一 | recommended | 🟩 resolved | 修正版 ST 已把声明初值与 RESET 分支都改为 `±3.402823466E+38`。Python 侧 `__init__` 与 RESET 均使用 `REAL_MAX/REAL_MIN`。`tests/test_blocks_apcstatistics.py::TestInitialState::test_declared_init_matches_reset_values` 锁死一致性。 |
+| **APCSTATISTICS-S2** | 删除 `SUM` 死变量 | recommended | 🟩 resolved | 修正版 ST 已删除。Python 实例**不应**有 `SUM` 字段。`TestRevisionDecisionsLocked::test_no_sum_field_on_instance` / `test_instance_fields_are_minimal` 锁死。 |
+| **APCSTATISTICS-S3** | 删除 `COUNTER//2` 防溢出分支 | recommended | 🟩 resolved | 修正版 ST 已删除。Python 侧利用 `int` 无限精度直接累积。`TestLongRunAccumulation::test_counter_passes_two_billion_threshold_without_halving` / `test_counter_passes_ulint_wrap_threshold` 锁死"跨越 2e9 不减半"行为。 |
+| **APCSTATISTICS-S4** | `AVG` 改用 Welford 增量公式 | recommended | 🟩 resolved | 修正版 ST 已改为 `AVG := AVG + (IN - AVG) / N`，与原累计算术平均**数学等价**但浮点更稳定。Python 侧实现一致。`TestWelfordFormula::test_two_samples_match_welford` / `test_matches_arithmetic_mean_for_reasonable_length` 锁死。 |
+| **APCSTATISTICS-S5** | `COUNTER` 从 `DINT` 改为 `ULINT` | recommended | 🟩 resolved | 修正版 ST 已采用。Python 用 `int`，语义视为无符号累计计数。无溢出分支相关副作用。 |
+| **APCSTATISTICS-S6** | `AVG` 从 `REAL` 改为 `LREAL` | recommended | 🟩 resolved | 修正版 ST 已采用。Python 用原生 `float`（IEEE 754 双精度，等同 `LREAL`）。 |
+| **APCSTATISTICS-S7** | `step` 不使用 `dt_ms` | accepted | 🔒 locked | 本块无时间依赖；`step(dt_ms, ...)` 签名保留以匹配主程序统一调度。`TestStepContract::test_step_ignores_dt_ms` 锁死。 |
+| **APCSTATISTICS-S8** | `RESET=True` 当拍不采样 | accepted | 🔒 locked | 任务书 §2.1 明确：RESET 分支只清空状态，不把当前 IN 纳入统计。`TestResetBranch::test_reset_does_not_sample_current_in` 锁死。 |
+| **APCSTATISTICS-NaN** | 无 NaN / Inf 防御逻辑 | accepted | 🟥 open | 任务书 §6.6 明确禁止本轮加入 NaN/Inf 保护。上游若可能产生非有限值，应在 APCSTATISTICS 之前做卫生化。未来如需收口，应在此处新增独立条目并改动代码前同步更新任务书。 |
+
+---
+
+## 六、业务块未来扩展
 
 | ID | 标题 | 分类 | 状态 | 详情 |
 |---|---|---|---|---|
@@ -94,7 +115,7 @@
 
 ---
 
-## 六、更新约定
+## 七、更新约定
 
 每次完成交付后，**必须**：
 

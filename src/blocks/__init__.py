@@ -5,5 +5,6 @@
 """
 
 from .apchxhcl import APCHXHCL
+from .apcstatistics import APCSTATISTICS
 
-__all__ = ["APCHXHCL"]
+__all__ = ["APCHXHCL", "APCSTATISTICS"]
