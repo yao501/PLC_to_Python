@@ -14,6 +14,7 @@
 类实例自动维护跨周期状态。``dt_ms`` 与 ``PT_ms`` 单位均为整数毫秒。
 """
 
+from .blink import BLINK
 from .edges import F_TRIG, R_TRIG
 from .latches import RS, SR
 from .timers import TOF, TON, TP
@@ -26,4 +27,5 @@ __all__ = [
     "F_TRIG",
     "SR",
     "RS",
+    "BLINK",
 ]

@@ -16,7 +16,7 @@ src/
   config.py                  # 项目默认常量：CYCLE_MS、STARTUP_INHIBIT_MS
   validation.py              # PT_ms / TB 配置校验
   compat/                    # ST / CODESYS 兼容 helper（conversions.py）
-  primitives/                # 阶段一：TON/TOF/TP/R_TRIG/F_TRIG/SR/RS
+  primitives/                # 阶段一：TON/TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK
   blocks/                    # 阶段二：业务基础块（已有 APCHXHCL、APCSTATISTICS、APCHSFOP）
   main/                      # 阶段三：主程序与扫描调度（待填）
 tests/                       # 单元测试（详见文末"运行测试"章节）
@@ -121,12 +121,13 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 python3 -m unittest discover -s tests -v
 ```
 
-当前：**150 个用例全部通过**，覆盖：
-- 7 个原语的基础行为
+当前：**167 个用例全部通过**，覆盖：
+- 8 个原语的基础行为（TON / TOF / TP / R_TRIG / F_TRIG / SR / RS / **BLINK**）
 - SR / RS 完整真值表（含置位/复位优先）
 - R_TRIG / F_TRIG 冷启动首拍（`CLK=True` / `CLK=False` 两种情况）
 - 长周期无漂移（10000 周期）与阈值边界
 - R_TRIG + SR 在 `system_ready` 门控下的冷启动防误动作模式
+- **BLINK** 17 个契约验证：冷启动 `OUT=False` / `ENABLE=False` 在 `OUT=False` 与 `OUT=True` 两种状态下均保持输出且冻结相位计时（B1）/ 重启 `ENABLE` 从冻结点续跑 / 对称与非对称占空比 / **单拍跨多相位**（B2 已修复，`dt_ms > period` 仍精确）/ 10000 拍无漂移 / 非整除 `dt_ms` 余数保留 / 变步长扫描 / `TIMELOW+TIMEHIGH=0` 退化护栏（B4）
 - `check_pt_ms` / `check_tb_sample_n_integer` 校验路径
 - `src.compat.conversions` 三类 helper（21 个用例）
 - `APCHXHCL` 30 个契约验证：EN 开关、首拍初始化、每拍入列、三类故障、故障冻结、helper 接入、R1 / R3 / R5~R9 保留行为锁定

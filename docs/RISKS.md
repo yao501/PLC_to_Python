@@ -3,8 +3,8 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
-> 最后一次更新对应任务书：`H6 收尾补充任务书（负 TB / 负 TC）`
-> （`APCHSFOP` H6 收尾：从 in-progress 推到 deferred，定性为项目级参数契约）
+> 最后一次更新对应任务书：`BLINK 基础功能块迁移行动单`
+> （`/Users/guangyaosun/Downloads/blink_cursor_action_md.md`）
 
 ---
 
@@ -54,6 +54,9 @@
 | **PRIM-INT-MS** | 定时器统一 int ms 接口 | blocker | 🟩 resolved | `src/primitives/timers.py` 已全部使用 `int ms`；`step(dt_ms, IN, PT_ms) -> (Q, ET_ms)` 已稳定。 |
 | **PRIM-R3-COLDSTART** | 边沿检测冷启动保护 | blocker | 🟩 resolved | IEC 语义保留，首拍 `CLK=TRUE` 会触发 Q=TRUE；冷启动保护由主程序 `system_ready` 门控（见 RUNTIME-GATE）。`tests/test_primitives.py::TestRTrigPlusSRColdStartPattern` 记录推荐闭环模式。 |
 | **PRIM-PT-VALIDATE** | `PT_ms` 周期量化 warning | blocker | 🟩 resolved | `src/validation.check_pt_ms` 已落地，`tests/test_validation.py::TestCheckPTMs` 覆盖。 |
+| **BLINK-B1** | `ENABLE=FALSE` 时内部相位冻结（项目工程约定） | accepted | 🔒 locked | **本项目工程约定**（非官方源码确认、非风险）：`ENABLE=FALSE` 时除 `OUT` 保持外，`_elapsed_ms` **同步冻结**，下一次 `ENABLE=TRUE` 从冻结点续跑。文档 / 代码 / 测试三处口径一致。`tests/test_primitives_blink.py::TestBlinkEnableFalseKeepsState` + `TestBlinkReenableResumesFromFrozenPhase` 锁死。 |
+| **BLINK-B2** | 单拍跨多相位（已修复） | recommended | 🟩 resolved | 原实现"每拍最多翻一次"在 `dt_ms > min(TIMELOW_ms, TIMEHIGH_ms)` 时会导致波形失真。现已改为 `while` 循环逐相位消费 `_elapsed_ms`，单拍可跨任意多个相位。唯一相关护栏见 `BLINK-B4`，其职责仅限**保证状态机在退化输入下可终止**。`tests/test_primitives_blink.py::TestBlinkMultiPhaseCrossing` 锁死（含 `dt=1000 / period=200` / `dt=450 / period=200` / `dt=350 / threshold=100` 三类跨多相位用例）。|
+| **BLINK-B4** | `TIMELOW_ms = 0` / `TIMEHIGH_ms = 0` 的退化行为 | accepted | 🔒 locked | 参数非负由 `RUNTIME-PARAM-VALIDATION` 上层兜底。块内部对退化情形只有一道**防死循环护栏**：`TIMELOW_ms + TIMEHIGH_ms <= 0` 时本拍不推进 `_elapsed_ms`、`OUT` 保持。**该判断仅用于防止状态机在退化输入下进入不可终止循环；不构成块内参数合法化，不替代项目级参数校验契约，也不是业务语义兜底。** 单侧为 0（另一侧 > 0）属合法退化，`while` 中 `threshold<=0` 分支让该相位"立即翻转"，不消耗 `_elapsed_ms`，在单拍内通过另一相位的正阈值完成扣减。`tests/test_primitives_blink.py::TestBlinkDegenerateZeroPeriod` 锁死。 |
 
 ---
 
