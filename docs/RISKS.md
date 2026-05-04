@@ -3,8 +3,10 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
-> 最后一次更新对应任务书：`BLINK 基础功能块迁移行动单`
-> （`/Users/guangyaosun/Downloads/blink_cursor_action_md.md`）
+> 最后一次更新对应任务书：`APCGCQ 命名说明小清理`（移除 GG9：`APCGCQ1` 是软 PLC 复制副产品，不构成项目命名约定；同步降级相关测试与 README 表述）
+> 上一次：`APCGCQ_复核约定与Cursor执行说明.md`（小范围加固：固化 TIMEHIGH=500ms 项目修正约定 + 复核 GG1/GG2/GG5/GG6 措辞 + 补 4 条锁定测试）
+> 上上次：`APCGCQ（观测器，MMYZ）业务块迁移`
+> （CFC：`/Users/guangyaosun/Desktop/GCQ.docx`；ST 转换稿：`/Users/guangyaosun/Desktop/CGCQ1.txt`）
 
 ---
 
@@ -131,11 +133,50 @@
 
 ---
 
+## 五-C、APCHSHLLIM 业务块相关（HL 系列）
+
+| ID | 标题 | 分类 | 状态 | 详情 |
+|---|---|---|---|---|
+| **APCHSHLLIM-HL1** | `LL > HL` 时块内静默修正为 `LL := HL` | accepted | 🔒 locked | 当 `LL > HL` 时，源码**不是交换上下限，也不是报错**，而是 `LL := HL`。因此输出区间退化为单点 `HL`；Python 必须复现该静默修正。该修正**不写回**实例状态——下一拍传入参数仍是调用方原值（与 ST `VAR_INPUT` 值传递一致）。`TestAPCHSHLLIMSilentLLFix` + `TestAPCHSHLLIMSilentLLFix::test_collapsed_to_single_point_all_three_in_branches` 锁死。 |
+| **APCHSHLLIM-HL2** | 无跨周期判定状态 | accepted | 🔒 locked | 无跨周期判定状态。`self.AV` **仅**保存最近一次输出，不能参与下一拍计算。相同 `IN/HL/LL` 输入重复调用必须得到相同 `AV`。`TestAPCHSHLLIMDtMsIgnored` + `TestAPCHSHLLIMStateless` + `TestAPCHSHLLIMStateless::test_self_av_does_not_affect_next_tick` 锁死。 |
+| **APCHSHLLIM-HL3** | `HL` / `LL` 不做 `ABS`、不做正负校验 | accepted | 🔒 locked | `HL` / `LL` **不做 ABS**，**不做正负校验**，**不做异常抛出**。若 `HL` / `LL` 为负数，也按源码 `LL>HL` 比较与 `IF/ELSIF` 赋值语义执行。**注意**：本块的 `HL/LL` 是**幅值参数**（区间端点），任意符号组合都合法（含合法负区间，如温度调节器输出在 `[-20.0, -10.0]`）；这与时间类参数 `TB / TC / PT_ms` 的 R7.7 非负契约**不是同一回事**，不归 `RUNTIME-PARAM-VALIDATION` 兜底。`TestAPCHSHLLIMNegativeRangeIsLegal` + `TestAPCHSHLLIMSilentLLFix::test_negative_range_with_inverted_limits` 锁死。 |
+
+---
+
+## 五-D、APCHSRATELIM 业务块相关（RL 系列）
+
+| ID | 标题 | 分类 | 状态 | 详情 |
+|---|---|---|---|---|
+| **APCHSRATELIM-RL1** | `HL` / `LL` 是每拍**变化量正幅值**，不是输出上下限区间 | accepted | 🔒 locked | `HL/LL` 是每拍变化量正幅值，**不是输出上下限区间**。源码通过 `IN - AV_1` 判断本拍变化量，因此 `HL/LL` 不能被理解为输出 `AV` 的上下边界。`HL=LL` 即对称速率限幅（GCQ 中的实际用法）。`TestAPCHSRATELIMGCQUsageSymmetric` + `TestAPCHSRATELIMBasicClamp` + `TestAPCHSRATELIMCrossCycleState` 锁死。 |
+| **APCHSRATELIM-RL2** | 冷启动 `AV_1=0.0`，首拍可能被限速 | accepted | 🔒 locked | 源码等价冷启动 `AV_1=0.0`，首拍**可能被限速，不保证直通 `IN`**。若业务场景要求首拍直通，**必须由上层显式预置 `AV_1 := IN`，不能在块内部隐式改变源码语义**——即不允许在 `__init__` / `step` 内加"首拍自动直通"优化。`TestAPCHSRATELIMColdStart::test_first_tick_does_not_pass_large_input_directly` 锁死。 |
+| **APCHSRATELIM-RL3** | 块内 `ABS()` 容错（必须保留） | accepted | 🔒 locked | `HL/LL` **必须**在块内执行 `ABS()`，**不能依赖调用方预先传入正数**。源码明确写了 `HL:=ABS(HL); LL:=ABS(LL)`，Python 实现必须保留 `abs()`。该容错只影响本拍计算，不写回输入参数。`TestAPCHSRATELIMSilentAbs` 锁死。 |
+| **APCHSRATELIM-RL4** | 与 `dt_ms` 解耦：每次调用限制变化量，不按时间换算物理速率 | accepted | 🔒 locked | 源码**按每次调用限制变化量**，**不按 `dt_ms` 换算物理速率**。`dt_ms` 仅为统一 `step` 接口占位，不参与计算。虽然块名叫"速率限制"，但源码中没有时间参数；这里的速率限制本质是"每拍变化量限制"。`TestAPCHSRATELIMDtMsIgnored` + `TestAPCHSRATELIMDtMsIgnored::test_two_instances_different_dt_same_state_same_output` 锁死。 |
+| **APCHSRATELIM-RL5** | 每拍重新判方向，不保存方向状态 | accepted | 🔒 locked | 每拍**重新基于 `delta = IN - AV_1` 判断方向**；**不保存方向状态**，上一拍上升/下降不影响本拍分支。源码每拍只看当前 `IN` 与上一拍 `AV_1` 的差值。等号边界严格按源码：`>` 与 `<`（不是 `>=` / `<=`），即 `delta == HL` / `delta == -LL` 时走 ELSE 分支直通 `IN`。`TestAPCHSRATELIMCrossCycleState::test_direction_change_independent_per_cycle` + `TestAPCHSRATELIMStrictBoundaryComparators` 锁死。 |
+
+---
+
+## 五-E、APCGCQ 组合业务块相关（GG 系列）
+
+| ID | 标题 | 分类 | 状态 | 详情 |
+|---|---|---|---|---|
+| **APCGCQ-GG1** | ST 执行顺序锁定（核心不变量） | accepted | 🔒 locked | 在采样事件那一拍（`R_TRIG.Q=True`），ST 严格按以下顺序执行：(1) `JZ_ZUP1 := JZ_ZUP`（旧）；(2) `JZ_ZUP := JZ_Z`（**上一拍** `STAT01.AVG` 的旧值，因为这一拍 `STAT01` 还没被调用）；(3) 调用 `STAT01.step(RESET=True)`；(4) `JZ_Z := STAT01.AVG`（RESET 后 = 0）。**核心要点**：采样事件那一拍，`JZ_ZUP` 必须取**旧** `JZ_Z`，然后才执行 `STAT01(IN, RESET=rtrig_q)` 并更新新的 `JZ_Z`；**不得**先调 `STAT01.step` 再赋值 `JZ_ZUP1/JZ_ZUP`。错误顺序会让 `JZ_ZUP` 被当拍 RESET 后的新统计值（=0）污染，破坏"两个完整窗口均值差"语义，导致 FOP 输入符号反向、AV 走向相反方向。`TestSTOrderingLocked` + `TestSTOrderingViaForcedDifference` + `TestSamplingSnapshotBeforeStatReset` 锁死。 |
+| **APCGCQ-GG2** | 源码死区条件 `IN<INSP AND IN>INSP` 必须按源码保留 | accepted | 🔒 locked | 该条件正常**恒 False**——这是源码行为，必须按源码原样保留；按 `SEL(G, IN0, IN1)` 语义，`G=False` 时返回 `IN0 = (JTAV+DTAV)*K`，`G=True` 时返回 `IN1 = 0`，因此实际链路总是走 `(JTAV+DTAV)*K`。**严禁擅自改写为以下任何形式**：(a) `IN != INSP`；(b) `ABS(IN-INSP) > threshold`；(c) `IN <= INSP or IN >= INSP`；(d) 其他业务条件或死区判据。**也不要把它当 bug 自行"修正"**——这是 CFC 原作者刻意保留的钩子，未来若要恢复死区控制，由后续任务专门处理，本轮不动。`TestKMultiplierAndDeadbandSEL::test_in_equals_insp_still_takes_in0` + `TestSelConditionPreservedAsSourceFalseBranch` 锁死。 |
+| **APCGCQ-GG3** | `BLINK01.ENABLE` 直通使能：本块不暴露 ENABLE 输入 | accepted | 🔒 locked | 原 CFC 是密码验证段才置 `ENABLE=TRUE`，本块按用户确认**暂时直通**——`BLINK01.ENABLE` 在 step 内固定 `True`，本块**不暴露** `EN` / `auth_ok` / `password` 等端口。**如需停用采样节奏，应由上层 Runtime / Controller 控制本块是否被调度**（即不调用 `step()`），而**不是**反向改写 APCGCQ 输入接口去新增 ENABLE 端口。密码验证段（CFC 顶部 `BC_MMYZ_BT (10000) → MOD → EQ → ... → BC_ERROR3`）由 Runtime 阶段单独实现，详见 `APCGCQ-GG8`。 |
+| **APCGCQ-GG4** | `BLINK01.TIMEHIGH` 固定 500 ms（项目修正约定） | accepted | 🔒 locked | **项目修正约定**：`BLINK01.TIMEHIGH` 在本块按 500 ms 实现。旧 ST 转换稿中曾出现 `T#300MS`，但本项目实现**以 500 ms 为准**——不评判源 TXT 对错，只锁定项目落点。本块以模块级常量 `BLINK_TIMEHIGH_MS = 500` 固定为字面量，**不暴露为 GCQ 输入**。`TIMELOW` 仍为 `REAL_TO_TIME(TC*1000)`（`TC` 单位为秒）。**采样窗口周期**应按 `TC*1000 + 500` ms 理解（**而不是** `TC*1000 + 300`）。`TestSamplingEventSpacing::test_blink_timehigh_constant` + `TestSamplingEventSpacing::test_blink_timehigh_uses_project_500ms` 锁死。 |
+| **APCGCQ-GG5** | `RLIM01.HL = LL = OUTV` 对称速率限幅；`OUTV` 不是输出上下限 | accepted | 🔒 locked | 主链路为 `(JTAV+DTAV)*K → APCHSRATELIM(IN=..., HL=OUTV, LL=OUTV) → APCHSHLLIM(IN=..., HL=OUTH, LL=OUTL) → GCAV`。**两层语义必须分清**：(1) `OUTV` 是**每拍变化量限制**，且上升 / 下降对称（按 `APCHSRATELIM-RL1`，`HL/LL` 是正幅值，不是上下区间）；(2) **最终输出幅值上下限**由 `LIM01` 使用 `OUTH/OUTL` 完成。**严禁把 `OUTV` 当作 `GCAV` 的输出上下限**，也不允许未来误改成 `LL := -OUTV`。`TestRLIMSymmetricRateLimitInChain` + `TestLIMAmplitudeLimitInChain` + `TestOutvIsRateLimitAndOuthOutlAreAmplitudeLimits` 锁死。 |
+| **APCGCQ-GG6** | `FOP01.TB` 不传，沿用 APCHSFOP 声明默认值 0.5 s | accepted | 🔒 locked | ST 中 `FOP01(IN:=..., TC:=TZ*2, KG:=1)` 没传 `TB`，按 R7.7 输入脚语义，使用 `APCHSFOP` 的 ST `VAR_INPUT` 声明默认值 `0.5` 秒。本块通过模块级常量 `FOP01_DEFAULT_TB_SEC = 0.5` 显式传入。**单点真值同步约定**：若 `APCHSFOP` 默认 `TB` 调整，本常量必须同步更新——这是单点真值约定的失效场景，需要登记为长期注意项。`TestFOP01DefaultsLocked::test_fop01_default_tb_is_half_second` + `test_first_sampling_av_uses_alpha_kg_in` 锁死。 |
+| **APCGCQ-GG7** | 嵌套 FB 实例命名复用 ST 实例名 | accepted | 🔒 locked | `BLINK01 / R_TRIG1 / STAT01 / FOP01 / RLIM01 / LIM01` 与 ST 源码完全一致，便于与原始 CFC/ST 图纸追踪对应关系。其中 `STAT01` 的类是 `APCSTATISTICS`（ST 中实例命名为 `STATISTICS_REAL`，按用户确认即同一类的实例化）。**不允许重命名实例属性**——任何重命名都会破坏与 CFC 的可追溯性。 |
+| **APCGCQ-GG8** | 控制器验证段（`BC_ERROR3`）暂不实现 | accepted | ⏸ deferred | CFC 顶部有一段独立的"控制器验证"逻辑，最终输出诊断 `BC_ERROR3`。用户已确认：(1) 与 GCQ 主通路解耦，**不影响**任何 GCQ 内部变量；(2) `BC_ERROR3` 是上层控制器健康字，**不属于** GCQ 接口；(3) 本轮**不迁移**该段。如未来需要，作为独立模块迁移即可，不应与 GCQ 耦合。 |
+
+> **非风险备注（不进风险登记）**：源材料 `CGCQ1.txt` 顶部出现的 `FUNCTION_BLOCK APCGCQ1` 不是业务功能块的真实命名，也不是迁移风格选择——`APCGCQ1` 是**软 PLC 复制功能块时为避免重名自动生成的名称**。本项目要实现的功能块名就是 `APCGCQ`，因此 `src/blocks/apcgcq.py` / `class APCGCQ` / `from src.blocks import APCGCQ` 是直接对应业务名的正确实现，不存在"两种候选命名"的项目级决策需要登记为风险。
+
+---
+
 ## 六、业务块未来扩展
 
 | ID | 标题 | 分类 | 状态 | 详情 |
 |---|---|---|---|---|
-| **BLOCK-NEXT** | 下一批业务块迁移 | recommended | 🟥 open | 用户发来 ST/CFC 源后按 `02-business-blocks` 规则接入。 |
+| **BLOCK-NEXT** | 下一批业务块迁移 | recommended | 🟨 in-progress | 用户发来 ST/CFC 源后按 `02-business-blocks` 规则接入。**当前进度**：`APCHXHCL` / `APCSTATISTICS` / `APCHSFOP` / `APCHSHLLIM` / `APCHSRATELIM` / `APCGCQ`（观测器组合块）已迁移；下一批待用户提供 ST/CFC 源。 |
 | **BLOCK-TEMPLATE** | 业务块模板脚手架 | nice-to-have | 🟥 open | 将来业务块多了后，可以抽一个带 step 接口/测试骨架的模板。 |
 
 ---

@@ -114,6 +114,9 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 | `src.blocks.APCHXHCL` | `APCHXHCL1.txt`（v2） | 信号处理：故障检测 + 最近一分钟均值 + 一阶 IIR 滤波 + 故障首拍均值冻结 |
 | `src.blocks.APCSTATISTICS` | `statistics.txt`（修正版） | 运行统计：min / max / 累计算术平均（Welford 增量式），支持 RESET 清零；ULINT 计数、LREAL 平均值 |
 | `src.blocks.APCHSFOP` | `HSFOP.txt` | 一阶惯性低通滤波（IIR）：`AV = (TC·Ok_1 + KG·TB·IN)/(TB+TC)`；含 `(TB+TC)>0.001` 与 `\|AV_TEMP\|<1e10` 双重守护 |
+| `src.blocks.APCHSHLLIM` | `APCHSHLLIM.txt` | 幅值限幅：`IN > HL → HL`、`IN < LL → LL`、否则直通；`LL>HL` 时块内静默修正为 `LL=HL`（源块容错） |
+| `src.blocks.APCHSRATELIM` | `APCHSRATELIM.txt` | 速率限幅：`HL/LL` 都是**正幅值**（每拍上升/下降速率上限）；块内 `ABS()` 容错；状态变量 `AV_1` 跨周期保持；冷启动 `AV_1=0` 首拍可能不直通 `IN`（源块语义） |
+| `src.blocks.APCGCQ` | `GCQ.docx` (CFC) + `CGCQ1.txt` | 观测器（MMYZ）组合块：BLINK 周期方波 → R_TRIG 触发 STAT01 重置 → 两次相邻窗口均值差经一阶低通滤波得"动态观测分量" → 叠加"静态观测分量" → 经速率限幅 + 幅值限幅输出 GCAV。**关键项目修正约定**：`BLINK01.TIMEHIGH = 500ms`（GG4，旧 ST 转换稿写的 `T#300MS` 不采纳，本项目以 500ms 为准；采样窗口 = `TC*1000 + 500ms`）。**核心不变量**：ST 执行顺序锁定（GG1：`JZ_ZUP` 取**旧** `JZ_Z`，不是 RESET 后的 0）。**输出限幅分层**：`OUTV` 经 `RLIM01(HL=LL=OUTV)` 做对称**每拍速率限幅**；`OUTH/OUTL` 经 `LIM01` 做最终**幅值上下限**——两层职责严格分离（GG5）。控制器验证段 `BC_ERROR3` 暂未迁移（GG8 `deferred`）。**说明**：源材料中出现的 `APCGCQ1` 是软 PLC 复制功能块时自动生成的防重名名称，业务功能块的真实命名就是 `APCGCQ`，不构成命名风格选择 |
 
 ## 运行测试
 
@@ -121,7 +124,7 @@ pt_ms    = real_to_time_ms(TL * 1000.0)        # 非负整数毫秒
 python3 -m unittest discover -s tests -v
 ```
 
-当前：**167 个用例全部通过**，覆盖：
+当前：**241 个用例全部通过**，覆盖：
 - 8 个原语的基础行为（TON / TOF / TP / R_TRIG / F_TRIG / SR / RS / **BLINK**）
 - SR / RS 完整真值表（含置位/复位优先）
 - R_TRIG / F_TRIG 冷启动首拍（`CLK=True` / `CLK=False` 两种情况）
@@ -133,6 +136,9 @@ python3 -m unittest discover -s tests -v
 - `APCHXHCL` 30 个契约验证：EN 开关、首拍初始化、每拍入列、三类故障、故障冻结、helper 接入、R1 / R3 / R5~R9 保留行为锁定
 - `APCSTATISTICS` 24 个契约验证（任务书 §7.1~§7.10）：初值统一 / RESET 当拍不采样 / 首样本 / 递增/递减/常量/负数/小数序列 / RESET 二次统计 / 长序列 10000 样本 / 跨 2e9 不减半 / Welford 公式数值 / 无 SUM / 修正版决策锁定
 - `APCHSFOP` 29 个契约验证：首拍 α·KG·IN 数值 / 稳态收敛到 KG·IN / 阶跃响应单调性 / α 强弱对比 / 公式字面数值 / `(TB+TC)≤0.001` 跳过 / `\|AV_TEMP\|≥1e10` 冻结 / KG=0/KG<0 / 与 APCHXHCL 内嵌段一致 / RETAIN 状态保持 / **R7 时间语义：TB 与 cycle_ms 解耦**
+- `APCHSHLLIM` 18 个契约验证：三分支正确性 / 边界等号 IN=HL/LL 不被截 / `LL>HL` 静默修正三种 IN 全锁定（HL1）/ 修正不写回参数 / 合法负区间 `[-20,-10]` 不做 ABS（HL3）/ `HL==LL` 单点限幅（含负值）/ `self.AV` 不参与下一拍判定（HL2）/ `dt_ms` 与状态无关
+- `APCHSRATELIM` 23 个契约验证：上下方向钳位 / 冷启动 `AV_1=0` 首拍不直通（RL2）/ 单调爬升每拍 +HL / 方向独立判断 / 非对称 HL≠LL / 块内 `ABS()` 容错 + 不写回（RL3）/ 对称速率限幅（GCQ 用法）/ `HL=0` 卡上升 / `LL=0` 卡下降 / `HL=LL=0` 完全冻结 / 严格 `>/<` 等号边界（`delta==HL` / `delta==-LL` 走 ELSE）/ 两实例同状态不同 `dt_ms` 输出一致（RL4）
+- `APCGCQ` 33 个契约验证：冷启动初值 / 首个 BLINK 周期内无采样事件 / **ST 执行顺序锁定**（GG1：第一次/第二次采样事件 `JZ_ZUP` 取旧 `JZ_Z`，含从 `STAT01.COUNTER=0` + `JZ_ZUP=100` 双观测面直接锁定"采样快照在 STAT.RESET 之前"的明示测试）/ 采样事件每 `(TC*1000+TIMEHIGH)ms` 一次 / `BLINK_TIMEHIGH_MS=500` 与 `FOP01_DEFAULT_TB_SEC=0.5` 模块级常量锁定 / **GG4 项目修正约定锁定**：dt=100/TC=1.0 时相邻采样事件间距恰为 15 拍（即 1500ms 而非 1300ms）/ 首拍 FOP `α·KG·IN` 数值 / `JTAV = (IN-INSP)*GC1` / `DTAV = AV*GC2` / `K` 倍率 / **死区 SEL 恒假分支锁定**（GG2：`IN==INSP` / `IN<INSP` / `IN>INSP` 三种关系均走 IN0，反证不能误改成 `IN!=INSP`）/ RLIM 对称速率限幅串入主通路 / LIM 幅值限幅串入主通路 / **OUTV vs OUTH/OUTL 分层验证**（GG5：单层 OUTV 紧 / 单层 OUTH 紧 / 两层都紧最终落 OUTH / 反证 OUTV 不是幅值限）/ 模块导出基础健康检查 / 嵌套 FB 实例不共享状态 / `STAT01` 在采样事件 RESET / AV 衰减验证（反向证伪错误 ST 顺序）
 
 ## 依赖
 
