@@ -30,20 +30,28 @@ FABLE_WORKING → READY_FOR_CODEX → CODEX_REVIEWING
 3. 审核结论必须是 `APPROVED / CHANGES_REQUESTED / BLOCKED` 三值之一,不能只写模糊评价。
 4. 每个工作包最多自动往返 **3 轮**(`max_rounds`),超过转 `BLOCKED` 交用户仲裁。
 5. 涉及删除、Git 提交/推送、范围扩大、规格裁决时,置 `BLOCKED` 并等用户,**不得自动执行**。
+   附(用户裁决 2026-07-13):Git 提交 / GitHub 推送类任务经用户授权后由 **Codex 审核并执行**;Fable5 不执行任何 Git 写操作,只提供修改清单与测试证据。
 6. 双方反复同意**不能**把缺少真机证据的假设升级为已验证事实;结论仍须按"已证实事实/工程约定/待真机假设"分层。
 7. 历史逐轮追加,不覆盖;新工作包新开一节。
 8. 某一方超时/中断后,停在当前可恢复状态,不得猜测对方已完成。
+9. 自动轮询接力前必须同时校验 `work_package_id + status + owner + handoff_to + round`;同一工作包同一轮已处理过则幂等退出,任一字段不匹配时不得写入。
+10. 实施方交接时记录 scope 文件的 `scope_sha256`;审核方在开始与结束时分别记录并比对同一 scope 的 SHA-256。任一文件漂移则本轮审核作废,转 `BLOCKED` 交用户处理。
 
 ### 记录格式
 
-每个工作包一节,字段:`title / status / owner / round / max_rounds / scope`;实施交接区(完成内容/修改文件/明确未修改/测试命令与实际结果/已知疑问/handoff_to/implementation_finished_at);审核结论区(verdict/已验证事实/项目工程约定/待真机验证假设/必须返修/非阻塞建议/审核证据/handoff_to/reviewed_at);Round N 逐轮追加。
+每个工作包一节,字段:`title / status / owner / round / max_rounds / scope`;实施交接区(完成内容/修改文件/明确未修改/测试命令与实际结果/已知疑问/scope_sha256/handoff_to/implementation_finished_at);审核结论区(verdict/已验证事实/项目工程约定/待真机验证假设/必须返修/非阻塞建议/审核证据/review_started_sha256/review_finished_sha256/handoff_to/reviewed_at);Round N 逐轮追加。关闭时 `status` 只写精确状态值 `CLOSED`,关闭人、时间和基线引用另列字段,避免破坏自动解析。
 
 ---
 
 ## WP-20260712-001
 
 - title: 阶段 0.5 冻结评审裁决写回权威文档
-- status: APPROVED
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-13
+- baseline_commit: 63e79fcb14ffb53a8ad584b7cfdc23267e08874e
+- baseline_branch: codex/current-baseline
+- baseline_pr: https://github.com/yao501/PLC_to_Python/pull/1（已合并至 `main`，merge commit `3bff318ad59a181b45fc988665b2d2143f29ba5b`）
 - owner: user
 - round: 3
 - max_rounds: 3
