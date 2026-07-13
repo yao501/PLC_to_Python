@@ -7,8 +7,8 @@ alwaysApply: false
 
 > 适用对象：Python 原生软 PLC 平台的运行时引擎与语言前端。在基础原语、业务功能块均已迁移完成后启动。
 > 本规则与 `00a-runtime-contract`（五步式、输出安全、时间单位）、`03-main-program`（主程序调度）联合解读。
-> 总纲：`docs/PLATFORM_ROADMAP.md`。地基规格：`docs/IR_SPEC.md`(v2) / `docs/ENGINE_SCAN_SPEC.md`(v2) / `docs/COMPONENT_CONTRACT.md`(v2) / `docs/TARGET_PROFILE.md` / `docs/GOLDEN_TRACE_FORMAT.md`。
-> **状态：IR 尚未工程冻结——须先过阶段 0.5 语义基线修订闸门，再进阶段 1。**
+> 总纲：`docs/PLATFORM_ROADMAP.md`。地基规格：`docs/IR_SPEC.md`(v2.2.2) / `docs/ENGINE_SCAN_SPEC.md`(v2.2.2) / `docs/COMPONENT_CONTRACT.md`(v2.1) / `docs/TARGET_PROFILE.md` / `docs/GOLDEN_TRACE_FORMAT.md`。
+> **状态：阶段 0.5 工程语义基线已冻结并通过写回复核；冻结不等于 Python 与目标 PLC 语义一致。阶段 0.5 Git 基线 PR 合并后进入阶段 1。**
 
 ## 定位
 
@@ -17,7 +17,7 @@ alwaysApply: false
 ## 核心不变式（强制）
 
 1. **三层结构：源模型（ST AST / CFC 图）→ 语言无关可执行 IR（指令列表）→ 扫描引擎。** ST 与 CFC 都 **lower 到同一套可执行指令**（`IR_SPEC §5`），引擎只执行指令列表，按 `00a` 五步式每拍推进。**不是**只在 `execute(ctx)` 接口层统一。
-2. **IR 尚未冻结**：工程冻结在**阶段 0.5**完成后（`RISKS.md::PLATFORM-IR-1`/`EXEC-IR-1`）。冻结前后变更都须走评审。不得在上层私自绕过或扩展 IR 语义。
+2. **IR 已按 v2.2.2 工程冻结**：`RISKS.md::PLATFORM-IR-1`/`EXEC-IR-1` 的阶段 0.5 规格冻结已完成；正式实现仍属后续阶段，任何变更都须走评审。不得在上层私自绕过或扩展 IR 语义。
 3. **不改已迁移的标准库块**（engineering/F1 模式）。适配走外挂**块描述符**（`COMPONENT_CONTRACT.md`，D1）；既有 690 用例与块源码零改动。**例外**：F2 位级保真需块级 float32 版，另册描述符、按需立项（与零改动互斥，见 `TARGET_PROFILE §4`）。
 4. **分层不反向依赖**：标准库 → 组件模型 → IR → 引擎 → 安全服务 → 语言前端 → I/O/HAL。
 
@@ -25,7 +25,7 @@ alwaysApply: false
 
 - **D1** 块元数据：外挂描述符（不碰 14 块），描述符含版本/状态/初始化/持久性/输入省略/序列化字段。
 - **D2** 多 PROGRAM 执行顺序：按 `Task.programs` 列表顺序。
-- **D3** CFC 顺序/反馈：**导入时保留**原始顺序模式/元素序号/网络拓扑/反馈起点，**不重新推断**；拓扑推断仅用于新建 CFC。
+- **D3** CFC 顺序/反馈按载体分支：PLCopen XML 显式提供的 `executionOrderId` 原样保留；`.export` 自动模式不存原始元素序号，须由阶段 5 导入器重建，算法未就绪时拒绝生成可执行 IR，**不得假称“保留原始顺序”**；平台内新建图使用拓扑定序。`IsFeedbackStart` 精确落点和反馈边到 `LOAD_PREV` 的映射仍待真实样本/真机验证。
 - **D4** 整数：按目标画像，绑定模式——`fidelity` 按位宽回绕，`engineering` 不回绕。
 - **D5** REAL：双模式——`engineering`(float64+容差，默认) 与 `fidelity`(F1 边界 REAL32 / F2 块级 float32 位级)；位级保真与"块零改动"互斥。
 - **D-AI** AI 隔离：控制运行时与 AI worker **分进程** + 共享内存/IPC，同一平台体验。
@@ -34,16 +34,16 @@ alwaysApply: false
 
 1. 引擎一拍严格按 `ENGINE_SCAN_SPEC §3`，过程映像（输入锁存/输出一次性提交）不得破坏。
 2. 业务逻辑只产生 `request`；物理输出按每个输出的 **`OutputPolicy`**（类型/安全值/失联/限速/联锁/保持）生成，**不是布尔 AND**（`ENGINE_SCAN_SPEC §4`）。安全默认值可非 0、支持模拟量。
-3. ST = 显式顺序 lower；CFC = **保留导入顺序**lower、反馈起点读上一拍（`LOAD_PREV`）。两者 lower 出同一指令列表。**注意**："反馈起点→`LOAD_PREV` 的边级映射"是待真机样本验证的**假设**（`RISKS.md::PLATFORM-CFC-FEEDBACK-MAP-1`），实现按假设推进，不得写成已确认事实。
+3. ST = 显式顺序 lower；CFC 按 D3 的载体分支取得**已确定执行序**后 lower：PLCopen XML 使用保存的 `executionOrderId`，`.export` 自动模式等待阶段 5 重建算法，平台内新建图使用拓扑定序。两者 lower 出同一种指令列表。**注意**："反馈起点→`LOAD_PREV` 的边级映射"是待真实样本/真机验证的**假设**（`RISKS.md::PLATFORM-CFC-FEEDBACK-MAP-1`），不得写成已确认事实。
 4. ST 前端语义边界（`SEL` 极性、整数/实数提升、`T#` 字面量、求值顺序）须建一致性测试套件（`PLATFORM-ST-CONFORMANCE-1`），复用 `src/compat`。
 5. 重 AI 推理**分进程**异步算、结果锁存、经门控采纳（`PLATFORM-AI-DETERMINISM-1`），复用 APCM/APARA"人工确认应用"范式。
 6. RETAIN/PERSISTENT、实时驱动、I/O/HAL 按阶段 7/8 落地，本阶段只在 IR/引擎预留接口。
 7. 数值模式（E/F1/F2）是**装载期**引擎配置，**禁止运行中热切换**（`IR_SPEC §8`）；F1 分 **F1-expr**（IR 表达式量化）与 **F1-boundary**（原生块管脚边界量化）两种子行为（`TARGET_PROFILE §4.2`），不进块；整数回绕发生点按 `int_intermediate_policy`（`IR_SPEC §5.4`，待真机裁决）。
 8. **MVP 优先、逐层验收**；图形编辑器排在语言工作最后。
 
-## 进阶段 1 的前置闸门（阶段 0.5）
+## 阶段 1 前置闸门（阶段 0.5，已通过）
 
-须先完成并通过评审：`TARGET_PROFILE.md`、可执行 IR（`IR_SPEC` v2）、`OutputPolicy`（`ENGINE_SCAN_SPEC` v2）、CFC 保真规则、描述符补全（`COMPONENT_CONTRACT` v2）、POU/RETAIN/AI 模型、黄金轨迹格式（`GOLDEN_TRACE_FORMAT.md`，实采为外部阻塞）。状态见 `RISKS.md` 三-A。
+阶段 0.5 工程语义基线已完成冻结评审、权威文档写回和一次定向只读复核；`TARGET_PROFILE.md`、可执行 IR（`IR_SPEC` v2.2.2）、`OutputPolicy`（`ENGINE_SCAN_SPEC` v2.2.2）、CFC 载体分支规则、描述符契约、POU/RETAIN/AI 模型和黄金轨迹格式均已形成工程基线。黄金轨迹**实采**仍为外部阻塞，且冻结不代表已证明 Python 与 PLC 语义一致。当前 Git/阶段状态以 `docs/PROJECT_STATE.md` 为准。
 
 ## 交付纪律
 
