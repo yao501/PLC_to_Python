@@ -1,0 +1,1741 @@
+<ExportFile>
+  <StructuredView Guid="{d9b2b2cc-ea99-4c3b-aa42-1e5c49e65b84}">
+<Single xml:space="preserve" Type="{3daac5e4-660e-42e4-9cea-3711b98bfb63}" Method="IArchivable">
+  <Null Name="Profile" />
+  <List2 Name="EntryList">
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">True</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">123f3e2a-7079-4d32-9985-773e7b347dcb</Single>
+        <Single Name="ParentGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="Name" Type="string">Device</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties">
+          <Entry>
+            <Key>
+              <Single Type="System.Guid">cdadfc2b-8598-4621-ad56-5b1df7db910f</Single>
+            </Key>
+            <Value>
+              <Single Type="{cdadfc2b-8598-4621-ad56-5b1df7db910f}" Method="IArchivable">
+                <Single Name="DeviceIdentification" Type="{05ee0b98-6639-4276-bc32-b75578b819ef}" Method="IArchivable">
+                  <Single Name="Type" Type="int">4096</Single>
+                  <Single Name="Id" Type="string">0000 0004</Single>
+                  <Single Name="Version" Type="string">3.5.16.10</Single>
+                  <Null Name="BaseName" />
+                </Single>
+              </Single>
+            </Value>
+          </Entry>
+        </Dictionary>
+        <Single Name="TypeGuid" Type="System.Guid">225bfe47-7336-4dbc-9419-4105a7c831fa</Single>
+        <Null Name="EmbeddedTypeGuids" />
+        <Single Name="Timestamp" Type="long">639191455374156702</Single>
+      </Single>
+      <Single Name="Object" Type="{225bfe47-7336-4dbc-9419-4105a7c831fa}" Method="IArchivable">
+        <Single Name="UniqueIdGenerator" Type="string">4105</Single>
+        <Null Name="TypeList" />
+        <Single Name="NeedsBusCycle" Type="bool">False</Single>
+        <Single Name="Id" Type="{05ee0b98-6639-4276-bc32-b75578b819ef}" Method="IArchivable">
+          <Single Name="Type" Type="int">4096</Single>
+          <Single Name="Id" Type="string">0000 0004</Single>
+          <Single Name="Version" Type="string">3.5.16.10</Single>
+          <Null Name="BaseName" />
+        </Single>
+        <Single Name="DefaultDeviceInfo" Type="{59a90934-c888-40db-a9df-306fcf36d75c}" Method="IArchivable">
+          <Single Name="Name" Type="string">CODESYS Control Win V3 x64</Single>
+          <Single Name="Description" Type="string">CODESYS V3 Soft-PLC for Windows with non realtime capabilities (CODESYS Control Win V3 x64)</Single>
+          <Single Name="Vendor" Type="string">3S - Smart Software Solutions GmbH</Single>
+          <Single Name="OrderNumber" Type="string">???</Single>
+          <Array Name="Categories" Type="int">ABAAAA==</Array>
+          <Array Name="Families" Type="string" />
+          <Single Name="Custom" Type="string"></Single>
+          <Null Name="DefaultInstanceName" />
+        </Single>
+        <Single Name="DeviceParameterSet" Type="{abc12bfe-e34e-4b2c-a058-42c6e7e03a13}" Method="IArchivable">
+          <List2 Name="Params" />
+          <Single Name="LmGuid" Type="System.Guid">7ff42ff2-1ef8-5ad9-8a82-0fdfdaf53abb</Single>
+          <Null Name="Sections" />
+          <Single Name="AlwaysMapping" Type="bool">False</Single>
+          <Null Name="EditorName" />
+          <Single Name="AlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+          <Single Name="CreateBitChannels" Type="bool">False</Single>
+        </Single>
+        <Single Name="Disable" Type="bool">False</Single>
+        <Single Name="Exclude" Type="bool">False</Single>
+        <List Name="Connectors" Type="System.Collections.ArrayList" />
+        <Single Name="ConnectorList" Type="{52a6325f-063a-4748-86b6-ec8aa02d3232}" Method="IArchivable">
+          <List Name="InnerList" Type="System.Collections.ArrayList">
+            <Single Type="{850f737d-2abf-45f4-89c1-63ed6b29593d}" Method="IArchivable">
+              <Single Name="VisibleInterfaceName" Type="{35cf7b1a-a4cd-490b-8ebe-385e61fcc6d9}" Method="IArchivable">
+                <Single Name="Namespace" Type="string"></Single>
+                <Single Name="Identifier" Type="string"></Single>
+                <Single Name="Default" Type="string">Common.PCI</Single>
+              </Single>
+              <Single Name="ConnectorObjectGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="IsExplicit" Type="bool">False</Single>
+              <Single Name="ModuleType" Type="ushort">256</Single>
+              <Single Name="Interface" Type="string">Common.PCI</Single>
+              <Single Name="Role" Type="{6827a808-5967-49c4-a827-10f6c446e075}">Parent</Single>
+              <Single Name="ConnectorId" Type="int">0</Single>
+              <Single Name="Hostpath" Type="int">-1</Single>
+              <Single Name="Adapters" Type="{1da2f14a-1c63-4268-9171-3b6869b8ccd6}" Method="IArchivable">
+                <List Name="Adapters" Type="System.Collections.ArrayList">
+                  <Single Type="{3f828f0b-c67b-430a-8c93-1e9bc324df64}" Method="IArchivable">
+                    <List Name="Modules" Type="System.Collections.ArrayList" />
+                    <Single Name="MaxDevices" Type="int">2147483647</Single>
+                  </Single>
+                </List>
+              </Single>
+              <Single Name="HostParameterSet" Type="{abc12bfe-e34e-4b2c-a058-42c6e7e03a13}" Method="IArchivable">
+                <List2 Name="Params" />
+                <Single Name="LmGuid" Type="System.Guid">5ed3f5a2-a810-571a-a907-766362034f53</Single>
+                <Null Name="Sections" />
+                <Single Name="AlwaysMapping" Type="bool">False</Single>
+                <Null Name="EditorName" />
+                <Single Name="AlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+                <Single Name="CreateBitChannels" Type="bool">False</Single>
+              </Single>
+              <Single Name="BusCycleTaskGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="DriverInfo" Type="{4f958885-8d0a-4b58-83b6-29cfd1c9cfca}" Method="IArchivable">
+                <List Name="RequiredLibs" Type="System.Collections.ArrayList" />
+                <Null Name="RequiredTasks" />
+                <Single Name="NeedsBusCycle" Type="bool">False</Single>
+                <Single Name="BusCycleTask" Type="string"></Single>
+                <Single Name="IoApp" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+                <Single Name="IoAppSet" Type="bool">False</Single>
+                <Array Name="PositionIds" Type="long">BBAAAAAAAAAFEAAAAAAAAAYQAAAAAAAA</Array>
+                <Single Name="UseSlowestTask" Type="bool">False</Single>
+                <Single Name="NeedsBusCycleBeforeRead" Type="bool">False</Single>
+                <Single Name="GenerateForceVariables" Type="bool">False</Single>
+                <Single Name="EnableDiagnosis" Type="bool">False</Single>
+                <Single Name="AdditionalParameterSetting" Type="uint">0</Single>
+                <Single Name="ShowWarningsAsErrors" Type="bool">False</Single>
+                <Single Name="DiagnosisCheckboxMode" Type="{96a7290c-b036-44e1-a965-c279cddf134b}">Enabled</Single>
+                <Single Name="SkipOverlapCheck" Type="bool">False</Single>
+                <Single Name="DeviceScanSupported" Type="bool">False</Single>
+                <Single Name="DeviceNominateSupported" Type="bool">False</Single>
+                <Single Name="DeviceIdentifySupported" Type="bool">False</Single>
+                <Single Name="DeviceUploadDescriptionSupported" Type="bool">False</Single>
+                <Single Name="UpdateIOsInStop" Type="bool">False</Single>
+                <Single Name="StopResetBehaviourSetting" Type="{f333ad6d-dc68-4baa-a3a3-20be74eb2e18}">KeepCurrentValues</Single>
+                <Single Name="StopResetBehaviourUserProgram" Type="string"></Single>
+                <Single Name="BusCycleTaskGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+                <Single Name="PlcAlwaysMapping" Type="bool">False</Single>
+                <Single Name="PlCAlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+              </Single>
+              <List Name="CustomItems" Type="{7d23305a-7bb9-46e6-b58b-01ea5694add1}" />
+              <Single Name="ModuleId" Type="int">-1</Single>
+              <Null Name="IoUpdateTask" />
+              <List Name="AdditionalInterfaces" Type="System.Collections.ArrayList" />
+              <List Name="Constraints" Type="System.Collections.ArrayList" />
+              <Single Name="hideInStatusPage" Type="bool">False</Single>
+              <Single Name="updateAllowed" Type="bool">True</Single>
+              <Single Name="fixedInputAddress" Type="string"></Single>
+              <Single Name="fixedOutputAddress" Type="string"></Single>
+              <Single Name="DownloadParamsDevDescOrder" Type="bool">False</Single>
+              <List Name="AllowOnlyDevices" Type="System.Collections.ArrayList" />
+              <Single Name="InitialStatusFlag" Type="uint">1</Single>
+              <Single Name="UseBlobInitConst" Type="bool">False</Single>
+              <Single Name="AlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+              <Single Name="ConnectorGroup" Type="uint">0</Single>
+              <Array Name="AllowedPages" Type="string" />
+              <Single Name="AlwaysMapping" Type="bool">False</Single>
+              <Single Name="Client" Type="string"></Single>
+              <Single Name="MaxInputSize" Type="uint">0</Single>
+              <Single Name="MaxOutputSize" Type="uint">0</Single>
+              <Single Name="MaxInOutputSize" Type="uint">0</Single>
+              <Single Name="ClientTypeGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="ClientConnectorInterface" Type="string"></Single>
+              <Single Name="ClientConnectorId" Type="int">-1</Single>
+              <Single Name="AlwaysMappingDisabled" Type="bool">False</Single>
+            </Single>
+            <Single Type="{850f737d-2abf-45f4-89c1-63ed6b29593d}" Method="IArchivable">
+              <Single Name="VisibleInterfaceName" Type="{35cf7b1a-a4cd-490b-8ebe-385e61fcc6d9}" Method="IArchivable">
+                <Single Name="Namespace" Type="string"></Single>
+                <Single Name="Identifier" Type="string"></Single>
+                <Single Name="Default" Type="string">SafetyInterface</Single>
+              </Single>
+              <Single Name="ConnectorObjectGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="IsExplicit" Type="bool">False</Single>
+              <Single Name="ModuleType" Type="ushort">769</Single>
+              <Single Name="Interface" Type="string">SafetyInterface</Single>
+              <Single Name="Role" Type="{6827a808-5967-49c4-a827-10f6c446e075}">Parent</Single>
+              <Single Name="ConnectorId" Type="int">1</Single>
+              <Single Name="Hostpath" Type="int">-1</Single>
+              <Single Name="Adapters" Type="{1da2f14a-1c63-4268-9171-3b6869b8ccd6}" Method="IArchivable">
+                <List Name="Adapters" Type="System.Collections.ArrayList">
+                  <Single Type="{3f828f0b-c67b-430a-8c93-1e9bc324df64}" Method="IArchivable">
+                    <List Name="Modules" Type="System.Collections.ArrayList" />
+                    <Single Name="MaxDevices" Type="int">1</Single>
+                  </Single>
+                </List>
+              </Single>
+              <Single Name="HostParameterSet" Type="{abc12bfe-e34e-4b2c-a058-42c6e7e03a13}" Method="IArchivable">
+                <List2 Name="Params" />
+                <Single Name="LmGuid" Type="System.Guid">01f6cde2-8b69-542f-8af3-ff6a4e0a12f9</Single>
+                <Null Name="Sections" />
+                <Single Name="AlwaysMapping" Type="bool">False</Single>
+                <Null Name="EditorName" />
+                <Single Name="AlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+                <Single Name="CreateBitChannels" Type="bool">False</Single>
+              </Single>
+              <Single Name="BusCycleTaskGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="DriverInfo" Type="{4f958885-8d0a-4b58-83b6-29cfd1c9cfca}" Method="IArchivable">
+                <List Name="RequiredLibs" Type="System.Collections.ArrayList" />
+                <Null Name="RequiredTasks" />
+                <Single Name="NeedsBusCycle" Type="bool">False</Single>
+                <Single Name="BusCycleTask" Type="string"></Single>
+                <Single Name="IoApp" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+                <Single Name="IoAppSet" Type="bool">False</Single>
+                <Array Name="PositionIds" Type="long">BxAAAAAAAAAIEAAAAAAAAAkQAAAAAAAA</Array>
+                <Single Name="UseSlowestTask" Type="bool">False</Single>
+                <Single Name="NeedsBusCycleBeforeRead" Type="bool">False</Single>
+                <Single Name="GenerateForceVariables" Type="bool">False</Single>
+                <Single Name="EnableDiagnosis" Type="bool">False</Single>
+                <Single Name="AdditionalParameterSetting" Type="uint">0</Single>
+                <Single Name="ShowWarningsAsErrors" Type="bool">False</Single>
+                <Single Name="DiagnosisCheckboxMode" Type="{96a7290c-b036-44e1-a965-c279cddf134b}">Enabled</Single>
+                <Single Name="SkipOverlapCheck" Type="bool">False</Single>
+                <Single Name="DeviceScanSupported" Type="bool">False</Single>
+                <Single Name="DeviceNominateSupported" Type="bool">False</Single>
+                <Single Name="DeviceIdentifySupported" Type="bool">False</Single>
+                <Single Name="DeviceUploadDescriptionSupported" Type="bool">False</Single>
+                <Single Name="UpdateIOsInStop" Type="bool">False</Single>
+                <Single Name="StopResetBehaviourSetting" Type="{f333ad6d-dc68-4baa-a3a3-20be74eb2e18}">KeepCurrentValues</Single>
+                <Single Name="StopResetBehaviourUserProgram" Type="string"></Single>
+                <Single Name="BusCycleTaskGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+                <Single Name="PlcAlwaysMapping" Type="bool">False</Single>
+                <Single Name="PlCAlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+              </Single>
+              <List Name="CustomItems" Type="{7d23305a-7bb9-46e6-b58b-01ea5694add1}" />
+              <Single Name="ModuleId" Type="int">-1</Single>
+              <Null Name="IoUpdateTask" />
+              <List Name="AdditionalInterfaces" Type="System.Collections.ArrayList" />
+              <List Name="Constraints" Type="System.Collections.ArrayList" />
+              <Single Name="hideInStatusPage" Type="bool">False</Single>
+              <Single Name="updateAllowed" Type="bool">True</Single>
+              <Single Name="fixedInputAddress" Type="string"></Single>
+              <Single Name="fixedOutputAddress" Type="string"></Single>
+              <Single Name="DownloadParamsDevDescOrder" Type="bool">False</Single>
+              <List Name="AllowOnlyDevices" Type="System.Collections.ArrayList" />
+              <Single Name="InitialStatusFlag" Type="uint">1</Single>
+              <Single Name="UseBlobInitConst" Type="bool">False</Single>
+              <Single Name="AlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+              <Single Name="ConnectorGroup" Type="uint">0</Single>
+              <Array Name="AllowedPages" Type="string" />
+              <Single Name="AlwaysMapping" Type="bool">False</Single>
+              <Single Name="Client" Type="string"></Single>
+              <Single Name="MaxInputSize" Type="uint">0</Single>
+              <Single Name="MaxOutputSize" Type="uint">0</Single>
+              <Single Name="MaxInOutputSize" Type="uint">0</Single>
+              <Single Name="ClientTypeGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+              <Single Name="ClientConnectorInterface" Type="string"></Single>
+              <Single Name="ClientConnectorId" Type="int">-1</Single>
+              <Single Name="AlwaysMappingDisabled" Type="bool">False</Single>
+            </Single>
+          </List>
+        </Single>
+        <Single Name="Attributes" Type="{1fdbedd8-b518-4ebd-99df-805f2f77c071}" Method="IArchivable">
+          <Dictionary Type="System.Collections.Hashtable" Name="Attributes">
+            <Entry>
+              <Key>
+                <Single Type="string">StdCommunicationLink</Single>
+              </Key>
+              <Value>
+                <Single Type="string">True</Single>
+              </Value>
+            </Entry>
+          </Dictionary>
+        </Single>
+        <Single Name="CommunicationSettings" Type="{58f2b04d-505d-4589-9fcf-0ec83491f9b2}" Method="IArchivable">
+          <Single Name="SaveLocally" Type="bool">False</Single>
+          <Single Name="CommunicationSettingFilter" Type="int">1</Single>
+          <Single Name="CommunicationSettingSorting" Type="int">0</Single>
+          <Single Name="TrackingMode" Type="int">5</Single>
+          <Single Name="GatewayGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+          <Null Name="Address" />
+          <Single Name="PromptAtLogin" Type="bool">False</Single>
+          <Single Name="SimulationMode" Type="bool">False</Single>
+          <Single Name="SecureOnlineMode" Type="bool">False</Single>
+          <Single Name="SecureOnlineModeExplicitelySet" Type="bool">False</Single>
+          <Single Name="Name" Type="string"></Single>
+          <Single Name="MonitoringIntervalMsec" Type="int">200</Single>
+          <Null Name="ScanInformation" />
+          <Single Name="IsCommunicationEncrypted" Type="bool">False</Single>
+          <Single Name="IsDefaultNameTrackingFromScanActive" Type="bool">False</Single>
+        </Single>
+        <Single Name="IoProviderBase" Type="{848f25ec-eecf-4290-8329-7f6500fd2e0f}" Method="IArchivable">
+          <Array Name="UserBaseAddress" Type="string">
+            <Null />
+            <Null />
+            <Null />
+          </Array>
+        </Single>
+        <Single Name="GuidBusCycleTask" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="DriverInfo" Type="{4f958885-8d0a-4b58-83b6-29cfd1c9cfca}" Method="IArchivable">
+          <List Name="RequiredLibs" Type="System.Collections.ArrayList">
+            <Single Type="{94d8f601-f8e4-4aaa-8f48-f3c3ec33bec1}" Method="IArchivable">
+              <Single Name="LibName" Type="string">IoStandard</Single>
+              <Single Name="Vendor" Type="string">System</Single>
+              <Single Name="Version" Type="string">*</Single>
+              <Single Name="Identifier" Type="string">iostandardlib</Single>
+              <List Name="FbInstances" Type="System.Collections.ArrayList" />
+              <Single Name="PlaceHolderLib" Type="string">IoStandard</Single>
+              <Single Name="loadAsSystemLibrary" Type="bool">True</Single>
+              <Single Name="IsDiagnosisLib" Type="bool">False</Single>
+              <Single Name="AddedByAP" Type="bool">False</Single>
+              <Single Name="Client" Type="string"></Single>
+            </Single>
+            <Single Type="{94d8f601-f8e4-4aaa-8f48-f3c3ec33bec1}" Method="IArchivable">
+              <Single Name="LibName" Type="string">3SLicense</Single>
+              <Single Name="Vendor" Type="string">3S - Smart Software Solutions GmbH</Single>
+              <Single Name="Version" Type="string">0.0.0.0</Single>
+              <Single Name="Identifier" Type="string">_3S_LICENSE</Single>
+              <List Name="FbInstances" Type="System.Collections.ArrayList" />
+              <Single Name="PlaceHolderLib" Type="string">3SLicense</Single>
+              <Single Name="loadAsSystemLibrary" Type="bool">True</Single>
+              <Single Name="IsDiagnosisLib" Type="bool">False</Single>
+              <Single Name="AddedByAP" Type="bool">False</Single>
+              <Single Name="Client" Type="string">3SLicense</Single>
+            </Single>
+          </List>
+          <Null Name="RequiredTasks" />
+          <Single Name="NeedsBusCycle" Type="bool">False</Single>
+          <Single Name="BusCycleTask" Type="string"></Single>
+          <Single Name="IoApp" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+          <Single Name="IoAppSet" Type="bool">True</Single>
+          <Array Name="PositionIds" Type="long">ARAAAAAAAAACEAAAAAAAAAMQAAAAAAAA</Array>
+          <Single Name="UseSlowestTask" Type="bool">False</Single>
+          <Single Name="NeedsBusCycleBeforeRead" Type="bool">False</Single>
+          <Single Name="GenerateForceVariables" Type="bool">False</Single>
+          <Single Name="EnableDiagnosis" Type="bool">True</Single>
+          <Single Name="AdditionalParameterSetting" Type="uint">0</Single>
+          <Single Name="ShowWarningsAsErrors" Type="bool">False</Single>
+          <Single Name="DiagnosisCheckboxMode" Type="{96a7290c-b036-44e1-a965-c279cddf134b}">Enabled</Single>
+          <Single Name="SkipOverlapCheck" Type="bool">False</Single>
+          <Single Name="DeviceScanSupported" Type="bool">False</Single>
+          <Single Name="DeviceNominateSupported" Type="bool">False</Single>
+          <Single Name="DeviceIdentifySupported" Type="bool">False</Single>
+          <Single Name="DeviceUploadDescriptionSupported" Type="bool">False</Single>
+          <Single Name="UpdateIOsInStop" Type="bool">False</Single>
+          <Single Name="StopResetBehaviourSetting" Type="{f333ad6d-dc68-4baa-a3a3-20be74eb2e18}">KeepCurrentValues</Single>
+          <Single Name="StopResetBehaviourUserProgram" Type="string"></Single>
+          <Single Name="BusCycleTaskGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+          <Single Name="PlcAlwaysMapping" Type="bool">False</Single>
+          <Single Name="PlCAlwaysMappingMode" Type="{9d1b24fb-5845-4978-8458-564ca7830fec}">OnlyIfUnused</Single>
+        </Single>
+        <List Name="CustomItems" Type="{7d23305a-7bb9-46e6-b58b-01ea5694add1}" />
+        <Single Name="IoConfigGlobalsGuid" Type="System.Guid">bd2dfa06-f0e2-51c6-b6f7-fad41027469c</Single>
+        <Single Name="IoConfigGlobalsMappingGuid" Type="System.Guid">b8bb422f-204b-5394-939f-b001702b82fc</Single>
+        <Single Name="IoConfigVarConfigGuid" Type="System.Guid">c0083c30-eaaa-515f-96b3-7b780270034d</Single>
+        <Single Name="IoConfigErrorPouGuid" Type="System.Guid">f2f86360-9ad0-5b93-a938-d59975315ec8</Single>
+        <Single Name="ModuleId" Type="int">-1</Single>
+        <Null Name="IoUpdateTask" />
+        <Array Name="FunctionalChildren" Type="System.Guid">
+          <Single Type="System.Guid">40b404f9-e5dc-42c6-907f-c89f4a517386</Single>
+        </Array>
+        <Null Name="UserManagement" />
+        <Null Name="RightsManagement" />
+        <Single Name="showParamsInDevDescOrder" Type="bool">False</Single>
+        <Single Name="fixedInputAddress" Type="string"></Single>
+        <Single Name="fixedOutputAddress" Type="string"></Single>
+        <Single Name="HostObjectGuid" Type="System.Guid">123f3e2a-7079-4d32-9985-773e7b347dcb</Single>
+        <Single Name="DownloadParamsDevDescOrder" Type="bool">False</Single>
+        <Single Name="CreateBitChannels" Type="bool">False</Single>
+        <Null Name="AdditionalStringTable" />
+        <Null Name="OnlineHelpUrl" />
+        <Single Name="InteractiveLoginMode" Type="int">-1</Single>
+        <Single Name="UseDeviceApplicationStructure" Type="bool">False</Single>
+        <Single Name="AllowSymbolicVarAccessInSyncWithIecCycle" Type="bool">False</Single>
+        <Single Name="LogicalDeviceList" Type="{ec1f8a3a-98c6-404c-883e-ce9e54b42542}" Method="IArchivable">
+          <List Name="InnerList" Type="System.Collections.ArrayList" />
+        </Single>
+        <Single Name="LogicalLanguageModelPositionId" Type="long">-1</Single>
+        <List Name="SupportedLogicalBusSystems" Type="System.Collections.ArrayList" />
+        <Single Name="MappingPossible" Type="bool">False</Single>
+        <Single Name="HidePropertiesDialog" Type="bool">False</Single>
+        <Null Name="PlaceholderResolution" />
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+      <Array Name="Path" Type="string" />
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">905272f8-ef17-434d-bc68-5b61e9b95e23</Single>
+        <Single Name="ParentGuid" Type="System.Guid">123f3e2a-7079-4d32-9985-773e7b347dcb</Single>
+        <Single Name="Name" Type="string">Plc Logic</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">40b404f9-e5dc-42c6-907f-c89f4a517386</Single>
+        <Array Name="EmbeddedTypeGuids" Type="System.Guid" />
+        <Single Name="Timestamp" Type="long">639191455362268039</Single>
+      </Single>
+      <Single Name="Object" Type="{40b404f9-e5dc-42c6-907f-c89f4a517386}" Method="IArchivable" />
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">123f3e2a-7079-4d32-9985-773e7b347dcb</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+      </Array>
+      <Single Name="Index" Type="int">0</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="ParentGuid" Type="System.Guid">905272f8-ef17-434d-bc68-5b61e9b95e23</Single>
+        <Single Name="Name" Type="string">Application</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">639b491f-5557-464c-af91-1471bac9f549</Single>
+        <Null Name="EmbeddedTypeGuids" />
+        <Single Name="Timestamp" Type="long">639191455362649126</Single>
+      </Single>
+      <Single Name="Object" Type="{639b491f-5557-464c-af91-1471bac9f549}" Method="IArchivable">
+        <Single Name="DynamicMemory" Type="int">-1</Single>
+        <Single Name="DownloadContent" Type="bool">True</Single>
+        <Single Name="StopParentAppsOnException" Type="bool">False</Single>
+        <Single Name="GuidNetVarGVL" Type="System.Guid">c7e23ba5-967a-4e77-9f99-389a6a3a61ba</Single>
+        <Single Name="GuidMemSettings" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Null Name="BootAppSettings" />
+        <Single Name="OverrideTargetMemorySizes" Type="bool">False</Single>
+        <Single Name="TargetInputSize" Type="int">0</Single>
+        <Single Name="TargetOutputSize" Type="int">0</Single>
+        <Single Name="TargetMemoryize" Type="int">0</Single>
+        <Single Name="StaticSize" Type="int">0</Single>
+        <Single Name="AllowUserDefinedStaticSize" Type="bool">False</Single>
+        <Single Name="X509CommonName" Type="string"></Single>
+        <Single Name="X509EncryptionThumbprint" Type="string"></Single>
+        <Null Name="X509EncryptionThumbprints" />
+        <Single Name="SignDownloadWithX509Certificate" Type="bool">False</Single>
+        <Single Name="FirmCode" Type="uint">0</Single>
+        <Single Name="ProductCode" Type="uint">0</Single>
+        <Single Name="KeepOnParentOnlineChange" Type="bool">False</Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">905272f8-ef17-434d-bc68-5b61e9b95e23</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">c229f82d-3d4f-46bf-8288-df992c035f4a</Single>
+        <Single Name="ParentGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="Name" Type="string">库管理器</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">adb5cb65-8e1d-4a00-b70a-375ea27582f3</Single>
+        <Null Name="EmbeddedTypeGuids" />
+        <Single Name="Timestamp" Type="long">639191455377662370</Single>
+      </Single>
+      <Single Name="Object" Type="{adb5cb65-8e1d-4a00-b70a-375ea27582f3}" Method="IArchivable">
+        <List Name="Items" Type="System.Collections.ArrayList">
+          <Single Type="{4723ebe7-5bfc-43c6-be6b-5097002ef6b4}" Method="IArchivable">
+            <Single Name="DefaultResolution" Type="string">IoStandard, 3.5.16.0 (System)</Single>
+            <Single Name="Optional" Type="bool">False</Single>
+            <Array Name="Params" Type="{e38db981-1fbe-4d68-b5b0-d55ca6086daa}" />
+            <Single Name="PlaceholderName" Type="string">IoStandard</Single>
+            <Single Name="ResolverGuid" Type="System.Guid">b303f5ce-75ff-4668-a777-7da8debb449c</Single>
+            <Single Name="Id" Type="long">3067396821</Single>
+            <Single Name="Namespace" Type="string">IoStandard</Single>
+            <Single Name="SystemLibrary" Type="bool">True</Single>
+            <Single Name="HideWhenReferencedAsDependency" Type="bool">False</Single>
+            <Single Name="PublishSymbolsInContainer" Type="bool">False</Single>
+            <Single Name="QualifiedOnly" Type="bool">False</Single>
+            <Single Name="LinkAllContent" Type="bool">True</Single>
+          </Single>
+          <Single Type="{4723ebe7-5bfc-43c6-be6b-5097002ef6b4}" Method="IArchivable">
+            <Single Name="DefaultResolution" Type="string">3SLicense, 0.0.0.0 (3S - Smart Software Solutions GmbH)</Single>
+            <Single Name="Optional" Type="bool">False</Single>
+            <Array Name="Params" Type="{e38db981-1fbe-4d68-b5b0-d55ca6086daa}" />
+            <Single Name="PlaceholderName" Type="string">3SLicense</Single>
+            <Single Name="ResolverGuid" Type="System.Guid">97c3b452-d9fa-4ac2-9d0c-3d420aa6d95b</Single>
+            <Single Name="Id" Type="long">3672609537</Single>
+            <Single Name="Namespace" Type="string">_3S_LICENSE</Single>
+            <Single Name="SystemLibrary" Type="bool">True</Single>
+            <Single Name="HideWhenReferencedAsDependency" Type="bool">False</Single>
+            <Single Name="PublishSymbolsInContainer" Type="bool">False</Single>
+            <Single Name="QualifiedOnly" Type="bool">False</Single>
+            <Single Name="LinkAllContent" Type="bool">False</Single>
+          </Single>
+          <Single Type="{4723ebe7-5bfc-43c6-be6b-5097002ef6b4}" Method="IArchivable">
+            <Single Name="DefaultResolution" Type="string">CAA Device Diagnosis, 3.5.15.0 (CAA Technical Workgroup)</Single>
+            <Single Name="Optional" Type="bool">False</Single>
+            <Array Name="Params" Type="{e38db981-1fbe-4d68-b5b0-d55ca6086daa}" />
+            <Single Name="PlaceholderName" Type="string">CAA Device Diagnosis</Single>
+            <Single Name="ResolverGuid" Type="System.Guid">b303f5ce-75ff-4668-a777-7da8debb449c</Single>
+            <Single Name="Id" Type="long">2283506793</Single>
+            <Single Name="Namespace" Type="string">DED</Single>
+            <Single Name="SystemLibrary" Type="bool">True</Single>
+            <Single Name="HideWhenReferencedAsDependency" Type="bool">False</Single>
+            <Single Name="PublishSymbolsInContainer" Type="bool">False</Single>
+            <Single Name="QualifiedOnly" Type="bool">False</Single>
+            <Single Name="LinkAllContent" Type="bool">False</Single>
+          </Single>
+          <Single Type="{4723ebe7-5bfc-43c6-be6b-5097002ef6b4}" Method="IArchivable">
+            <Single Name="DefaultResolution" Type="string">Standard, * (System)</Single>
+            <Single Name="Optional" Type="bool">False</Single>
+            <Array Name="Params" Type="{e38db981-1fbe-4d68-b5b0-d55ca6086daa}" />
+            <Single Name="PlaceholderName" Type="string">Standard</Single>
+            <Single Name="ResolverGuid" Type="System.Guid">b303f5ce-75ff-4668-a777-7da8debb449c</Single>
+            <Single Name="Id" Type="long">637019976</Single>
+            <Single Name="Namespace" Type="string">Standard</Single>
+            <Single Name="SystemLibrary" Type="bool">False</Single>
+            <Single Name="HideWhenReferencedAsDependency" Type="bool">False</Single>
+            <Single Name="PublishSymbolsInContainer" Type="bool">False</Single>
+            <Single Name="QualifiedOnly" Type="bool">False</Single>
+            <Single Name="LinkAllContent" Type="bool">False</Single>
+          </Single>
+          <Single Type="{4723ebe7-5bfc-43c6-be6b-5097002ef6b4}" Method="IArchivable">
+            <Single Name="DefaultResolution" Type="string">Breakpoint Logging Functions, 3.5.5.0 (3S - Smart Software Solutions GmbH)</Single>
+            <Single Name="Optional" Type="bool">False</Single>
+            <Array Name="Params" Type="{e38db981-1fbe-4d68-b5b0-d55ca6086daa}" />
+            <Single Name="PlaceholderName" Type="string">BreakpointLogging</Single>
+            <Single Name="ResolverGuid" Type="System.Guid">b303f5ce-75ff-4668-a777-7da8debb449c</Single>
+            <Single Name="Id" Type="long">4167191009</Single>
+            <Single Name="Namespace" Type="string">BPLog</Single>
+            <Single Name="SystemLibrary" Type="bool">True</Single>
+            <Single Name="HideWhenReferencedAsDependency" Type="bool">False</Single>
+            <Single Name="PublishSymbolsInContainer" Type="bool">False</Single>
+            <Single Name="QualifiedOnly" Type="bool">False</Single>
+            <Single Name="LinkAllContent" Type="bool">False</Single>
+          </Single>
+        </List>
+        <Dictionary Type="System.Collections.Hashtable" Name="PlaceholderRedirectionTable" />
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">44f3ed25-8791-40d2-894a-c0d81abdf60f</Single>
+        <Single Name="ParentGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="Name" Type="string">CFC_TEST</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">6f9dac99-8de1-4efc-8465-68ac443b7d08</Single>
+        <Array Name="EmbeddedTypeGuids" Type="System.Guid">
+          <Single Type="System.Guid">a9ed5b7e-75c5-4651-af16-d2c27e98cb94</Single>
+          <Single Type="System.Guid">32d3375e-c010-41e2-9e43-b2fbf4f2b374</Single>
+        </Array>
+        <Single Name="Timestamp" Type="long">639191457890855859</Single>
+      </Single>
+      <Single Name="Object" Type="{6f9dac99-8de1-4efc-8465-68ac443b7d08}" Method="IArchivable">
+        <Single Name="SpecialFunc" Type="{0db3d7bb-cde0-4416-9a7b-ce49a0124323}">None</Single>
+        <Single Name="Implementation" Type="{32d3375e-c010-41e2-9e43-b2fbf4f2b374}" Method="IArchivable">
+          <Single Name="Items" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+            <List2 Name="InnerList">
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">7</Single>
+                <Single Name="DestPinId" Type="long">19</Single>
+                <Single Name="Id" Type="long">67</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">10</Single>
+                <Single Name="DestPinId" Type="long">20</Single>
+                <Single Name="Id" Type="long">66</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">21</Single>
+                <Single Name="DestPinId" Type="long">28</Single>
+                <Single Name="Id" Type="long">65</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">16</Single>
+                <Single Name="DestPinId" Type="long">30</Single>
+                <Single Name="Id" Type="long">64</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">31</Single>
+                <Single Name="DestPinId" Type="long">39</Single>
+                <Single Name="Id" Type="long">63</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">13</Single>
+                <Single Name="DestPinId" Type="long">29</Single>
+                <Single Name="Id" Type="long">62</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">42</Single>
+                <Single Name="DestPinId" Type="long">48</Single>
+                <Single Name="Id" Type="long">61</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">45</Single>
+                <Single Name="DestPinId" Type="long">49</Single>
+                <Single Name="Id" Type="long">60</Single>
+              </Single>
+              <Single Type="{5ae2e111-ecff-4a21-b647-2d4da63f8db7}" Method="IArchivable">
+                <Single Name="Bounds" Type="string">-3, -5, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="SourcePinId" Type="long">50</Single>
+                <Single Name="DestPinId" Type="long">57</Single>
+                <Single Name="Id" Type="long">59</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">7</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">A</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">8</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">5, 6, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">6</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">10</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">200</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">11</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">4, 7, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">9</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">13</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">A</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">14</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">17, 7, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">12</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">16</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">0</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">17</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">17, 8, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">15</Single>
+              </Single>
+              <Single Type="{f5becf35-b1f3-4274-b411-81d4b63a1516}" Method="IArchivable">
+                <Single Name="Inputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">19</Single>
+                    </Single>
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">20</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Outputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">21</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Texts" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">22</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">23</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">24</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string">GE</Single>
+                      <Single Name="Modifiable" Type="bool">True</Single>
+                      <Single Name="Id" Type="long">25</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">26</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Parameters" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList" />
+                </Single>
+                <Null Name="PreparedParameters" />
+                <Single Name="PageArea" Type="int">0</Single>
+                <Single Name="Bounds" Type="string">10, 4, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="EnEno" Type="bool">False</Single>
+                <Single Name="KindOfCall" Type="{77f43dfe-ca6a-4869-828f-7609d8ed6ea6}">Operator</Single>
+                <Single Name="ContainsExtensibleInputs" Type="bool">False</Single>
+                <Single Name="Forced" Type="bool">False</Single>
+                <Single Name="IsFeedbackStart" Type="bool">False</Single>
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">18</Single>
+              </Single>
+              <Single Type="{f5becf35-b1f3-4274-b411-81d4b63a1516}" Method="IArchivable">
+                <Single Name="Inputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">28</Single>
+                    </Single>
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">29</Single>
+                    </Single>
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">30</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Outputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">31</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Texts" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">32</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">33</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">34</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">35</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string">SEL</Single>
+                      <Single Name="Modifiable" Type="bool">True</Single>
+                      <Single Name="Id" Type="long">36</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">37</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Parameters" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList" />
+                </Single>
+                <Null Name="PreparedParameters" />
+                <Single Name="PageArea" Type="int">0</Single>
+                <Single Name="Bounds" Type="string">22, 4, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="EnEno" Type="bool">False</Single>
+                <Single Name="KindOfCall" Type="{77f43dfe-ca6a-4869-828f-7609d8ed6ea6}">Operator</Single>
+                <Single Name="ContainsExtensibleInputs" Type="bool">False</Single>
+                <Single Name="Forced" Type="bool">False</Single>
+                <Single Name="IsFeedbackStart" Type="bool">False</Single>
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">27</Single>
+              </Single>
+              <Single Type="{8d9e2b78-3efe-4fe4-8160-f3a7381ddd8f}" Method="IArchivable">
+                <Single Name="Input" Type="{5c3476a8-05c5-430e-861c-9cfa51d68ca8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="ProcessValue" Type="string"></Single>
+                  <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">39</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">A</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">40</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">4</Single>
+                <Single Name="Bounds" Type="string">29, 6, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">38</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">42</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">A</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">43</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">5, 15, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">41</Single>
+              </Single>
+              <Single Type="{d51129f5-df27-4886-99d1-c564d2e2c1f6}" Method="IArchivable">
+                <Single Name="Output" Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">45</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">1</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">46</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">3</Single>
+                <Single Name="Bounds" Type="string">5, 16, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">44</Single>
+              </Single>
+              <Single Type="{f5becf35-b1f3-4274-b411-81d4b63a1516}" Method="IArchivable">
+                <Single Name="Inputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">48</Single>
+                    </Single>
+                    <Single Type="{c994f6e0-311a-4a1c-bc38-75fe34892406}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="IsExtensiblePin" Type="bool">False</Single>
+                      <Single Name="ProcessValue" Type="string"></Single>
+                      <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">49</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Outputs" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{65582d84-cf18-4ca0-be59-bf5a3d00b8f8}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Negated" Type="bool">False</Single>
+                      <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                      <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                      <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">50</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Texts" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList">
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">51</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">52</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">53</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string">ADD</Single>
+                      <Single Name="Modifiable" Type="bool">True</Single>
+                      <Single Name="Id" Type="long">54</Single>
+                    </Single>
+                    <Single Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                      <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                      <Null Name="ElementGroupId" />
+                      <Single Name="Text" Type="string"></Single>
+                      <Single Name="Modifiable" Type="bool">False</Single>
+                      <Single Name="Id" Type="long">55</Single>
+                    </Single>
+                  </List2>
+                </Single>
+                <Single Name="Parameters" Type="{cd57ba20-558b-4b98-96c1-73c6000c3087}" Method="IArchivable">
+                  <List2 Name="InnerList" />
+                </Single>
+                <Null Name="PreparedParameters" />
+                <Single Name="PageArea" Type="int">0</Single>
+                <Single Name="Bounds" Type="string">10, 13, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="EnEno" Type="bool">False</Single>
+                <Single Name="KindOfCall" Type="{77f43dfe-ca6a-4869-828f-7609d8ed6ea6}">Operator</Single>
+                <Single Name="ContainsExtensibleInputs" Type="bool">False</Single>
+                <Single Name="Forced" Type="bool">False</Single>
+                <Single Name="IsFeedbackStart" Type="bool">False</Single>
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">47</Single>
+              </Single>
+              <Single Type="{8d9e2b78-3efe-4fe4-8160-f3a7381ddd8f}" Method="IArchivable">
+                <Single Name="Input" Type="{5c3476a8-05c5-430e-861c-9cfa51d68ca8}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="ProcessValue" Type="string"></Single>
+                  <Single Name="Access" Type="{88453c7d-d652-4a27-a1b0-a1953be49a5c}">None</Single>
+                  <Single Name="Negated" Type="bool">False</Single>
+                  <Single Name="SetReset" Type="{24449d48-c96a-49c4-b9d1-a4ea34aedce3}">None</Single>
+                  <Single Name="SetResetRef" Type="{233bc97c-69fe-4d29-b40e-a9a9b854044e}">None</Single>
+                  <Single Name="PretendsToBeConnected" Type="bool">False</Single>
+                  <Single Name="Id" Type="long">57</Single>
+                </Single>
+                <Single Name="Text" Type="{72f2b13f-5349-4a8a-bbe6-2bccf3f42179}" Method="IArchivable">
+                  <Single Name="Bounds" Type="string">0, 0, 0, 0</Single>
+                  <Null Name="ElementGroupId" />
+                  <Single Name="Text" Type="string">A</Single>
+                  <Single Name="Modifiable" Type="bool">True</Single>
+                  <Single Name="Id" Type="long">58</Single>
+                </Single>
+                <Single Name="PageArea" Type="int">4</Single>
+                <Single Name="Bounds" Type="string">17, 15, 0, 0</Single>
+                <Null Name="ElementGroupId" />
+                <Single Name="OwningPageId" Type="long">-1</Single>
+                <Single Name="Id" Type="long">56</Single>
+              </Single>
+            </List2>
+          </Single>
+          <Null Name="ParameterInitializationMethodGenerator" />
+          <Single Name="RoutingPathTable" Type="{4b8bcc79-5980-4868-b49e-005a8148859b}" Method="IArchivable">
+            <Dictionary2 Name="InnerDictionary">
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">67</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">8</Single>
+                      <Single Name="Y" Type="int">6</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">8</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">9</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">66</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">8</Single>
+                      <Single Name="Y" Type="int">7</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">8</Single>
+                        <Single Name="Y" Type="int">7</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">9</Single>
+                        <Single Name="Y" Type="int">7</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">65</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">14</Single>
+                      <Single Name="Y" Type="int">6</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">14</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">21</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">64</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">20</Single>
+                      <Single Name="Y" Type="int">8</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">20</Single>
+                        <Single Name="Y" Type="int">8</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">21</Single>
+                        <Single Name="Y" Type="int">8</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">63</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">26</Single>
+                      <Single Name="Y" Type="int">6</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">26</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">28</Single>
+                        <Single Name="Y" Type="int">6</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">62</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">20</Single>
+                      <Single Name="Y" Type="int">7</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">20</Single>
+                        <Single Name="Y" Type="int">7</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">21</Single>
+                        <Single Name="Y" Type="int">7</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">61</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">8</Single>
+                      <Single Name="Y" Type="int">15</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">8</Single>
+                        <Single Name="Y" Type="int">15</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">9</Single>
+                        <Single Name="Y" Type="int">15</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">60</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">8</Single>
+                      <Single Name="Y" Type="int">16</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">8</Single>
+                        <Single Name="Y" Type="int">16</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">9</Single>
+                        <Single Name="Y" Type="int">16</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+              <Entry>
+                <Key>
+                  <Single Type="{93c117eb-0884-403b-b01e-28b89f47e041}" Method="IArchivable">
+                    <Single Name="ConnectionId" Type="long">59</Single>
+                    <Single Name="StartPoint" Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                      <Single Name="X" Type="int">14</Single>
+                      <Single Name="Y" Type="int">15</Single>
+                      <Single Name="IsJoint" Type="bool">False</Single>
+                      <Single Name="Flags" Type="int">0</Single>
+                    </Single>
+                    <Single Name="Unroutable" Type="bool">False</Single>
+                    <Null Name="CorrespondingPageId" />
+                    <Single Name="Locked" Type="bool">False</Single>
+                  </Single>
+                </Key>
+                <Value>
+                  <Single Type="{584effbc-813e-443a-bf78-ad9c8d49db41}" Method="IArchivable">
+                    <List2 Name="InnerList">
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">14</Single>
+                        <Single Name="Y" Type="int">15</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">68</Single>
+                      </Single>
+                      <Single Type="{b3e42b54-b8f2-45d3-825d-747f82f244a0}" Method="IArchivable">
+                        <Single Name="X" Type="int">16</Single>
+                        <Single Name="Y" Type="int">15</Single>
+                        <Single Name="IsJoint" Type="bool">False</Single>
+                        <Single Name="Flags" Type="int">97</Single>
+                      </Single>
+                    </List2>
+                  </Single>
+                </Value>
+              </Entry>
+            </Dictionary2>
+          </Single>
+          <Single Name="AutoSizeCanvas" Type="bool">True</Single>
+          <Single Name="CanvasWidth" Type="int">34</Single>
+          <Single Name="CanvasHeight" Type="int">19</Single>
+        </Single>
+        <Single Name="Interface" Type="{a9ed5b7e-75c5-4651-af16-d2c27e98cb94}" Method="IArchivable">
+          <Single Name="TextDocument" Type="{f3878285-8e4f-490b-bb1b-9acbb7eb04db}" Method="IArchivable">
+            <Array Name="TextLines" Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}">
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">2</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">PROGRAM CFC_TEST</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">3</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">5</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">	A: REAL;</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">4</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">END_VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">1</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string"></Single>
+              </Single>
+            </Array>
+          </Single>
+        </Single>
+        <Single Name="UniqueIdGenerator" Type="string">67</Single>
+        <Single Name="POULevel" Type="{8e575c5b-1d37-49c6-941b-5c0ec7874787}">Standard</Single>
+        <List Name="ChildObjectGuids" Type="System.Collections.ArrayList" />
+        <Single Name="AddAttributeSubsequent" Type="bool">False</Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">21013d21-d4cd-4973-8353-26099aae7831</Single>
+        <Single Name="ParentGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="Name" Type="string">PLC_PRG</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties">
+          <Entry>
+            <Key>
+              <Single Type="System.Guid">97c1f2ea-5995-48b9-abd5-a3ab983c5def</Single>
+            </Key>
+            <Value>
+              <Single Type="{97c1f2ea-5995-48b9-abd5-a3ab983c5def}" Method="IArchivable">
+                <Single Name="UseExplicitExecutionOrder" Type="bool">False</Single>
+              </Single>
+            </Value>
+          </Entry>
+        </Dictionary>
+        <Single Name="TypeGuid" Type="System.Guid">6f9dac99-8de1-4efc-8465-68ac443b7d08</Single>
+        <Array Name="EmbeddedTypeGuids" Type="System.Guid">
+          <Single Type="System.Guid">a9ed5b7e-75c5-4651-af16-d2c27e98cb94</Single>
+          <Single Type="System.Guid">3b83b776-fb25-43b8-99f2-3c507c9143fc</Single>
+        </Array>
+        <Single Name="Timestamp" Type="long">639191459250546179</Single>
+      </Single>
+      <Single Name="Object" Type="{6f9dac99-8de1-4efc-8465-68ac443b7d08}" Method="IArchivable">
+        <Single Name="SpecialFunc" Type="{0db3d7bb-cde0-4416-9a7b-ce49a0124323}">None</Single>
+        <Single Name="Implementation" Type="{3b83b776-fb25-43b8-99f2-3c507c9143fc}" Method="IArchivable">
+          <Single Name="TextDocument" Type="{f3878285-8e4f-490b-bb1b-9acbb7eb04db}" Method="IArchivable">
+            <Array Name="TextLines" Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}">
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">5</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">CFC_TEST();</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">9</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">ST_TEST();</Single>
+              </Single>
+            </Array>
+          </Single>
+        </Single>
+        <Single Name="Interface" Type="{a9ed5b7e-75c5-4651-af16-d2c27e98cb94}" Method="IArchivable">
+          <Single Name="TextDocument" Type="{f3878285-8e4f-490b-bb1b-9acbb7eb04db}" Method="IArchivable">
+            <Array Name="TextLines" Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}">
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">6</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">PROGRAM PLC_PRG</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">7</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">8</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">END_VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">1</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string"></Single>
+              </Single>
+            </Array>
+          </Single>
+        </Single>
+        <Single Name="UniqueIdGenerator" Type="string">9</Single>
+        <Single Name="POULevel" Type="{8e575c5b-1d37-49c6-941b-5c0ec7874787}">Standard</Single>
+        <List Name="ChildObjectGuids" Type="System.Collections.ArrayList" />
+        <Single Name="AddAttributeSubsequent" Type="bool">False</Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">96aa17c9-85a5-4613-a1ef-322eb1a76dc3</Single>
+        <Single Name="ParentGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="Name" Type="string">ST_TEST</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">6f9dac99-8de1-4efc-8465-68ac443b7d08</Single>
+        <Array Name="EmbeddedTypeGuids" Type="System.Guid">
+          <Single Type="System.Guid">a9ed5b7e-75c5-4651-af16-d2c27e98cb94</Single>
+          <Single Type="System.Guid">3b83b776-fb25-43b8-99f2-3c507c9143fc</Single>
+        </Array>
+        <Single Name="Timestamp" Type="long">639191459080508634</Single>
+      </Single>
+      <Single Name="Object" Type="{6f9dac99-8de1-4efc-8465-68ac443b7d08}" Method="IArchivable">
+        <Single Name="SpecialFunc" Type="{0db3d7bb-cde0-4416-9a7b-ce49a0124323}">None</Single>
+        <Single Name="Implementation" Type="{3b83b776-fb25-43b8-99f2-3c507c9143fc}" Method="IArchivable">
+          <Single Name="TextDocument" Type="{f3878285-8e4f-490b-bb1b-9acbb7eb04db}" Method="IArchivable">
+            <Array Name="TextLines" Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}">
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">5</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">IF B&gt;200 THEN</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">7</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">	B:=0;</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">9</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">ELSE</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">10</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">	B:=B+1;</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">8</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">END_IF</Single>
+              </Single>
+            </Array>
+          </Single>
+        </Single>
+        <Single Name="Interface" Type="{a9ed5b7e-75c5-4651-af16-d2c27e98cb94}" Method="IArchivable">
+          <Single Name="TextDocument" Type="{f3878285-8e4f-490b-bb1b-9acbb7eb04db}" Method="IArchivable">
+            <Array Name="TextLines" Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}">
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">2</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">PROGRAM ST_TEST</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">3</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">6</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">	B: REAL;</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">4</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string">END_VAR</Single>
+              </Single>
+              <Single Type="{a5de0b0b-1cb5-4913-ac21-9d70293ec00d}" Method="IArchivable">
+                <Single Name="Id" Type="long">1</Single>
+                <Null Name="Tag" />
+                <Single Name="Text" Type="string"></Single>
+              </Single>
+            </Array>
+          </Single>
+        </Single>
+        <Single Name="UniqueIdGenerator" Type="string">10</Single>
+        <Single Name="POULevel" Type="{8e575c5b-1d37-49c6-941b-5c0ec7874787}">Standard</Single>
+        <List Name="ChildObjectGuids" Type="System.Collections.ArrayList" />
+        <Single Name="AddAttributeSubsequent" Type="bool">False</Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">e7f54014-3b02-494d-b2e9-72dd5f5a650c</Single>
+        <Single Name="ParentGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+        <Single Name="Name" Type="string">Task Configuration</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">ae1de277-a207-4a28-9efb-456c06bd52f3</Single>
+        <Null Name="EmbeddedTypeGuids" />
+        <Single Name="Timestamp" Type="long">639191455375227167</Single>
+      </Single>
+      <Single Name="Object" Type="{ae1de277-a207-4a28-9efb-456c06bd52f3}" Method="IArchivable">
+        <List Name="TaskConfigurationList" Type="{75fc8bb3-c744-4e99-b6eb-bb2796e19500}" />
+        <List Name="SystemEventList" Type="{7be1d5a4-d68c-4bc6-a7e5-e42a0ab42a09}" />
+        <Null Name="ExternalEventList" />
+        <Single Name="enum_guid" Type="System.Guid">61b02311-4cf1-51b1-bb1c-52b989ba6d71</Single>
+        <Single Name="jitter_distribution_guid" Type="System.Guid">9d943369-a851-5fd1-8261-fe0d3783a9a0</Single>
+        <Single Name="task_struct_guid" Type="System.Guid">1863a24f-e4ca-5a07-86b6-b16ace77ea81</Single>
+        <Single Name="task_config_info_guid" Type="System.Guid">4e2aeb0e-ce89-524a-be71-f050edd03bca</Single>
+        <Single Name="task_global_vars_guid" Type="System.Guid">5f53b590-cc3f-500e-991a-2e382836c0bc</Single>
+        <Single Name="setup_call_pou_guid" Type="System.Guid">824e57d4-d593-5b48-ad15-977da1230d0e</Single>
+        <Single Name="sys_setup_pou_guid" Type="System.Guid">689ecf36-ed61-5d9f-882d-9651f8416c18</Single>
+        <Single Name="profiler_global_vars_guid" Type="System.Guid">3ceda939-baba-55b8-b788-41cb63089992</Single>
+        <Single Name="profiler_init_code_guid" Type="System.Guid">498fd60c-9df2-5249-b246-20464665b2b2</Single>
+        <Single Name="profiler_cycle_code_guid" Type="System.Guid">90845025-e237-565d-b60a-4a06ae2be028</Single>
+        <Single Name="profiler_fb_guid" Type="System.Guid">42913c94-0888-5ee2-a363-0b681c0367d5</Single>
+        <Single Name="profiler_method_reset_guid" Type="System.Guid">6798a66d-eb99-5d2d-84e9-ace32bdec62a</Single>
+        <Single Name="profiler_method_starttiming_guid" Type="System.Guid">b35e7a88-08b8-5539-b99e-33659889eb56</Single>
+        <Single Name="profiler_method_stoptiming_guid" Type="System.Guid">b1c681b5-60c6-51ab-92f1-9560594718f1</Single>
+        <Single Name="profiler_iectaskgetprofiling_guid" Type="System.Guid">6da88b28-eb64-54b2-bf37-2f1a4b985629</Single>
+        <Null Name="alSysEventList" />
+        <List2 Name="alTaskGroups">
+          <Single Type="{609a42d4-f974-4041-8548-f80e229ca5ed}" Method="IArchivable">
+            <Single Name="Groupname" Type="string">IEC-Tasks</Single>
+            <Single Name="Core" Type="int">-2</Single>
+            <Single Name="DefaultGroup" Type="bool">True</Single>
+            <Single Name="Editable" Type="bool">False</Single>
+          </Single>
+        </List2>
+        <Single Name="sysevents_global_vars_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="sysevents_functionsblock_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="sysevents_fbinit_method_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="sysevents_fbexit_method_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="sysevents_eventcallback_method_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Single Name="sysevents_resetget_property_guid" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+        <Array Name="parent_tasks" Type="System.Guid" />
+        <Single Name="device_app" Type="System.Guid">00000000-0000-0000-0000-000000000000</Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">35c69728-75ba-44b7-aaa2-3fee6bcad1b3</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+    <Single Type="{6198ad31-4b98-445c-927f-3258a0e82fe3}" Method="IArchivable">
+      <Single Name="IsRoot" Type="bool">False</Single>
+      <Single Name="MetaObject" Type="{81297157-7ec9-45ce-845e-84cab2b88ade}" Method="IArchivable">
+        <Single Name="Guid" Type="System.Guid">930ca74b-c3d6-4a54-8dee-e785392d308b</Single>
+        <Single Name="ParentGuid" Type="System.Guid">e7f54014-3b02-494d-b2e9-72dd5f5a650c</Single>
+        <Single Name="Name" Type="string">MainTask</Single>
+        <Dictionary Type="{2c41fa04-1834-41c1-816e-303c7aa2c05b}" Name="Properties" />
+        <Single Name="TypeGuid" Type="System.Guid">98a2708a-9b18-4f31-82ed-a1465b24fa2d</Single>
+        <Null Name="EmbeddedTypeGuids" />
+        <Single Name="Timestamp" Type="long">639191457463635102</Single>
+      </Single>
+      <Single Name="Object" Type="{98a2708a-9b18-4f31-82ed-a1465b24fa2d}" Method="IArchivable">
+        <Single Name="AllowEmpty" Type="bool">False</Single>
+        <Single Name="Kindoftask" Type="{38cb1f21-e463-4240-9171-f74fb561a060}">Cyclic</Single>
+        <List Name="CustomParameters" Type="{3e5ba045-1fc5-40ec-9ce7-4b62ec8ccfdf}" />
+        <List Name="IntervalParameters" Type="{3e5ba045-1fc5-40ec-9ce7-4b62ec8ccfdf}" />
+        <List Name="EventParameters" Type="{3e5ba045-1fc5-40ec-9ce7-4b62ec8ccfdf}" />
+        <List Name="ExternalEventParameters" Type="{3e5ba045-1fc5-40ec-9ce7-4b62ec8ccfdf}" />
+        <List Name="FreewheelingParameters" Type="{3e5ba045-1fc5-40ec-9ce7-4b62ec8ccfdf}" />
+        <Single Name="Priority" Type="string">1</Single>
+        <Single Name="Watchdog" Type="{97c20fcf-2c50-4dbb-8faa-06ff4f1e4275}" Method="IArchivable">
+          <Single Name="Enabled" Type="bool">False</Single>
+          <Single Name="Time" Type="{68e48988-4399-454b-ae43-e500b779c242}" Method="IArchivable">
+            <Single Name="Time" Type="string"></Single>
+            <Single Name="Unit" Type="string">ms</Single>
+          </Single>
+          <Single Name="Sensitivity" Type="string">1</Single>
+        </Single>
+        <Single Name="Interval" Type="{68e48988-4399-454b-ae43-e500b779c242}" Method="IArchivable">
+          <Single Name="Time" Type="string">500</Single>
+          <Single Name="Unit" Type="string">ms</Single>
+        </Single>
+        <Single Name="Event" Type="string"></Single>
+        <Single Name="ExternalEvent" Type="string"></Single>
+        <Single Name="TaskGuid" Type="System.Guid">8fc51510-3534-4325-9c50-1b2be21691ce</Single>
+        <Single Name="EventPOUGuid" Type="System.Guid">aa871cff-13bb-4f5a-afe5-2f284cd0a388</Single>
+        <List Name="PouList" Type="{33f568bb-4a2c-48cb-a762-34cca3066d03}">
+          <Single Type="{f194d1ef-7376-42ce-a729-4a5485a97a46}" Method="IArchivable">
+            <Single Name="Name" Type="string">PLC_PRG</Single>
+            <Single Name="Comment" Type="string"></Single>
+          </Single>
+        </List>
+        <Single Name="Implicit" Type="bool">False</Single>
+        <Single Name="WithinSPSTimeSlicing" Type="bool">True</Single>
+        <Single Name="Core" Type="int">-1</Single>
+        <Single Name="Core2" Type="int">-2</Single>
+        <Single Name="TaskGroup" Type="string">IEC-Tasks</Single>
+        <Single Name="SynchTask" Type="string"></Single>
+      </Single>
+      <Single Name="ParentSVNodeGuid" Type="System.Guid">e7f54014-3b02-494d-b2e9-72dd5f5a650c</Single>
+      <Array Name="Path" Type="string">
+        <Single Type="string">Device</Single>
+        <Single Type="string">PLC 逻辑</Single>
+        <Single Type="string">Application</Single>
+        <Single Type="string">任务配置</Single>
+      </Array>
+      <Single Name="Index" Type="int">-1</Single>
+    </Single>
+  </List2>
+  <Single Name="ProfileName" Type="string">CODESYS V3.5 SP16 Patch 1</Single>
+</Single>  </StructuredView>
+</ExportFile>
