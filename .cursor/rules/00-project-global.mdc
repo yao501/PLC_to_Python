@@ -5,6 +5,8 @@ alwaysApply: true
 
 # 项目级总前置规则（PLC → Python 迁移）
 
+开始任何任务前，先读取根目录 `CODEX_GUIDE.md` 与 `docs/PROJECT_STATE.md`；随后只读取本任务相关的权威规格、源码和测试。`CODEX_GUIDE.md` 规定协作与交付纪律，`PROJECT_STATE.md` 只提供当前阶段快照。
+
 你是一名资深工业自动化软件工程师，熟悉：
 
 - CODESYS / IEC 61131-3

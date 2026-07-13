@@ -1,0 +1,52 @@
+---
+description: 构建 Python 软 PLC 平台 / 运行时引擎（IR 程序模型、执行引擎、组件描述符、ST/CFC 前端、CFC 编辑器、CODESYS 导入、AI 集成）时使用的规则。当本轮任务涉及 src/runtime/、IR、扫描引擎、语言前端或平台层时自动参考。
+alwaysApply: false
+---
+
+# 平台 / 运行时引擎构建规则（阶段四）
+
+> 适用对象：Python 原生软 PLC 平台的运行时引擎与语言前端。在基础原语、业务功能块均已迁移完成后启动。
+> 本规则与 `00a-runtime-contract`（五步式、输出安全、时间单位）、`03-main-program`（主程序调度）联合解读。
+> 总纲：`docs/PLATFORM_ROADMAP.md`。地基规格：`docs/IR_SPEC.md`(v2) / `docs/ENGINE_SCAN_SPEC.md`(v2) / `docs/COMPONENT_CONTRACT.md`(v2) / `docs/TARGET_PROFILE.md` / `docs/GOLDEN_TRACE_FORMAT.md`。
+> **状态：IR 尚未工程冻结——须先过阶段 0.5 语义基线修订闸门，再进阶段 1。**
+
+## 定位
+
+项目已从"功能块逐个迁移"升级为"做一个 Python 原生软 PLC 平台"：支持 **ST + CFC** 编程，已迁移的 14 业务块 + 8 原语是**标准库**，目标是让控制逻辑与 AI/Python 程序在**同一平台/生态**一体化运行（控制运行时与 AI worker **分进程**，见决策 D-AI）。
+
+## 核心不变式（强制）
+
+1. **三层结构：源模型（ST AST / CFC 图）→ 语言无关可执行 IR（指令列表）→ 扫描引擎。** ST 与 CFC 都 **lower 到同一套可执行指令**（`IR_SPEC §5`），引擎只执行指令列表，按 `00a` 五步式每拍推进。**不是**只在 `execute(ctx)` 接口层统一。
+2. **IR 尚未冻结**：工程冻结在**阶段 0.5**完成后（`RISKS.md::PLATFORM-IR-1`/`EXEC-IR-1`）。冻结前后变更都须走评审。不得在上层私自绕过或扩展 IR 语义。
+3. **不改已迁移的标准库块**（engineering/F1 模式）。适配走外挂**块描述符**（`COMPONENT_CONTRACT.md`，D1）；既有 690 用例与块源码零改动。**例外**：F2 位级保真需块级 float32 版，另册描述符、按需立项（与零改动互斥，见 `TARGET_PROFILE §4`）。
+4. **分层不反向依赖**：标准库 → 组件模型 → IR → 引擎 → 安全服务 → 语言前端 → I/O/HAL。
+
+## 决策（D1/D2 确认；D3/D4/D5 已修订，见 STAGE0_DESIGN §9/§11）
+
+- **D1** 块元数据：外挂描述符（不碰 14 块），描述符含版本/状态/初始化/持久性/输入省略/序列化字段。
+- **D2** 多 PROGRAM 执行顺序：按 `Task.programs` 列表顺序。
+- **D3** CFC 顺序/反馈：**导入时保留**原始顺序模式/元素序号/网络拓扑/反馈起点，**不重新推断**；拓扑推断仅用于新建 CFC。
+- **D4** 整数：按目标画像，绑定模式——`fidelity` 按位宽回绕，`engineering` 不回绕。
+- **D5** REAL：双模式——`engineering`(float64+容差，默认) 与 `fidelity`(F1 边界 REAL32 / F2 块级 float32 位级)；位级保真与"块零改动"互斥。
+- **D-AI** AI 隔离：控制运行时与 AI worker **分进程** + 共享内存/IPC，同一平台体验。
+
+## 实现要求
+
+1. 引擎一拍严格按 `ENGINE_SCAN_SPEC §3`，过程映像（输入锁存/输出一次性提交）不得破坏。
+2. 业务逻辑只产生 `request`；物理输出按每个输出的 **`OutputPolicy`**（类型/安全值/失联/限速/联锁/保持）生成，**不是布尔 AND**（`ENGINE_SCAN_SPEC §4`）。安全默认值可非 0、支持模拟量。
+3. ST = 显式顺序 lower；CFC = **保留导入顺序**lower、反馈起点读上一拍（`LOAD_PREV`）。两者 lower 出同一指令列表。**注意**："反馈起点→`LOAD_PREV` 的边级映射"是待真机样本验证的**假设**（`RISKS.md::PLATFORM-CFC-FEEDBACK-MAP-1`），实现按假设推进，不得写成已确认事实。
+4. ST 前端语义边界（`SEL` 极性、整数/实数提升、`T#` 字面量、求值顺序）须建一致性测试套件（`PLATFORM-ST-CONFORMANCE-1`），复用 `src/compat`。
+5. 重 AI 推理**分进程**异步算、结果锁存、经门控采纳（`PLATFORM-AI-DETERMINISM-1`），复用 APCM/APARA"人工确认应用"范式。
+6. RETAIN/PERSISTENT、实时驱动、I/O/HAL 按阶段 7/8 落地，本阶段只在 IR/引擎预留接口。
+7. 数值模式（E/F1/F2）是**装载期**引擎配置，**禁止运行中热切换**（`IR_SPEC §8`）；F1 分 **F1-expr**（IR 表达式量化）与 **F1-boundary**（原生块管脚边界量化）两种子行为（`TARGET_PROFILE §4.2`），不进块；整数回绕发生点按 `int_intermediate_policy`（`IR_SPEC §5.4`，待真机裁决）。
+8. **MVP 优先、逐层验收**；图形编辑器排在语言工作最后。
+
+## 进阶段 1 的前置闸门（阶段 0.5）
+
+须先完成并通过评审：`TARGET_PROFILE.md`、可执行 IR（`IR_SPEC` v2）、`OutputPolicy`（`ENGINE_SCAN_SPEC` v2）、CFC 保真规则、描述符补全（`COMPONENT_CONTRACT` v2）、POU/RETAIN/AI 模型、黄金轨迹格式（`GOLDEN_TRACE_FORMAT.md`，实采为外部阻塞）。状态见 `RISKS.md` 三-A。
+
+## 交付纪律
+
+1. 每次交付同步更新 `docs/RISKS.md` 与本规则；禁止把风险只写在对话/docstring。
+2. 新增运行时代码置于 `src/runtime/`；标准库块描述符置于 `src/runtime/descriptors/`，不动 `src/blocks` 与 `src/primitives` 源码。
+3. 与用户交互始终使用中文。
