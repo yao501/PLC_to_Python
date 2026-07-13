@@ -8,7 +8,7 @@ alwaysApply: false
 > 适用对象：Python 原生软 PLC 平台的运行时引擎与语言前端。在基础原语、业务功能块均已迁移完成后启动。
 > 本规则与 `00a-runtime-contract`（五步式、输出安全、时间单位）、`03-main-program`（主程序调度）联合解读。
 > 总纲：`docs/PLATFORM_ROADMAP.md`。地基规格：`docs/IR_SPEC.md`(v2.2.2) / `docs/ENGINE_SCAN_SPEC.md`(v2.2.2) / `docs/COMPONENT_CONTRACT.md`(v2.1) / `docs/TARGET_PROFILE.md` / `docs/GOLDEN_TRACE_FORMAT.md`。
-> **状态：阶段 0.5 工程语义基线已冻结并通过写回复核；冻结不等于 Python 与目标 PLC 语义一致。阶段 0.5 Git 基线 PR 合并后进入阶段 1。**
+> **状态：阶段 0.5 工程语义基线已冻结并通过写回复核，Git 基线 PR #1 已合并；冻结不等于 Python 与目标 PLC 语义一致。完成本次基线后治理同步后进入阶段 1。**
 
 ## 定位
 

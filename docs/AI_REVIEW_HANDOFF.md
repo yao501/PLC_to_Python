@@ -51,7 +51,7 @@ FABLE_WORKING → READY_FOR_CODEX → CODEX_REVIEWING
 - closed_at: 2026-07-13
 - baseline_commit: 63e79fcb14ffb53a8ad584b7cfdc23267e08874e
 - baseline_branch: codex/current-baseline
-- baseline_pr: https://github.com/yao501/PLC_to_Python/pull/1（draft/open，尚未合并）
+- baseline_pr: https://github.com/yao501/PLC_to_Python/pull/1（已合并至 `main`，merge commit `3bff318ad59a181b45fc988665b2d2143f29ba5b`）
 - owner: user
 - round: 3
 - max_rounds: 3
