@@ -1,5 +1,6 @@
-# 程序模型规格（IR_SPEC）v2.2.2（阶段 0.5 冻结评审裁决写回）
+# 程序模型规格（IR_SPEC）v2.2.3（阶段 1 `StackSlot.index` 工程约定写回）
 
+> v2.2.3（2026-07-14，阶段 1 实现反馈写回）：在 §5.2 明确 `StackSlot.index` 的项目工程约定——它表示距调用点栈顶的偏移（`0` = 栈顶）；同一调用的 `IN × StackSlot` 索引必须为非负整数、互不重复并连续覆盖 `{0..k-1}`，绑定书写顺序不改变语义。该约定来自正式运行时实现与静态校验闭环，不是 CODESYS / IEC 61131-3 官方语义；后续执行器若需改变必须重新评审并同步规格、实现和测试。
 > v2.2.2（2026-07-12，D3 载体分支裁决写回）：`CFCGraph` 不再无条件要求"原样保留序号"，改为**载体分支字段**（§4：`execution_order_mode` / 可选 `execution_order_id` / `order_source` / 可选 `feedback_marker` / `carrier`）；CFC lowering 改为"**按已确定的执行序 lower**"（§6）——PLCopen XML 使用已保存序号，.export 自动模式等待后续重建算法，**算法未就绪时必须拒绝生成可执行 IR、不得静默猜测**。
 > v2.2.1（三轮评审一致性修正）：整数中间位宽改 **native_width 模型**（§5.4）；REAL 量化**唯一口径 = F1-expr/F2 逐指令 binary32**（§5.3，消除与 §5.4 矛盾）；`CALL_FUNC`/`CALL_FB_INSTANCE` **编码绑定表**（§5.2 `Binding`/`ValueRef`）；`InstanceDecl.kind` 区分库块/用户 FB；FUNCTION 语义子集禁止 GVL/地址访问（§3）。
 
@@ -158,6 +159,11 @@ class Binding:                # lowering 期生成，随 CALL_FUNC/CALL_FB_INSTA
     actual: "StoreKey | StackSlot | Const"   # 实参来源/去向（模式约束见下）
     type: str                 # IEC 类型（加载期与形参声明核对）
 
+@dataclass(frozen=True)
+class StackSlot:             # 调用点求值栈中的一个位置（项目工程约定）
+    index: int               # 距调用点栈顶的偏移：0 = 栈顶，1 = 栈顶下一项，依此类推
+    writable: bool = False   # 是否允许作为 OUT 写回候选；当前阶段执行器未定义前可保守拒绝
+
 @dataclass
 class ValueRef:               # INOUT 的运行期形态：指向 Store 键的别名引用
     key: str                  # 被调方读写即直接作用于该键（与库块 RealRef 语义对齐）
@@ -165,6 +171,14 @@ class ValueRef:               # INOUT 的运行期形态：指向 Store 键的�
 ```
 
 语义：`IN` = 求值后拷入帧/实例管脚；`OUT` = 执行后拷回 `actual`；`INOUT` = 以 `ValueRef` 传入，禁止值拷贝往返。**`actual` 按模式约束（加载期校验）**：`IN` 可接受 `StoreKey`/`StackSlot`/`Const`；`OUT` 只能绑定**可写位置**（`StoreKey`/可写 `StackSlot`，禁止 `Const`）；`INOUT` 必须绑定**可写 `StoreKey`**（运行期化为 `ValueRef`，禁止 `Const` 与普通值拷贝）。绑定表在 lowering 期做齐全性检查（必连形参缺失 = 加载错误）。
+
+**`StackSlot.index` 唯一口径（项目工程约定）**：
+
+- `index` 是相对调用点栈顶的偏移，`0` 表示栈顶；它不是绑定在列表中的书写序号。
+- 同一调用中所有 `IN × StackSlot` 的 `index` 必须是非负整数、互不重复，并恰好连续覆盖 `{0..k-1}`；加载器按索引定位并核对类型，绑定条目的书写顺序不改变取值语义，调用时消费这 `k` 个栈值。
+- 负数、布尔值、非整数、重复、不连续、栈深不足或索引所指值类型不匹配均为加载错误，必须阻止 IR 进入执行层。
+- `OUT × writable StackSlot` 在模型层保留，但在调用帧写回语义尚未由阶段 1 执行器正式实现并测试前，加载器允许保守拒绝；放开该形态必须同步规格、实现与反证测试。
+- 本约定用于保证前端/lowering/加载器/执行器对同一字段的解释一致，**不是** CODESYS 或 IEC 61131-3 官方栈编码语义；若执行器工作包发现需要改变，必须重新走规格裁决。
 
 ### 5.3 数值模式钩子（D4/D5；v2.2.1 统一口径）
 

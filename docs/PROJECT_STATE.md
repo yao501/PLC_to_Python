@@ -2,22 +2,23 @@
 
 > **用途**：跨会话记忆载体。每个 AI 会话开始时**先读本文件**（配合 `CODEX_GUIDE.md` 长期工作方针）。
 > **更新纪律**：仅当阶段、版本、完成项、阻塞项或下一步发生**实质变化**时更新，不做无意义编辑；只保留"当前状态 + 决策索引 + 下一步"，不写过程叙事；超过 150 行就该精简。
-> 最后更新：2026-07-13（**阶段 0.5 语义基线：已冻结通过**——冻结评审 2026-07-12 有条件通过后，权威文档写回经三轮自动"实施—审核"往返（`AI_REVIEW_HANDOFF.md::WP-20260712-001`），Codex Round 3 只读复核 **APPROVED**（2026-07-13 00:14，scope SHA-256 起止一致、无漂移），冻结条件"写回 + 一次只读复核"已全部满足。**边界不变：冻结的是工程语义基线（含项目工程约定），不是"Python 与 CODESYS PLC 语义一致"——PLC 一致性属阶段 6 对拍范围**。**阶段 0.5 综合基线和基线后治理状态同步已通过 PR #1/#2 落入 `main`，已跟踪的 `.DS_Store` 已停止跟踪并由 `.gitignore` 持续排除；当前动作：准备阶段 1 首个代码工作包**。冻结时须明确三句话：① 本试验证明的是"真实导出最小导入可行"、非"Python 与 PLC 语义一致"；② PLCopen XML 为阶段 5 导入器候选首选载体（显式带 executionOrderId）；③ LOAD_PREV/反馈映射已有正面证据，但 .export `IsFeedbackStart` 落点、真机黄金轨迹、REAL/整数细节仍属后续验证项）
+> 最后更新：2026-07-14（**阶段 1 首个正式代码工作包已关闭**：`AI_REVIEW_HANDOFF.md::WP-20260713-002` 完成正式 L3 IR 内存模型与装载期静态校验，Fable5 两轮实施/返修后由 Codex Round 2 复核 `APPROVED`，用户确认 `CLOSED`。`StackSlot.index` 的栈顶偏移语义已作为**项目工程约定**写入 `IR_SPEC` v2.2.3；它不是 CODESYS / IEC 官方语义。最新 Python 验证记录为 IR 56/56、正式 tests 746/746、0.5 原型 68/68、全仓 814/814，**只证明当前 Python 模型与静态校验行为，不证明与目标 PLC 语义一致**。当前进入阶段 1 后续内核工作：先建立变量 Store、实例状态与过程映像基础，再实现显式顺序指令执行和五步扫描。）
 
 ---
 
 ## 1. 项目一句话
 
-把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库（最近全仓测试 758 项，见 §2 验证证据），目标是控制+AI 同平台一体化（分进程）。
+把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库，并已建立正式 L3 IR 模型与装载期静态校验（最近全仓测试 814 项，见 §2 验证证据），目标是控制+AI 同平台一体化（分进程）。
 
 ## 2. 当前位置
 
-- **验证证据**（2026-07-13，Codex 建立 Git 基线前实际运行）：既有基线 `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` = **690/690 通过**；原型 `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` = **68/68 通过**；全仓 `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -t .` = **758/758 通过**。这些结果证明当前 Python 测试通过，不证明与目标 PLC 语义一致。
+- **验证证据**（2026-07-14，Codex 对 `WP-20260713-002` Round 2 独立复跑）：定向 `tests.test_runtime_ir` = **56/56 通过**；正式 tests = **746/746 通过**；0.5 原型 = **68/68 通过**；全仓 = **814/814 通过**。这些结果证明当前 Python IR 模型、静态校验与既有行为未回退，不证明与目标 PLC 语义一致。
 
 - **阶段 0.5（语义基线修订）**，文档侧已完成**三轮**外部评审（ChatGPT5.5）修正；评审方判断"主体架构已站住，无需再大规模文档重构"。
-- 规格版本：`IR_SPEC` **v2.2.2** / `ENGINE_SCAN_SPEC` **v2.2.2**（2026-07-12 冻结裁决写回）/ `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
+- 规格版本：`IR_SPEC` **v2.2.3**（0.5 冻结基线 v2.2.2 + 阶段 1 `StackSlot.index` 工程约定写回）/ `ENGINE_SCAN_SPEC` **v2.2.2** / `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
+- **阶段 1 首个正式工作包已完成**（`WP-20260713-002`，2026-07-14 `CLOSED`）：新增 `src/runtime/ir.py`、`src/runtime/loader.py`、稳定导出入口与 56 项定向测试，覆盖正式 IR 值对象、POU/实例/任务模型、声明与引用校验、控制流感知栈类型验证、调用绑定校验、固定 500ms 单任务边界和 `StackSlot.index` 反证测试；尚未实现执行器、Store、过程映像、扫描循环或安全服务。
 - **0.5 可执行验证原型已完成并经两轮定向返修**（Fable5 实施，`prototype_05/`，一次性代码）：最小指令集 + TON 经描述符 + BOOL OutputPolicy + ST/CFC 双路径同指令列表跑 24 拍 + 5 个语义敏感案例。Codex 首轮 6 条（驱动异常提交隔离、绑定 actual 类型、OutputPolicy 校验、无 LPC 基准、纯整数 DIV/MOD、文档对齐）+ 二轮 2 条（Binding 表结构校验：重复 formal/非法 actual_kind/const 值类型；安全配置 NaN/Infinity/整数范围拒绝）均修复，每条有反证测试（`prototype_05/tests/test_review_rework.py`）。
-- **下一步（按序）**：~~① Codex 代码复核~~✅ → ~~② CODESYS 最小导入试验~~✅（2026-07-09，`prototype_05/import_trial/FINDINGS.md`）→ ~~③a Codex 审核导入试验~~✅ → ~~③b 0.5 冻结评审~~✅（2026-07-12 **有条件通过**：`PLATFORM-OUTPUT-BASELINE-1` 通过并冻结为项目工程约定；D3 载体分支裁决）→ ~~③c 权威文档写回~~✅ → ~~③d Codex 定向只读复核~~✅（R3 APPROVED，冻结生效）→ ~~④ WP CLOSED + 阶段 0.5 综合基线提交、推送~~✅（`63e79fc`）→ ~~⑤ PR #1 合并基线 + PR #2 同步治理状态~~✅ → ~~⑥ 清理已跟踪的 `.DS_Store`~~✅ → **进入阶段 1，先建立首个聚焦代码工作包**。外部依赖（可并行）：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
+- **下一步（按序）**：① 建立阶段 1 第二个聚焦工作包：变量 Store、实例状态和过程映像基础；② 在该底座上实现显式顺序 IR 指令执行与调用帧；③ 再进入五步扫描和安全服务。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
 
 ## 3. 文档权威地图（谁说了算）
 
