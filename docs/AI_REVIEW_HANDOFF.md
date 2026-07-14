@@ -292,3 +292,66 @@ CLOSED:             owner=user     handoff_to=user
 - 审核证据:审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=9ef480f498fbaafcb41bda022982e16eac4ab297b5536c42eef21fe535b5b655`，`review_finished_sha256=9ef480f498fbaafcb41bda022982e16eac4ab297b5536c42eef21fe535b5b655`。逐文件 SHA-256：`src/runtime/__init__.py=d48c21a764b451669aa25b1a446e97898d35397fcd1414ec921906fe8d28b364`，`src/runtime/ir.py=35ec127ddd8a1093710f90d173ac7b32ae3d007724838493296a4543fe92084c`，`src/runtime/loader.py=d8d2903d60638755390fcaf2d599111e22d0b3836005876c510b59094ebeb5bd`，`tests/test_runtime_ir.py=e0773c5f1558efd3638c9111520970f8d4a6585317bb9974e270b12600807fca`。本轮 Codex 还独立复跑了 4 组测试并与交接记录一致：`python -m unittest tests.test_runtime_ir` = 56/56、`python -m unittest discover -s tests -t .` = 746/746、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -s . -t .` = 814/814（均在 `PYTHONDONTWRITEBYTECODE=1` 下实际运行）。
 - handoff_to: user
 - reviewed_at: 2026-07-14 06:15 CST
+
+---
+
+## WP-20260714-003
+
+- title: 阶段 1 运行时 Store、实例状态与过程映像基础
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-14
+- closure_note: 用户接受 Codex Round 1 `APPROVED` 结论，并授权 Codex 完成持久 Store 键工程约定写回、项目状态同步及 Git/GitHub 发布收尾。
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 3
+- base_commit: cfafd77c70d80ab3e805284f1b8d4e6030891ce2
+- created_by: user
+- created_at: 2026-07-14
+- scope:
+  - src/runtime/store.py
+  - src/runtime/process_image.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_store.py
+- scope_baseline_sha256: 67106a374db217f71d507c18c2309b049f935e0f649f9045cca5e80dab528ba9
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/store.py`
+  - `ABSENT  src/runtime/process_image.py`
+  - `d48c21a764b451669aa25b1a446e97898d35397fcd1414ec921906fe8d28b364  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_store.py`
+- 开工核验（2026-07-14，Fable5 只读）：分支 main；HEAD=cfafd77c70d80ab3e805284f1b8d4e6030891ce2 与 origin/main 一致；工作区无未提交修改；PR #4 已合并（HEAD 即其 merge commit）；WP-20260713-002 已 CLOSED。任务书全文由用户在会话中提供（目标/禁止项/测试要求以其为准，与本文件协议区并行有效）。
+
+### Fable5 实施交接（Round 1）
+
+- 完成内容：按任务书第四节三项逐一落地。**① Store（`src/runtime/store.py`）**：扁平变量空间、声明制（未声明键读/写抛 `UnknownStoreKeyError`，不静默创建）、每键保存声明 IEC 类型与值、重复声明抛 `DuplicateStoreKeyError`、类型非法/值与声明类型不匹配抛 `StoreTypeError`（工程结构性检查：BOOL→bool、整数族/位串/TIME→int（排除 bool）、REAL/LREAL→float、STRING→str，**不做任何转换**）；`snapshot()` 生成只读 `StoreSnapshot`（无写接口，与源 Store 完全隔离，后续写入不影响快照）；retain/persistent 仅存元数据（`retain_flags()` 查询），无任何恢复/持久化 API。**② 运行实例状态（同文件）**：`build_runtime_store(task)` 先防御性执行 `validate_task` 再建布局——GVL 裸名声明；每 `ProgramInstance` 只创建一次；user_fb 按声明路径递归展开（嵌套路径如 `PLC_PRG.O1.Sub`），每实例独立持久状态；`init_overrides` 覆盖 `initial`，指向不存在变量抛 `InstanceLayoutError`（不静默丢失），值同样过类型检查；library 实例仅登记 `(path, decl)` 于 `RuntimeLayout.library_instances`，**不猜测管脚、不分配键**（L2 边界显式保留）；FUNCTION 不建实例；VAR_TEMP/VAR_IN_OUT 不分配持久键（VAR_IN_OUT 为引用别名无自身存储）;"运行期调用不创建实例"由"布局建立后 Store 拒绝新键"从机制上保证。**持久键格式集中于单一 helper `persistent_key(path, var)` = `<实例全路径>.<变量名>`**（详见下方设计说明）。**③ 过程映像（`src/runtime/process_image.py`）**：`latch_inputs()` 两阶段——先对 IN 映射完整校验（重复通道/重复变量/非法方向/未知通道/缺失通道/目标未声明/类型不匹配均 `InputImageError`）并形成 `InputSnapshot`（只读、值副本,外部 samples 后续修改不影响）,全部通过后才一次性写 Store,**任何错误发生在第一次写入之前**（无部分更新）;`OutputPending` 最小容器（通道集与类型来自 io_map OUT + GVL 声明类型,`stage()` 仅暂存,无 commit/driver API,业务 Store 写入不自动进入容器）;`make_prev_snapshot()` 提供 prev 快照基础 API,提交时机由后续扫描引擎决定。**④ 出口（`src/runtime/__init__.py`）**追加导出上述 API。**⑤ 测试（`tests/test_runtime_store.py`,24 项）**覆盖任务书 17 条最低要求逐条对号（测试内注释标注"要求 N"）。
+- 修改文件：`src/runtime/store.py`（新建）、`src/runtime/process_image.py`（新建）、`src/runtime/__init__.py`（追加导出）、`tests/test_runtime_store.py`（新建）——与基线清单一致。
+- 明确未修改：`src/runtime/ir.py`、`src/runtime/loader.py`（SHA 与基线一致,可核）、全部业务块/原语、`docs/PROJECT_STATE.md`（按任务书待关闭后由 Codex 统一同步）、其余 scope 外零改动（交接文件除外）;未实现 IR 执行/求值栈/调用帧/CALL_*/数值运算/转换/量化/回绕/五步扫描/连接解算/lowering/OutputPolicy/门控/shadow/watchdog/HAL/驱动提交/RETAIN 持久化;未从 prototype_05 导入（测试 17 以子进程干净导入验证 + 源码扫描双保险）;零 Git 操作。
+- API 与实例键设计说明：**(a) 持久键格式（工程约定,单一落点）**——`IR_SPEC §7` 定义了 GVL=`<var>`、实例引脚=`<instance>.<pin>`、调用帧局部=`<pou>#<frame>.<var>`,未显式裁决 PROGRAM/FB **持久**状态键。本包约定 `persistent_key(path, var)` = `<实例全路径>.<变量名>`（PROGRAM 路径=store_prefix;FB 路径=父路径+"."+实例名）,与 §3 `FBInstance.path` 及 §7 `<instance>.<pin>` 点分形态一致组合,不改动 §7 已定义的三类键;格式集中于该 helper,评审若另定格式仅改一处。判断其为"§7 的自然组合补足"而非可观察语义变更,故未置 BLOCKED——若 Codex 认为属规格裁决请改判。**(b) 进入持久 Store 的区段** = VAR_INPUT/VAR_OUTPUT/VAR（VAR_IN_OUT 别名、VAR_TEMP 每次清零,均不占持久键）。**(c) 类型检查口径**：REAL/LREAL 严格要求 float（int 初值/写入被拒）——这是 Python 侧工程收紧,保证"赋值转换必须经 CONVERT 显式化"（IR_SPEC §5.1）的边界不被 Store 层软化,不是 IEC 官方语义。
+- 测试命令与实际结果（2026-07-14 本轮实际运行,Fable5,均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_store -v` → Ran **24** tests, OK。
+  2. `python -m unittest tests.test_runtime_ir -v` → Ran **56** tests, OK。
+  3. `python -m unittest discover -s tests -t .` → Ran **770** tests, OK（746 既有 + 24 新增,零破坏）。
+  4. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  5. `python -m unittest discover -t .` → Ran **838** tests, OK（770 + 68）。
+  过程记录：测试 17 首版在本进程查 `sys.modules`,全仓 discovery 下被原型测试加载污染而误报失败;已改为子进程干净导入验证,五组随后全绿——该次失败与修正如实留档。
+- 已知疑问与延后边界：① 持久键格式约定见上,请审核裁决是否需升格写入 `IR_SPEC §7`;② REAL 严格 float 检查对 lowering 期字面量（Python 中写 `0` 而非 `0.0`）不宽容,若前端工作包认为应放宽,属约定变更需评审;③ `OutputPending` 以**通道**为键（io_map OUT 的 channel）,`ENGINE_SCAN_SPEC §2` 的 `output_pending: dict` 未定键型,按 §3 第 4 步"per ch"选 channel,请审核确认;④ 库块实例的管脚键与内部状态留待 L2 描述符工作包,布局仅登记路径;⑤ RETAIN/PERSISTENT 元数据已随键保存,快照/恢复时机属阶段 8（ENGINE §6）。
+- scope_sha256: 0ff96dddbd407d644989e9512d3b7e3afd5baecc178be554639fa6aeb2a0fa1c
+- scope_manifest:
+  - `46a7b9484f73e89413c567d60b8e85470bf2b888c2141c403316ee0ac4194a3a  src/runtime/store.py`
+  - `ba64cb8a267c27dd6a162832ecbe09007f18427d450638a1d33b3143d2a86199  src/runtime/process_image.py`
+  - `5804a5eaa665fd1361ab8fb17618790c4ebcddf5ded2e0f3e3695c479e1d38a9  src/runtime/__init__.py`
+  - `cfa73f025e3a9f060e9962e8d1a46af617cee6f44efcf3ae252438498321a9a7  tests/test_runtime_store.py`
+- implementation_finished_at: 2026-07-14
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实: `src/runtime/store.py:121-127,185-319` 已建立持久键 helper、声明制 Store、只读快照与按实例路径递归展开的运行时布局；`src/runtime/process_image.py:80-137,144-211` 把输入锁存实现为“先全量校验、后一次性写入”，并把 `output_pending` / `prev` 基础 API 与业务 Store 显式分离；`src/runtime/__init__.py:1-57` 只导出正式运行时 API，没有复用 `prototype_05`。`tests/test_runtime_store.py:93-419` 覆盖了工作包列出的 17 类底线行为，包括未知键/类型错误、实例隔离、输入原子锁存、输出待提交容器、prev 快照隔离和子进程验证“正式包不导入 prototype_05”。这些实现与 `docs/IR_SPEC.md:95-106,173,235-260`、`docs/ENGINE_SCAN_SPEC.md:28-51,158`、`docs/PLATFORM_ROADMAP.md:136-144` 当前阶段边界一致。
+- 项目工程约定: 本轮实现把 PROGRAM/FB 持久键集中约定为 `<实例全路径>.<变量名>`（`src/runtime/store.py:29-36,121-127`），并把 REAL/LREAL 的 Store 层检查收紧为“只接受 float，不做隐式 int→REAL 放宽”（`src/runtime/store.py:99-114,193-217`）；这两点都已在代码中明确标成项目工程约定/工程收紧，没有包装成 IEC 或 CODESYS 官方语义。`OutputPending` 以物理 `channel` 为键（`src/runtime/process_image.py:144-190`），与 `docs/ENGINE_SCAN_SPEC.md:28,44-50` 的 `output_pending[ch]` 口径一致。
+- 待真机验证假设: 本包仍正确保留后续阶段边界，未把它们升级为既成事实：REAL32 量化、整数回绕/越界、OutputPolicy/驱动提交/shadow/watchdog、RETAIN/PERSISTENT 恢复以及库块管脚/内部状态都未在本包实现，证据见 `src/runtime/store.py:15-27`、`src/runtime/process_image.py:18-20`，与 `docs/ENGINE_SCAN_SPEC.md:56-163`、`docs/IR_SPEC.md:259-260` 一致。当前 Python 测试只证明运行时内存底座行为，不证明与目标 PLC 语义一致。
+- 必须返修: 无。
+- 非阻塞建议: 若后续 lowering/执行器/外部工具需要直接依赖 PROGRAM/FB 持久键格式或 `OutputPending` 键型，建议单独开工作包把这些工程约定写回 `docs/IR_SPEC.md` / `docs/ENGINE_SCAN_SPEC.md`，避免约束只停留在实现层 docstring。
+- 审核证据: `review_started_sha256=0ff96dddbd407d644989e9512d3b7e3afd5baecc178be554639fa6aeb2a0fa1c`，`review_finished_sha256=0ff96dddbd407d644989e9512d3b7e3afd5baecc178be554639fa6aeb2a0fa1c`。逐文件 SHA-256：`src/runtime/store.py=46a7b9484f73e89413c567d60b8e85470bf2b888c2141c403316ee0ac4194a3a`，`src/runtime/process_image.py=ba64cb8a267c27dd6a162832ecbe09007f18427d450638a1d33b3143d2a86199`，`src/runtime/__init__.py=5804a5eaa665fd1361ab8fb17618790c4ebcddf5ded2e0f3e3695c479e1d38a9`，`tests/test_runtime_store.py=cfa73f025e3a9f060e9962e8d1a46af617cee6f44efcf3ae252438498321a9a7`。本轮 Codex 独立复跑 5 组测试且与实施交接一致：`python -m unittest tests.test_runtime_store -v` = 24/24、`python -m unittest tests.test_runtime_ir -v` = 56/56、`python -m unittest discover -s tests -t .` = 770/770、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -t .` = 838/838（均在 `PYTHONDONTWRITEBYTECODE=1` 下实际运行）。
+- handoff_to: user
+- reviewed_at: 2026-07-14 14:50 CST

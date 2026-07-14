@@ -22,8 +22,26 @@ from src.runtime.ir import (
     POUDefinition, ProgramInstance, FBInstance, Task,
 )
 from src.runtime.loader import IRValidationError, validate_task
+from src.runtime.store import (
+    Store, StoreSnapshot, RuntimeLayout,
+    StoreError, UnknownStoreKeyError, DuplicateStoreKeyError,
+    StoreTypeError, InstanceLayoutError,
+    build_runtime_store, persistent_key, check_value_type,
+)
+from src.runtime.process_image import (
+    ProcessImageError, InputImageError, OutputImageError,
+    InputSnapshot, OutputPending, latch_inputs, make_prev_snapshot,
+)
 
 __all__ = [
+    # 运行时 Store 与实例布局（WP-20260714-003）
+    "Store", "StoreSnapshot", "RuntimeLayout",
+    "StoreError", "UnknownStoreKeyError", "DuplicateStoreKeyError",
+    "StoreTypeError", "InstanceLayoutError",
+    "build_runtime_store", "persistent_key", "check_value_type",
+    # 过程映像基础（WP-20260714-003）
+    "ProcessImageError", "InputImageError", "OutputImageError",
+    "InputSnapshot", "OutputPending", "latch_inputs", "make_prev_snapshot",
     "IEC_TYPES", "INT_TYPES", "SIGNED_INT_TYPES", "UNSIGNED_INT_TYPES",
     "BIT_TYPES", "REAL_TYPES", "NUMERIC_TYPES", "LOGIC_TYPES", "ORDERED_TYPES",
     "BINOP_OPS", "BINOP_ARITH_OPS", "BINOP_LOGIC_OPS", "BINOP_COMPARE_OPS",

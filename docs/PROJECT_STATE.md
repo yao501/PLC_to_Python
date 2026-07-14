@@ -2,23 +2,23 @@
 
 > **用途**：跨会话记忆载体。每个 AI 会话开始时**先读本文件**（配合 `CODEX_GUIDE.md` 长期工作方针）。
 > **更新纪律**：仅当阶段、版本、完成项、阻塞项或下一步发生**实质变化**时更新，不做无意义编辑；只保留"当前状态 + 决策索引 + 下一步"，不写过程叙事；超过 150 行就该精简。
-> 最后更新：2026-07-14（**阶段 1 首个正式代码工作包已关闭**：`AI_REVIEW_HANDOFF.md::WP-20260713-002` 完成正式 L3 IR 内存模型与装载期静态校验，Fable5 两轮实施/返修后由 Codex Round 2 复核 `APPROVED`，用户确认 `CLOSED`。`StackSlot.index` 的栈顶偏移语义已作为**项目工程约定**写入 `IR_SPEC` v2.2.3；它不是 CODESYS / IEC 官方语义。最新 Python 验证记录为 IR 56/56、正式 tests 746/746、0.5 原型 68/68、全仓 814/814，**只证明当前 Python 模型与静态校验行为，不证明与目标 PLC 语义一致**。当前进入阶段 1 后续内核工作：先建立变量 Store、实例状态与过程映像基础，再实现显式顺序指令执行和五步扫描。）
+> 最后更新：2026-07-14（**阶段 1 前两个正式代码工作包已关闭**：`WP-20260713-002` 完成 L3 IR 内存模型与装载期静态校验；`WP-20260714-003` 完成声明制 Store、装载期实例展开、原子输入锁存、输出待提交容器与 `prev` 快照基础，Fable5 Round 1 实施后由 Codex 独立复核 `APPROVED`，用户确认 `CLOSED`。持久 Store 键 `<实例全路径>.<变量名>` 已作为**项目工程约定**写入 `IR_SPEC` v2.2.4，它不是 CODESYS / IEC 官方命名语义。最新 Python 验证记录为 Store 24/24、IR 56/56、正式 tests 770/770、0.5 原型 68/68、全仓 838/838，**只证明当前 Python 运行时内存底座与静态校验行为，不证明与目标 PLC 语义一致**。下一个聚焦工作包为显式顺序 IR 指令执行与调用帧，之后再进入五步扫描和安全服务。）
 
 ---
 
 ## 1. 项目一句话
 
-把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库，并已建立正式 L3 IR 模型与装载期静态校验（最近全仓测试 814 项，见 §2 验证证据），目标是控制+AI 同平台一体化（分进程）。
+把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库，并建立了正式 L3 IR、静态校验、Store、实例布局与过程映像基础（最近全仓测试 838 项，见 §2），目标是控制+AI 同平台一体化（分进程）。
 
 ## 2. 当前位置
 
-- **验证证据**（2026-07-14，Codex 对 `WP-20260713-002` Round 2 独立复跑）：定向 `tests.test_runtime_ir` = **56/56 通过**；正式 tests = **746/746 通过**；0.5 原型 = **68/68 通过**；全仓 = **814/814 通过**。这些结果证明当前 Python IR 模型、静态校验与既有行为未回退，不证明与目标 PLC 语义一致。
+- **验证证据**（2026-07-14，Codex 对 `WP-20260714-003` Round 1 独立复跑）：定向 `tests.test_runtime_store` = **24/24 通过**，`tests.test_runtime_ir` = **56/56 通过**；正式 tests = **770/770 通过**；0.5 原型 = **68/68 通过**；全仓 = **838/838 通过**。这些结果证明当前 Python 内存底座、过程映像基础、IR 模型与静态校验行为未回退，不证明与目标 PLC 语义一致。
 
 - **阶段 0.5（语义基线修订）**，文档侧已完成**三轮**外部评审（ChatGPT5.5）修正；评审方判断"主体架构已站住，无需再大规模文档重构"。
-- 规格版本：`IR_SPEC` **v2.2.3**（0.5 冻结基线 v2.2.2 + 阶段 1 `StackSlot.index` 工程约定写回）/ `ENGINE_SCAN_SPEC` **v2.2.2** / `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
-- **阶段 1 首个正式工作包已完成**（`WP-20260713-002`，2026-07-14 `CLOSED`）：新增 `src/runtime/ir.py`、`src/runtime/loader.py`、稳定导出入口与 56 项定向测试，覆盖正式 IR 值对象、POU/实例/任务模型、声明与引用校验、控制流感知栈类型验证、调用绑定校验、固定 500ms 单任务边界和 `StackSlot.index` 反证测试；尚未实现执行器、Store、过程映像、扫描循环或安全服务。
+- 规格版本：`IR_SPEC` **v2.2.4**（0.5 冻结基线 v2.2.2 + 阶段 1 `StackSlot.index` / 持久 Store 键两项工程约定写回）/ `ENGINE_SCAN_SPEC` **v2.2.2** / `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
+- **阶段 1 前两个正式工作包已完成**（`WP-20260713-002` / `WP-20260714-003`，均于 2026-07-14 `CLOSED`）：已有正式 IR 值对象、装载期静态校验、声明制 Store 与隔离快照、PROGRAM/用户 FB 实例布局、原子输入锁存、输出待提交容器及 80 项运行时定向测试（56 IR + 24 Store）。尚未实现显式顺序执行器、调用帧、五步扫描、OutputPolicy 或安全服务。
 - **0.5 可执行验证原型已完成并经两轮定向返修**（Fable5 实施，`prototype_05/`，一次性代码）：最小指令集 + TON 经描述符 + BOOL OutputPolicy + ST/CFC 双路径同指令列表跑 24 拍 + 5 个语义敏感案例。Codex 首轮 6 条（驱动异常提交隔离、绑定 actual 类型、OutputPolicy 校验、无 LPC 基准、纯整数 DIV/MOD、文档对齐）+ 二轮 2 条（Binding 表结构校验：重复 formal/非法 actual_kind/const 值类型；安全配置 NaN/Infinity/整数范围拒绝）均修复，每条有反证测试（`prototype_05/tests/test_review_rework.py`）。
-- **下一步（按序）**：① 建立阶段 1 第二个聚焦工作包：变量 Store、实例状态和过程映像基础；② 在该底座上实现显式顺序 IR 指令执行与调用帧；③ 再进入五步扫描和安全服务。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
+- **下一步（按序）**：① 建立阶段 1 第三个聚焦工作包：显式顺序 IR 指令执行、求值栈与调用帧；② 在执行器上组装五步扫描循环；③ 再接入 OutputPolicy 和安全服务。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
 
 ## 3. 文档权威地图（谁说了算）
 
@@ -38,7 +38,7 @@
 
 - D1 外挂描述符（块零改动）；D2 programs 列表顺序；**D3 载体分支（2026-07-12 裁决）**：PLCopen XML 保留显式 `executionOrderId`（首选载体）、.export 自动模式序号须重建（算法未冻结，未就绪拒绝生成可执行 IR）、新建图拓扑定序；D4/D5 数值双模式 E/F1/F2；D-AI 控制与 AI 分进程。
 - **OutputPolicy 物理基准与复位（2026-07-12 裁决，项目工程约定）**：边界首拍基准 = 可信反馈优先，否则 `safe_value`；`last_physical_committed` 不冒充反馈；`channel_fault` 锁存、显式复位（`ENGINE_SCAN_SPEC` v2.2.2 §4.1/§4.4）。
-- IR：全类型化指令 + TypedValue 栈 + 加载期类型验证；POU 定义与实例分离（实例装载期展开，调用不建实例）。
+- IR：全类型化指令 + TypedValue 栈 + 加载期类型验证；POU 定义与实例分离（实例装载期展开，调用不建实例）；PROGRAM/用户 FB 持久 Store 键 = `<实例全路径>.<变量名>`（项目工程约定，非 CODESYS/IEC 官方命名语义）。
 - F1 = 边界量化（F1-expr/F1-boundary 两子行为），**不承诺** bit-exact；F2 = 位级候选须真机证明；模式禁止热切换。
 - OutputPolicy 按故障原因分策略，safety/scan_fault/watchdog 强制 safe；last_effective / last_physical_committed 两层。
 - 注册表键 `(block_type, variant)`；Pin 省略语义四值枚举。
