@@ -1,5 +1,6 @@
-# 程序模型规格（IR_SPEC）v2.2.3（阶段 1 `StackSlot.index` 工程约定写回）
+# 程序模型规格（IR_SPEC）v2.2.4（阶段 1 Store 持久键工程约定写回）
 
+> v2.2.4（2026-07-14，阶段 1 实现反馈写回）：在 §7 明确 PROGRAM / 用户 FUNCTION_BLOCK 持久状态的扁平 Store 键为 `<实例全路径>.<变量名>`；PROGRAM 全路径取 `ProgramInstance.store_prefix`，嵌套 FB 全路径按父路径递归追加实例名。键生成必须集中在单一 helper，调用不得创建新的持久实例键。这是本项目运行时工程约定，不是 CODESYS / IEC 61131-3 官方键编码语义。
 > v2.2.3（2026-07-14，阶段 1 实现反馈写回）：在 §5.2 明确 `StackSlot.index` 的项目工程约定——它表示距调用点栈顶的偏移（`0` = 栈顶）；同一调用的 `IN × StackSlot` 索引必须为非负整数、互不重复并连续覆盖 `{0..k-1}`，绑定书写顺序不改变语义。该约定来自正式运行时实现与静态校验闭环，不是 CODESYS / IEC 61131-3 官方语义；后续执行器若需改变必须重新评审并同步规格、实现和测试。
 > v2.2.2（2026-07-12，D3 载体分支裁决写回）：`CFCGraph` 不再无条件要求"原样保留序号"，改为**载体分支字段**（§4：`execution_order_mode` / 可选 `execution_order_id` / `order_source` / 可选 `feedback_marker` / `carrier`）；CFC lowering 改为"**按已确定的执行序 lower**"（§6）——PLCopen XML 使用已保存序号，.export 自动模式等待后续重建算法，**算法未就绪时必须拒绝生成可执行 IR、不得静默猜测**。
 > v2.2.1（三轮评审一致性修正）：整数中间位宽改 **native_width 模型**（§5.4）；REAL 量化**唯一口径 = F1-expr/F2 逐指令 binary32**（§5.3，消除与 §5.4 矛盾）；`CALL_FUNC`/`CALL_FB_INSTANCE` **编码绑定表**（§5.2 `Binding`/`ValueRef`）；`InstanceDecl.kind` 区分库块/用户 FB；FUNCTION 语义子集禁止 GVL/地址访问（§3）。
@@ -232,7 +233,12 @@ int_overflow_convert_policy: str = "TBD"     # 越界 CONVERT / 有符号溢出�
 
 ## 7. 变量空间命名
 
-GVL：`<var>`；实例引脚：`<instance>.<pin>`；POU 局部/temp：`<pou>#<frame>.<var>`（带帧号区分递归/多实例）。
+- GVL：`<var>`。
+- PROGRAM / 用户 FUNCTION_BLOCK 的**持久状态**：`<instance_path>.<var>`。PROGRAM 的 `instance_path` = `ProgramInstance.store_prefix`；嵌套 FB 的 `instance_path` = `<parent_path>.<InstanceDecl.name>`，装载期递归展开。`VAR` / `VAR_INPUT` / `VAR_OUTPUT` 按该路径分配；`VAR_IN_OUT` 是引用别名，`VAR_TEMP` 与 FUNCTION 局部属调用帧，不分配持久键。
+- 库块/实例引脚：`<instance_path>.<pin>`；引脚集合和类型由 L2 描述符提供，未接入描述符时不得猜测并分配。
+- POU 局部/temp 调用帧：`<pou>#<frame>.<var>`（带帧号区分递归/多实例）。
+
+**持久键编码是项目工程约定**：正式实现必须将键生成集中在单一 helper（当前为 `src.runtime.store.persistent_key`），避免 loader / 执行器 / 前端各自拼接而分叉。用户 FB 实例只在装载期展开与分配；运行期 `CALL_FB_INSTANCE` 只引用既有路径，不得创建新键。该编码不是 CODESYS / IEC 61131-3 官方命名语义；若后续序列化、调试或执行器需要改变，必须同步重评规格、实现和测试。
 
 ## 8. 类型系统（fidelity / engineering 双模式，D4/D5 同步）
 
