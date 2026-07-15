@@ -19,7 +19,7 @@ import time
 from typing import Callable
 from urllib.parse import urlparse
 
-from .parser import STATUS_MAP, WorkPackage, canonical_actor, canonical_status
+from .parser import HandoffParser, STATUS_MAP, WorkPackage, canonical_actor, canonical_status
 
 
 # TRIGGER_MAP 的键使用**规范化后的** owner/handoff（实施方=claude）。
@@ -229,10 +229,13 @@ class SafeProcessRunner:
 class AsyncExecutionCoordinator:
     """跨线程/跨进程串行化真实 AI 执行，并持久化可恢复生命周期。"""
 
-    TERMINAL_OUTCOMES = {"completed", "failed", "timed-out", "launch-failed", "cancelled"}
+    TERMINAL_OUTCOMES = {
+        "completed", "failed", "timed-out", "launch-failed", "cancelled",
+        "postcondition-failed",
+    }
     FAILURE_OUTCOMES = {
         "failed", "timed-out", "launch-failed", "cancelled",
-        "blocked-corrupt-state", "blocked-orphan-process",
+        "blocked-corrupt-state", "blocked-orphan-process", "postcondition-failed",
     }
 
     def __init__(
@@ -279,6 +282,7 @@ class AsyncExecutionCoordinator:
         plan: ExecutionPlan,
         work_package_id: str,
         round_number: int,
+        completion_validator: Callable[[], tuple[bool, str]] | None = None,
     ) -> dict:
         """登记全局租约并异步启动；任何不可信持久状态都失败关闭。"""
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -326,7 +330,7 @@ class AsyncExecutionCoordinator:
 
         thread = threading.Thread(
             target=self._worker,
-            args=(idempotency_key, plan),
+            args=(idempotency_key, plan, completion_validator),
             name=f"ai-handoff-{plan.actor}-{round_number}",
             daemon=True,
         )
@@ -420,9 +424,31 @@ class AsyncExecutionCoordinator:
         for thread in list(self._threads.values()):
             thread.join(timeout=max(0.0, deadline - time.monotonic()))
 
-    def _worker(self, key: str, plan: ExecutionPlan) -> None:
+    def _worker(
+        self,
+        key: str,
+        plan: ExecutionPlan,
+        completion_validator: Callable[[], tuple[bool, str]] | None,
+    ) -> None:
         try:
             result = self.runner.run(plan, on_started=lambda pid: self._mark_started(key, pid))
+            if result.outcome == "completed" and completion_validator is not None:
+                try:
+                    valid, reason = completion_validator()
+                except Exception as exc:
+                    valid = False
+                    reason = f"执行后置条件校验异常: {type(exc).__name__}: {exc}"
+                if not valid:
+                    result = ProcessRunResult(
+                        outcome="postcondition-failed",
+                        returncode=result.returncode,
+                        timed_out=result.timed_out,
+                        duration_seconds=result.duration_seconds,
+                        process_id=result.process_id,
+                        stdout_tail=result.stdout_tail,
+                        stderr_tail=result.stderr_tail,
+                        error=reason or "外部进程退出码为 0，但协议后置条件未成立",
+                    )
             self._finish(key, result)
         except Exception as exc:
             fallback = ProcessRunResult(
@@ -1422,6 +1448,7 @@ class EventDrivenScheduler(DryRunScheduler):
             plan=plan,
             work_package_id=package.work_package_id,
             round_number=result.round,
+            completion_validator=self._completion_validator(package, result.action),
         )
         mapping = {
             "scheduled": "execution-scheduled",
@@ -1448,6 +1475,66 @@ class EventDrivenScheduler(DryRunScheduler):
 
     def lifecycle_snapshot(self) -> dict:
         return self.coordinator.snapshot()
+
+    def _completion_validator(
+        self,
+        initial: WorkPackage,
+        action: str,
+    ) -> Callable[[], tuple[bool, str]]:
+        """退出码 0 不等于交接成功；必须重读权威文件并验证目标状态与哈希证据。"""
+        expected_round = (initial.round or 0) + (1 if action == "start_claude_rework" else 0)
+
+        def validate() -> tuple[bool, str]:
+            parsed = HandoffParser(self.source_path).parse_file()
+            if parsed.source_error:
+                return False, f"外部进程退出码为 0，但交接文件不可验证: {parsed.source_error}"
+            matches = [item for item in parsed.packages if item.work_package_id == initial.work_package_id]
+            if len(matches) != 1:
+                return False, f"外部进程退出码为 0，但工作包唯一性校验失败: {initial.work_package_id}"
+            current = matches[0]
+            if current.errors:
+                return False, "外部进程退出码为 0，但交接字段无效: " + "；".join(current.errors)
+
+            if action in {"start_claude_implementation", "start_claude_rework"}:
+                expected_statuses = {"READY_FOR_CODEX"}
+                expected_owner = expected_handoff = "codex"
+            elif action == "start_codex_review":
+                expected_statuses = {"CHANGES_REQUESTED", "APPROVED", "BLOCKED"}
+                expected_owner = expected_handoff = None
+            else:
+                return False, f"未知的执行后置条件动作: {action}"
+
+            if current.status not in expected_statuses:
+                return False, (
+                    f"外部进程退出码为 0，但状态未完成交接: "
+                    f"{current.status!r}，期望 {sorted(expected_statuses)}"
+                )
+            if current.round != expected_round:
+                return False, (
+                    f"外部进程退出码为 0，但轮次后置条件失败: "
+                    f"{current.round!r}，期望 {expected_round}"
+                )
+            if expected_owner is not None and (
+                canonical_actor(current.owner), canonical_actor(current.handoff_to)
+            ) != (expected_owner, expected_handoff):
+                return False, "外部进程退出码为 0，但 owner/handoff_to 未交给 Codex"
+
+            expected_mapping = STATUS_MAP.get(current.status or "")
+            if expected_mapping is None or (
+                canonical_actor(current.owner), canonical_actor(current.handoff_to)
+            ) != expected_mapping[:2]:
+                return False, "外部进程退出码为 0，但状态与权属映射不一致"
+
+            integrity = self.scope_hash_resolver(current)
+            rejection = self._validate_scope_integrity(current, integrity, dry_run=False)
+            if rejection is not None:
+                return False, (
+                    "外部进程退出码为 0，但 scope 后置条件失败: "
+                    + str(rejection.reason or "未知哈希错误")
+                )
+            return True, "交接状态、权属、轮次与 scope 证据后置条件全部成立"
+
+        return validate
 
     def set_on_update(self, callback: Callable[[], None] | None) -> None:
         self.coordinator.set_on_update(callback)

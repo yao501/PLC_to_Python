@@ -385,6 +385,26 @@ class AsyncExecutionCoordinatorTests(unittest.TestCase):
             self.assertIsNone(snapshot["failure_alert"])
             self.assertGreaterEqual(len(updates), 2)
 
+    def test_zero_exit_without_protocol_postcondition_is_persistent_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.start(
+                idempotency_key="WP:1:semantic-noop",
+                plan=self.plan(directory, "print('stopped safely without handoff')"),
+                work_package_id="WP",
+                round_number=1,
+                completion_validator=lambda: (False, "状态仍为 CLAUDE_WORKING，未交给 Codex"),
+            )
+            snapshot = self.wait_until(
+                lambda: (s := coordinator.snapshot())["last_event"]
+                and s["last_event"].get("outcome") == "postcondition-failed" and s
+            )
+            self.assertIsNone(snapshot["active"])
+            self.assertEqual("postcondition-failed", snapshot["failure_alert"]["code"])
+            self.assertIn("未交给 Codex", snapshot["failure_alert"]["message"])
+            retry = coordinator.authorize_retry("WP:1:semantic-noop")
+            self.assertEqual("retry-authorized", retry["outcome"])
+
     def test_global_lease_blocks_a_different_coordinator_and_key(self):
         with tempfile.TemporaryDirectory() as directory:
             first = AsyncExecutionCoordinator(directory)
@@ -799,7 +819,14 @@ class EventDrivenSchedulerTests(unittest.TestCase):
                 command=[sys.executable, "-c", "print('reviewed')"], cwd=directory,
                 timeout_seconds=2, permission_summary="test", environment={},
             )
-            with mock.patch.object(codex, "command_for", return_value=plan):
+            with (
+                mock.patch.object(codex, "command_for", return_value=plan),
+                mock.patch.object(
+                    EventDrivenScheduler,
+                    "_completion_validator",
+                    return_value=lambda: (True, "test postcondition"),
+                ),
+            ):
                 coordinator = AsyncExecutionCoordinator(Path(directory) / "runtime")
                 scheduler = EventDrivenScheduler(
                     "source.md", Path(directory) / "runtime",
@@ -856,7 +883,14 @@ class EventDrivenSchedulerTests(unittest.TestCase):
                 command=[sys.executable, "-c", "print('done')"], cwd=directory,
                 timeout_seconds=2, permission_summary="test", environment={},
             )
-            with mock.patch.object(codex, "command_for", return_value=plan):
+            with (
+                mock.patch.object(codex, "command_for", return_value=plan),
+                mock.patch.object(
+                    EventDrivenScheduler,
+                    "_completion_validator",
+                    return_value=lambda: (True, "test postcondition"),
+                ),
+            ):
                 coordinator = AsyncExecutionCoordinator(root / "runtime")
                 scheduler = EventDrivenScheduler(
                     source, root / "runtime", codex=codex, claude=claude,
@@ -878,6 +912,65 @@ class EventDrivenSchedulerTests(unittest.TestCase):
             self.assertTrue(snapshot["system"]["external_processes_enabled"])
             self.assertIsNone(snapshot["system"]["execution_failure_alert"])
             self.assertGreaterEqual(snapshot["version"], 2)
+
+    def test_protocol_completion_validator_rejects_zero_exit_without_handoff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            scope = root / "src" / "example.py"
+            scope.write_text("value = 1\n", encoding="utf-8")
+            file_hash = hashlib.sha256(scope.read_bytes()).hexdigest()
+            aggregate = hashlib.sha256(f"{file_hash}  src/example.py\n".encode()).hexdigest()
+            source = root / "handoff.md"
+            source.write_text(package_text(
+                baseline_hash=aggregate,
+                implementation_hash=aggregate,
+                review_started_hash=aggregate,
+                review_finished_hash=aggregate,
+            ), encoding="utf-8")
+            codex, claude = self.adapters(directory)
+            scheduler = EventDrivenScheduler(
+                source, root / "runtime", codex=codex, claude=claude,
+                project_root=root,
+            )
+            current = HandoffParser(source).parse_file().current
+            valid, reason = scheduler._completion_validator(
+                current, "start_codex_review"
+            )()
+        self.assertFalse(valid)
+        self.assertIn("状态未完成交接", reason)
+
+    def test_protocol_completion_validator_accepts_review_with_matching_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            scope = root / "src" / "example.py"
+            scope.write_text("value = 1\n", encoding="utf-8")
+            file_hash = hashlib.sha256(scope.read_bytes()).hexdigest()
+            aggregate = hashlib.sha256(f"{file_hash}  src/example.py\n".encode()).hexdigest()
+            source = root / "handoff.md"
+            source.write_text(package_text(
+                status="APPROVED", owner="user", handoff="user",
+                baseline_hash=aggregate,
+                implementation_hash=aggregate,
+                review_started_hash=aggregate,
+                review_finished_hash=aggregate,
+            ), encoding="utf-8")
+            codex, claude = self.adapters(directory)
+            scheduler = EventDrivenScheduler(
+                source, root / "runtime", codex=codex, claude=claude,
+                project_root=root,
+            )
+            initial = WorkPackage(
+                work_package_id="WP-TEST-001", title="test", status="READY_FOR_CODEX",
+                owner="codex", handoff_to="codex", round=1, max_rounds=3,
+                scope=["src/example.py"], scope_baseline_sha256=aggregate,
+                implementation_scope_sha256=aggregate,
+            )
+            valid, reason = scheduler._completion_validator(
+                initial, "start_codex_review"
+            )()
+        self.assertTrue(valid, reason)
 
 
 class DashboardTests(unittest.TestCase):
