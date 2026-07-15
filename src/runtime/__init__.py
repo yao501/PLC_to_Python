@@ -41,8 +41,15 @@ from src.runtime.executor import (
     Executor, TypedValue, IRExecutionError,
     MissingStdFunctionError, MissingLibraryAdapterError,
 )
+from src.runtime.engine import (
+    ScanEngine, ScanResult,
+    ScanError, ScanConfigError, OutputStagingError, ScanReentryError,
+)
 
 __all__ = [
+    # 五步扫描编排骨架（WP-20260716-006）
+    "ScanEngine", "ScanResult",
+    "ScanError", "ScanConfigError", "OutputStagingError", "ScanReentryError",
     # 数值策略与执行器（WP-20260714-004）
     "NumericMode", "NumericError", "UnsupportedNumericModeError",
     "UnsupportedConversionError", "IECMathError",
