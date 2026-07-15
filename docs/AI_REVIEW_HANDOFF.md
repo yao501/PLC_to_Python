@@ -633,3 +633,57 @@ CLOSED:             owner=user     handoff_to=user
 - 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=93a2d866da9c53522ca24925071b74a28a36c95cff00a9e74a10c039d304fa35`，`review_finished_sha256=93a2d866da9c53522ca24925071b74a28a36c95cff00a9e74a10c039d304fa35`。逐文件 SHA-256：`src/runtime/executor.py=ba915afa1dd90381dc625df592284fa0fc53db2d92a88f9f5afccc8894110c39`，`tests/test_runtime_executor.py=7e494fc0ec2ad9bf87713bc8267b417b79260d876bbfc19765dac60678038218`。本轮 Codex 独立复跑：`python -m unittest tests.test_runtime_executor` = 58/58、`python -m unittest tests.test_runtime_store` = 24/24、`python -m unittest tests.test_runtime_ir` = 56/56、`python -m unittest discover -s tests -t .` = 864/864、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -t .` = 932/932（后两组含 dashboard 本地端口测试，需在宿主环境下复跑；沙盒端口绑定失败已排除为环境限制，不构成 scope 回归）。
 - handoff_to: user
 - reviewed_at: 2026-07-15 02:25 CST
+
+---
+
+## WP-20260716-006
+
+- title: 阶段 1 五步扫描编排骨架与确定性单拍执行
+- status: CLAUDE_WORKING
+- owner: claude
+- handoff_to: claude
+- round: 1
+- max_rounds: 3
+- base_commit: 1be16da9953703a768402394d13f9e3a7a8d1f6b
+- created_by: user
+- created_at: 2026-07-16
+- depends_on:
+  - WP-20260714-003 CLOSED
+  - WP-20260714-004 CLOSED
+  - WP-20260714-005 CLOSED
+- scope:
+  - src/runtime/engine.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_engine.py
+- scope_baseline_sha256: 0f5950f4d078963c933f341be374e315d6795db28c481aaae3d8134a59737046
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/engine.py`
+  - `7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_engine.py`
+
+### 用户授权与任务书（Round 1）
+
+- 目标：在现有 `Task`、`RuntimeLayout`、`Executor`、`latch_inputs()`、`OutputPending` 与 `make_prev_snapshot()` 之上，新增一个可重复调用的**确定性单拍扫描编排器**。连续调用单拍入口即组成扫描循环；本包不引入真实时间调度线程。
+- 权威顺序：严格落实 `.cursor/rules/00a-runtime-contract.mdc R6` 与 `docs/ENGINE_SCAN_SPEC.md §3`：①输入映像一次性锁存；②+③按 `Task.programs` 顺序执行现有可执行 IR（业务只写 request/store）；④经明确注入的输出策略端口把最终值写入本拍 `OutputPending`；⑤经明确注入的提交端口集中提交一次，成功后才更新 `prev` 快照。
+- 职责边界：本包只实现五步**编排与端口契约**，不发明 `OutputPolicy` 算法，不实现 `system_ready/output_enable/safety_ok/interlock_ok`、startup inhibit、watchdog、shadow mode、safe value、故障恢复、真实驱动或 HAL。测试可以注入最小 fake policy/committer 来证明顺序与边界，但不得把 fake 包装成生产安全实现。
+- 建议公开 API：可采用 `ScanEngine` / `ScanResult` / `ScanError` 等清晰命名；构造时注入已绑定同一 `Task/RuntimeLayout` 的 `Executor`、输出策略端口和提交端口；提供 `scan(samples)` 或等价单拍入口。可调整具体命名，但必须保持下面的可验证语义。
+- `dt_ms` 纪律：仅使用 `Task.cycle_ms`；不得读取墙钟、不得按 Python 实际耗时推导 dt、不得在本包 sleep。现有 `Executor` 给 library adapter 的 `dt_ms` 仍应来自同一任务配置。
+- `prev` 纪律：引擎创建时取得初始只读快照；第 2+3 步始终把**上一拍成功提交后的**快照传入 `Executor.execute_programs()`；只有第 5 步提交成功后才用 `make_prev_snapshot()` 替换 `prev`。输入锁存、IR、策略或提交任一步异常时，异常原样向外传播且不得伪造安全输出；`prev` 不得前移。扫描异常的安全提交属于后续 outer scan runner / OutputPolicy 工作包。
+- 输出纪律：每拍使用干净的 `OutputPending`（新建或先清空均可）；第 4 步只能由注入策略端口显式 stage 输出，扫描器不得把 Store 的 OUT/request 变量直接复制成物理输出；进入提交前必须拒绝缺失或额外输出通道；第 5 步集中调用提交端口恰一次，并传独立快照，避免提交方反向污染内部 pending。
+- 输入纪律：复用 `latch_inputs()` 的两阶段原子校验；输入锁存失败时不得执行 IR、策略或提交。保留 `InputSnapshot` 的只读/隔离语义。
+- 生命周期纪律：成功单拍返回值至少应能只读观察本拍输入快照、门控后待提交输出与提交后 `prev`（或提供等价诊断）；调用方修改返回副本不得污染引擎内部状态。
+- 错误与重入：同一引擎对象的并发/递归 `scan()` 必须失败关闭，不能交错两拍；单线程下一拍在上一拍返回后可继续。不要在本包启动后台线程。
+- 最低测试要求：
+  1. 用事件轨迹精确断言五步顺序，且策略/提交各恰调用一次。
+  2. 两拍 `LOAD_PREV` 回归：第二拍读到第一拍**成功提交后**的值，不读本拍新值。
+  3. 输入锁存失败时 Store 无部分输入更新，且后续三段均未执行。
+  4. IR 执行失败、策略失败、提交失败三类路径均不更新 `prev`，不继续后续步骤；异常不被伪装成安全输出。
+  5. 提交失败后允许调用方处理异常并再次调用；下一拍仍使用上次成功提交的 `prev`，没有半拍残留 pending。
+  6. 输出策略漏 stage 任一 OUT 通道时，在提交前拒绝；零 OUT 通道任务可以合法提交空快照。
+  7. 业务 Store/request 的写入不会绕过策略自动进入 pending；提交方修改收到的 dict 不污染结果或下一拍。
+  8. 多 PROGRAM 仍按现有显式列表顺序执行；`Task.cycle_ms` 原样到达 library adapter，测试不得依赖墙钟。
+  9. 同一引擎递归/并发重入失败关闭，失败后锁状态可恢复，不永久卡死。
+  10. `src.runtime` 仅导出本包稳定公共 API；不得导入/复用 `prototype_05`。
+- 必跑验证（均设置 `PYTHONDONTWRITEBYTECODE=1`）：专用 `tests.test_runtime_engine`；既有 `tests.test_runtime_executor`、`tests.test_runtime_store`、`tests.test_runtime_ir`；正式 `tests/` 全量；`prototype_05` 全量；全仓 discovery。报告每组实际计数与首次失败/修复过程，不得预写结果。
+- 禁止修改：除上列三个 scope 文件和本交接文件的本轮原子交接记录外，不得修改任何代码、测试、规格、`docs/PROJECT_STATE.md`、双方自动化配置或 Git 元数据；不得执行 `git add/commit/push/branch/merge`、`gh`、PR 操作；不得启动/恢复 30 分钟轮询。
+- 交接要求：实施前重算 baseline 聚合哈希并与 `scope_baseline_sha256` 一致；完成后按 scope 声明顺序写逐文件 SHA 与聚合 SHA，报告接口、失败语义、明确未实现边界和测试证据；随后原子改为 `READY_FOR_CODEX / codex / codex` 并停笔。Codex 审核期间只读 scope；结论为 `CHANGES_REQUESTED / claude / claude`、`APPROVED / user / user` 或 `BLOCKED / user / user`，并写审核开始/结束同一 scope 哈希。

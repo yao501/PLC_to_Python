@@ -2,7 +2,7 @@
 
 > **用途**：跨会话记忆载体。每个 AI 会话开始时**先读本文件**（配合 `CODEX_GUIDE.md` 长期工作方针）。
 > **更新纪律**：仅当阶段、版本、完成项、阻塞项或下一步发生**实质变化**时更新，不做无意义编辑；只保留"当前状态 + 决策索引 + 下一步"，不写过程叙事；超过 150 行就该精简。
-> 最后更新：2026-07-16（**阶段 1 显式顺序执行器核心已关闭**：`WP-20260714-004` 完成显式顺序 IR 指令执行、TypedValue 求值栈、E/F1 数值策略、FUNCTION/用户 FB 调用帧及运行期边界防御；其三轮审核达到轮次上限后由 `WP-20260714-005` 专门收口剩余 F1 library pin REAL 回收量化问题，Codex Round 3 独立复核 `APPROVED`；用户已确认 WP-004 与 WP-005 均为 `CLOSED`。最新 Python 验证记录为协作基础设施 80/80、正式 tests 908/908、0.5 原型 68/68、全仓 976/976，**只证明当前 Python 实现与协作基础设施行为，不证明与目标 PLC 语义一致**。下一聚焦工作包是在现有执行器上组装五步扫描循环，之后再接入 OutputPolicy 和安全服务。）
+> 最后更新：2026-07-16（**阶段 1 显式顺序执行器核心已关闭，五步扫描工作包已创建**：`WP-20260714-004` 的剩余问题由 `WP-20260714-005` 完整收口，用户已确认两包均为 `CLOSED`；`WP-20260716-006` 已按现行协议创建，范围严格限于五步扫描编排骨架、运行时导出与专用测试，OutputPolicy/安全服务/HAL 仍属后续包。首次正式事件派发闸门发现并修复了“目录 vnode 监听会漏原地写入”的生产缺陷，现改为目录/目标文件双 kqueue 监听。最新 Python 验证记录为协作基础设施 81/81、正式 tests 909/909、0.5 原型 68/68、全仓 977/977，**只证明当前 Python 实现与协作基础设施行为，不证明与目标 PLC 语义一致**。）
 
 ---
 
@@ -18,7 +18,7 @@
 - 规格版本：`IR_SPEC` **v2.2.4**（0.5 冻结基线 v2.2.2 + 阶段 1 `StackSlot.index` / 持久 Store 键两项工程约定写回）/ `ENGINE_SCAN_SPEC` **v2.2.2** / `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
 - **阶段 1 显式顺序执行器核心已完成**：`WP-20260714-004` 三轮实现并在达到自动轮次上限后曾转 `BLOCKED`，其剩余问题由窄范围 `WP-20260714-005` 完整收口；WP-005 于 2026-07-15 `CLOSED`，WP-004 于 2026-07-16 由用户确认 `CLOSED`。当前已有正式 IR 值对象、装载期静态校验、声明制 Store 与隔离快照、PROGRAM/用户 FB 实例布局、原子输入锁存、输出待提交容器、显式顺序指令执行、TypedValue 求值栈、FUNCTION/用户 FB 调用帧和 E/F1 数值边界。尚未组装五步扫描、OutputPolicy、安全服务、watchdog、shadow mode 或正式 L2 adapter 注册表。
 - **0.5 可执行验证原型已完成并经两轮定向返修**（Fable5 实施，`prototype_05/`，一次性代码）：最小指令集 + TON 经描述符 + BOOL OutputPolicy + ST/CFC 双路径同指令列表跑 24 拍 + 5 个语义敏感案例。Codex 首轮 6 条（驱动异常提交隔离、绑定 actual 类型、OutputPolicy 校验、无 LPC 基准、纯整数 DIV/MOD、文档对齐）+ 二轮 2 条（Binding 表结构校验：重复 formal/非法 actual_kind/const 值类型；安全配置 NaN/Infinity/整数范围拒绝）均修复，每条有反证测试（`prototype_05/tests/test_review_rework.py`）。
-- **下一步（按序）**：① 在现有执行器上组装五步扫描循环；② 接入 OutputPolicy 和安全服务；③ 再补 watchdog、shadow mode 与正式 L2 adapter 注册表。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
+- **下一步（按序）**：① 由 `WP-20260716-006` 在现有执行器上组装五步扫描循环并完成 Claude→Codex 原子审核；② 接入 OutputPolicy 和安全服务；③ 再补 watchdog、shadow mode 与正式 L2 adapter 注册表。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
 
 ## 3. 文档权威地图（谁说了算）
 

@@ -187,6 +187,22 @@ class ParserTests(unittest.TestCase):
 
 
 class WatcherTests(unittest.TestCase):
+    def test_in_place_write_triggers_reload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "handoff.md"
+            source.write_text(package_text(), encoding="utf-8")
+            changed = threading.Event()
+            watcher = HandoffWatcher(source, changed.set, debounce_seconds=0.05, fallback_interval=2.0)
+            watcher.start()
+            try:
+                # apply_patch 与部分编辑器会保留 inode 原地写入；这类变化不会
+                # 稳定地产生目录 NOTE_WRITE，必须由文件级 vnode 监听捕获。
+                source.write_text(package_text(status="CODEX_REVIEWING"), encoding="utf-8")
+                self.assertTrue(changed.wait(4.0), f"watcher mode={watcher.mode}")
+                self.assertEqual("CODEX_REVIEWING", HandoffParser(source).parse_file().current.status)
+            finally:
+                watcher.stop()
+
     def test_atomic_replace_triggers_reload(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "handoff.md"

@@ -46,6 +46,7 @@ class HandoffWatcher:
 
     def _run_kqueue(self) -> None:
         directory_fd: int | None = None
+        file_fd: int | None = None
         queue = None
         try:
             directory_fd = os.open(self.path.parent, os.O_RDONLY)
@@ -54,18 +55,47 @@ class HandoffWatcher:
                 select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND | select.KQ_NOTE_ATTRIB
                 | select.KQ_NOTE_RENAME | select.KQ_NOTE_DELETE
             )
-            event = select.kevent(
+            directory_event = select.kevent(
                 directory_fd,
                 filter=select.KQ_FILTER_VNODE,
                 flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
                 fflags=flags,
             )
-            queue.control([event], 0, 0)
+            queue.control([directory_event], 0, 0)
+
+            def reopen_file() -> None:
+                """让文件级监听始终跟随当前路径对应的 inode。
+
+                目录级 vnode 事件能发现原子替换，但普通原地写入只发生在
+                文件 inode 上，不保证触发目录 NOTE_WRITE。两者必须同时监听；
+                遇到替换/重命名后重新打开路径，避免继续盯着旧 inode。
+                """
+                nonlocal file_fd
+                if file_fd is not None:
+                    os.close(file_fd)
+                    file_fd = None
+                try:
+                    file_fd = os.open(self.path, os.O_RDONLY)
+                except OSError:
+                    return
+                file_event = select.kevent(
+                    file_fd,
+                    filter=select.KQ_FILTER_VNODE,
+                    flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
+                    fflags=flags,
+                )
+                queue.control([file_event], 0, 0)
+
+            reopen_file()
             pending_at: float | None = None
             while not self._stop.is_set():
                 events = queue.control(None, 8, 0.25)
                 if events:
                     pending_at = time.monotonic() + self.debounce_seconds
+                    # 任一目录事件都可能是目标文件的原子替换；重新绑定当前
+                    # 路径是幂等的，也能覆盖短暂删除后重建的情形。
+                    if any(item.ident == directory_fd for item in events):
+                        reopen_file()
                 if pending_at is not None and time.monotonic() >= pending_at:
                     pending_at = None
                     self._safe_callback()
@@ -75,6 +105,8 @@ class HandoffWatcher:
             self.degraded_reason = "kqueue 监听运行期失效，已切换低频检查"
             self._run_fallback()
         finally:
+            if file_fd is not None:
+                os.close(file_fd)
             if queue is not None:
                 queue.close()
             if directory_fd is not None:
