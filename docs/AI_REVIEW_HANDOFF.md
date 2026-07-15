@@ -355,3 +355,271 @@ CLOSED:             owner=user     handoff_to=user
 - 审核证据: `review_started_sha256=0ff96dddbd407d644989e9512d3b7e3afd5baecc178be554639fa6aeb2a0fa1c`，`review_finished_sha256=0ff96dddbd407d644989e9512d3b7e3afd5baecc178be554639fa6aeb2a0fa1c`。逐文件 SHA-256：`src/runtime/store.py=46a7b9484f73e89413c567d60b8e85470bf2b888c2141c403316ee0ac4194a3a`，`src/runtime/process_image.py=ba64cb8a267c27dd6a162832ecbe09007f18427d450638a1d33b3143d2a86199`，`src/runtime/__init__.py=5804a5eaa665fd1361ab8fb17618790c4ebcddf5ded2e0f3e3695c479e1d38a9`，`tests/test_runtime_store.py=cfa73f025e3a9f060e9962e8d1a46af617cee6f44efcf3ae252438498321a9a7`。本轮 Codex 独立复跑 5 组测试且与实施交接一致：`python -m unittest tests.test_runtime_store -v` = 24/24、`python -m unittest tests.test_runtime_ir -v` = 56/56、`python -m unittest discover -s tests -t .` = 770/770、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -t .` = 838/838（均在 `PYTHONDONTWRITEBYTECODE=1` 下实际运行）。
 - handoff_to: user
 - reviewed_at: 2026-07-14 14:50 CST
+
+---
+
+## WP-20260714-004
+
+- title: 阶段 1 显式顺序 IR 执行、TypedValue 求值栈与用户 POU 调用帧
+- status: BLOCKED
+- owner: user
+- handoff_to: user
+- round: 3
+- max_rounds: 3
+- base_commit: 52ab9cf0be57154d798027ac95d4e827dd75e7d3
+- created_by: user
+- created_at: 2026-07-14
+- scope:
+  - src/runtime/executor.py
+  - src/runtime/numeric.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_executor.py
+- scope_baseline_sha256: e385009e14f64f90e1a1312069fb38533b086ca66d0e32cf31cbeed5a0896437
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/executor.py`
+  - `ABSENT  src/runtime/numeric.py`
+  - `5804a5eaa665fd1361ab8fb17618790c4ebcddf5ded2e0f3e3695c479e1d38a9  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_executor.py`
+- 开工核验（2026-07-14，Fable5 只读）：分支 main；HEAD=52ab9cf0be57154d798027ac95d4e827dd75e7d3 与 origin/main 一致；工作区无未提交修改；PR #5 已合并（HEAD 即其 merge commit）；WP-20260714-003 已 CLOSED。任务书全文由用户在会话中提供，目标/禁止项/测试要求以其为准。
+
+### Fable5 实施交接（Round 1）
+
+- 完成内容：**① `src/runtime/numeric.py`**——正式数值策略（零原型导入）：`NumericMode`（engineering 默认 / fidelity_f1；`int_native_width: 32|64` 可配置、64 标注为样本工程候选值；`int_intermediate_policy: native_width|declared_width`）；F1 REAL 在 §5.3 全部边界经 `on_const/on_result/on_store` 量化 binary32；`fidelity_f2` 构造即抛 `UnsupportedNumericModeError`（不静默降级）；`trunc_div`（纯整数、向零截断）/`iec_mod`（符号随被除数）/除零抛 `IECMathError`；`convert()` 组合白名单（整数族互转、整数↔REAL/LREAL 经 `src.compat.conversions`、REAL↔LREAL、同型恒等），其余抛 `UnsupportedConversionError` 不猜测；按位 NOT/AND/OR/XOR 按声明位宽解释（两模式一致，标注工程约定）。**② `src/runtime/executor.py`**——`Executor(task, layout, numeric_mode, std_functions, library_adapters)` + `execute_programs(prev_snapshot)`（单一职责，非 scan）；不可变 `TypedValue`；每入口独立栈、被调独立栈；`IRExecutionError` 带 POU/实例路径或 frame id/pc/指令/cause，异常原样上抛不转安全输出；运行期防御（下溢/类型/出口契约/未知指令/未知标签，不只信 loader）；`_Location` 抽象统一持久 Store cell / frame cell / 库块管脚 / INOUT 别名（别名=直接传调用方位置对象，真引用）；解析优先级 别名→frame/VAR_TEMP→本 POU 持久→库块管脚→GVL（FUNCTION 禁 GVL），局部与 GVL 同名不误访；PROGRAM 持久键 `<store_prefix>.<var>`；`CALL_FB_INSTANCE` 相对路径拼当前上下文全路径、只引用 layout 已展开实例（未展开明确报错）、IN 写既有持久键/OUT 执行后写回/INOUT 别名/VAR_TEMP 每次进入类型默认重建退出即弃；`CALL_FUNC` 每调独立 frame（VAR_INPUT 拷入、VAR_OUTPUT/VAR 每调按声明初值或类型默认重建）、返回值按 ret_type 压回、嵌套调用、调用方为 FUNCTION frame 时 OUT/INOUT 经调用方解析正确落 frame、try/finally 保证异常路径 frame 出栈；IN×StackSlot 先按 index 快照后一次性消费 k 项（0=栈顶,书写顺序无关）；`LoadPrev` 只读传入快照，frame/VAR_TEMP/别名/FUNCTION 内一律明确拒绝；标签表按 POU 缓存；`CallStd` 名册注入（缺实现 `MissingStdFunctionError`,返回值类型核对+量化）；`CallFb` 经注入 adapter 委托（键=实例全路径,缺失 `MissingLibraryAdapterError`,adapter 异常带 cause 包装上抛;管脚读写经 `_PinLoc` 委托 adapter,类型未知时诚实跳过核对）。**③ `__init__.py`** 追加导出。**④ 测试 40 项**覆盖任务书 46 条(多条合并于同一测试,注释标注"要求 N")。
+- 修改文件：executor.py/numeric.py/test_runtime_executor.py（新建）、`__init__.py`（追加导出）。
+- 明确未修改：`ir.py`/`loader.py`/`store.py`/`process_image.py`（SHA 可核）、`src/blocks`/`src/primitives`、`PROJECT_STATE.md`、scope 外零改动（交接文件除外）;未实现五步扫描/latch_inputs 调用/OutputPolicy/OutputPending 提交/驱动/scan runner/watchdog/shadow/门控/RETAIN 恢复/HAL/lowering/CFC 定序/完整 L2 注册表/完整 IEC 函数库/F2;零 Git 操作。
+- Executor 公开 API：见上；数值模式构造时绑定,无热切换接口。
+- frame 与变量解析设计：`_Ctx`（每 POU 体一次执行:独立栈+cells+aliases+persist 表）;frame id = `<FUNC 名>#<序号>`;`_active_frames` 仅诊断用,try/finally 出栈。
+- Binding/StackSlot：严格按 IR_SPEC §5.2 + v2.2.3 index 工程约定;OUT 仅 StoreKey（OUT→StackSlot 维持 loader 保守拒绝,未修改 loader）;INOUT 仅 StoreKey→真别名,无拷入拷回。
+- E/F1 数值说明：E 不量化不回绕无隐式提升;F1 为**当前候选行为**（native/declared 二策略、有符号补码回绕、越界 CONVERT 截断、REAL DIV 除零显式报错——均待真机黄金轨迹裁决,代码/测试/本记录均如此标注,不承诺 bit-exact）。
+- CallStd/CallFb 延后边界：std 名册与 library adapter 均为注入点;正式 L2 BlockSchema/RuntimeAdapter 注册表（(block_type,variant) 解析、call_adapter 约定、14 块+8 原语接入）属独立工作包,届时替换注入点;测试用假 adapter,不宣称 IEC 函数库/库块接入完成。
+- 实际测试命令与结果（2026-07-14,Fable5 实跑,均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor -v` → Ran **40** tests, OK。
+  2. `python -m unittest tests.test_runtime_store -v` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir -v` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **810** tests, OK（770 既有 + 40 新增,零破坏）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **878** tests, OK（810 + 68）。
+- 首次失败与修复记录（如实）：首轮 40 项中 2 失败——① `test_load_prev_reads_snapshot`:测试辅助 `_run` 的 prev_overrides 分支在快照前多写了一次当前 Store（测试侧 bug）,修为"临时写入→快照→恢复";② `test_prev_of_frame_var_rejected`:执行器 `_read_prev` 先查 prev 是否存在再查 frame 变量,导致 FUNCTION 内 LOAD_PREV 报"无 prev 快照"而非更根本的"无上一拍语义",调整检查顺序（frame/VAR_TEMP/别名/FUNCTION 先行明确拒绝）并清理死分支。重跑全绿（上列数字即修复后实跑）。
+- 已知疑问与延后边界：① adapter 协议（`write_pin/read_pin/step(dt_ms)/可选 pin_type`）是本包注入边界的工程约定,L2 工作包定稿 RuntimeAdapter 后替换;② REAL/LREAL DIV 除零显式抛错（不产 ±inf）为当前候选行为,CODESYS 真机除零行为未验证;③ FUNCTION frame 的 VAR/VAR_OUTPUT 每调初值=声明 initial 优先、否则类型默认,VAR_TEMP 恒类型默认（任务书 §六.4"按类型默认值初始化"）;④ 按位 NOT/逻辑运算对整数族按声明位宽解释（两模式一致）为工程约定;⑤ E 模式越界 CONVERT 保值不回绕（IR_SPEC §8 E 不回绕;`int_overflow_convert_policy=TBD`）;⑥ FUNCTION 内 LOAD_PREV 一律拒绝（FUNCTION 无持久状态亦禁 GVL,无合法 prev 目标）。
+- scope_manifest:
+  - `48f6ccfc137772907dd526115d793ef25f74a63b70ccc6ea036bf926941836cc  src/runtime/executor.py`
+  - `9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b  src/runtime/numeric.py`
+  - `7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c  src/runtime/__init__.py`
+  - `ee98c1f18d29a13db2f425f0f6d3644884bd54fa147b3da0258a89a8feea1731  tests/test_runtime_executor.py`
+- scope_sha256: cfd921b5a9e6f2e27a3cb0f4eba98a0b8786265fb8196b48b8eb25190ab60719
+- implementation_finished_at: 2026-07-14
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：`src/runtime/numeric.py:1-200` 已把 E/F1/F2 数值模式边界、纯整数 `DIV/MOD`、F1 `REAL` binary32 量化和不支持转换的显式拒绝集中实现；`src/runtime/executor.py:264-765` 已实现 PROGRAM 顺序执行、TypedValue 求值栈、FUNCTION/用户 FB 调用帧、`LOAD_PREV` 快照读取以及 std/library 注入边界。Codex 独立复跑 6 组测试：`PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_executor -v` = 40/40、`tests.test_runtime_store -v` = 24/24、`tests.test_runtime_ir -v` = 56/56、`discover -s tests -t .` = 810/810、`discover -s prototype_05 -t .` = 68/68、`discover -t .` = 878/878，均通过。审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。
+- 项目工程约定：`src/runtime/numeric.py:1-35,118-177` 对 `int_native_width=64`、`int_intermediate_policy`、位运算按声明位宽解释以及 `fidelity_f2` 直接拒绝等都明确标成工程约定/候选行为，没有包装成 IEC 或 CODESYS 官方已证实语义；`src/runtime/executor.py:33-50,718-760` 对 std/library adapter 注入边界的分层表述也保持诚实。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度与 REAL DIV 除零行为、library adapter 最终协议仍需 `TARGET_PROFILE.md` / 黄金轨迹 / 后续 L2 工作包裁决；当前 Python 测试只证明现实现行为，不证明与目标 PLC 语义一致。
+- 必须返修：1) `src/runtime/executor.py:349-356` 只把 `NumericError` / `ValueError` / `TypeError` 等包装成 `IRExecutionError`，但 `StoreError` 族未纳入；同时 `src/runtime/executor.py:650-651` 直接信任 `CallFunc.ret_type`。结果是装载后若 IR 被污染，执行器会漏出原始 `StoreTypeError` 而不是带 POU/pc/指令上下文的 `IRExecutionError`。我用最小反证复现：先构造并验证合法任务，再把 `CallFunc('F', (), 'INT')` 篡改为 `CallFunc('F', (), 'REAL')`、后接 `StoreVar('X', 'REAL')`，`execute_programs()` 实际抛出的是 `StoreTypeError: 键 'X' 写入值 1 与声明类型 REAL 不匹配`。这与模块文档和测试文件里“运行期防御不只信 loader”的承诺不一致。请把 `StoreError` 包装进 `IRExecutionError`，并在运行期补一层 `CallFunc.ret_type`/调用返回类型一致性校验。
+- 必须返修：2) `src/runtime/executor.py:581-594` 的 OUT 写回只看 `binding.type`，不校验目标位置的声明类型；`src/runtime/executor.py:163-167` 的 `_CellLoc.write()` 也完全不做类型检查。结果是调用方 frame/local 被装载后污染时，错误类型可被静默写入调用帧，运行期防御失效。我用最小反证复现：先验证一个合法任务（`Fill.O: INT -> Outer.a: INT`），再把 `Outer.locals` 中的 `a` 篡改为 `REAL`，`execute_programs()` 仍然返回 `OK`，没有任何异常。按本工作包在 `tests/test_runtime_executor.py:8-10` 申明的目标，运行期应继续拦截这类 loader 之后的非法 IR。请在 OUT/INOUT 写回路径对 `_CellLoc` / 调用方目标位置补类型校验，并新增覆盖这类 post-load 污染的反证测试。
+- 非阻塞建议：把上述两条最小反证直接固化进 `tests/test_runtime_executor.py`，延续当前“装载后篡改 code/声明以验证运行期防御”的测试风格，避免后续执行器或调用帧重构把同类漏洞重新带回。
+- 审核证据：`review_started_sha256=cfd921b5a9e6f2e27a3cb0f4eba98a0b8786265fb8196b48b8eb25190ab60719`，`review_finished_sha256=cfd921b5a9e6f2e27a3cb0f4eba98a0b8786265fb8196b48b8eb25190ab60719`。逐文件 SHA-256：`src/runtime/executor.py=48f6ccfc137772907dd526115d793ef25f74a63b70ccc6ea036bf926941836cc`，`src/runtime/numeric.py=9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b`，`src/runtime/__init__.py=7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c`，`tests/test_runtime_executor.py=ee98c1f18d29a13db2f425f0f6d3644884bd54fa147b3da0258a89a8feea1731`。除复跑 6 组测试外，本轮还做了两条最小手工反证：① post-load 篡改 `CallFunc.ret_type` 后执行器漏出原始 `StoreTypeError`；② post-load 篡改调用方 frame 局部声明类型后，OUT 写回被静默接受。
+- handoff_to: fable5
+- reviewed_at: 2026-07-14 17:56 CST
+
+### Fable5 实施交接（Round 2，返修）
+
+- 完成内容：Codex Round 1 两条"必须返修"逐条落地，非阻塞建议（反证固化为测试）全部采纳。**1) StoreError 包装 + CallFunc.ret_type 运行期核对**——`src/runtime/executor.py::_run` 的异常包装元组补入 `StoreError`（含 `StoreTypeError`/`UnknownStoreKeyError` 等全族）：装载后 IR 被污染时，Store 层异常一律带 POU/实例路径或 frame id/pc/指令上下文包装为 `IRExecutionError`，不再裸露；`_call_func` 在求值任何绑定/压栈之前先核对 `ins.ret_type == target.return_type`，不一致立即抛带上下文的 `IRExecutionError`（Codex 反证①的篡改现于调用点被拦截，不再走到 `StoreVar` 才漏出原始 `StoreTypeError`）。**2) OUT 写回目标类型校验 + `_CellLoc.write` 结构性检查**——`_write_out_bindings` 在写回前核对目标位置 `declared_type()` 与绑定类型，不一致抛 `IRExecutionError`（`declared=None` 仅见于 L2 未接入的库块管脚，诚实跳过核对并注明由结构性检查兜底）；`_CellLoc.write` 增加与 `Store.write` 同口径的 `check_value_type` 结构性检查，违约抛 `StoreTypeError`（经修复 1 包装为带上下文的 `IRExecutionError`）——即使声明与绑定被一致性篡改骗过声明核对，错误 Python 类型的值也无法落入 frame cell（Codex 反证②的静默写入路径已封死）。**3) 反证固化**：新增 `TestPostLoadTamperingDefenses` 3 项——篡改 `CallFunc.ret_type`、篡改调用方 frame 局部声明类型（OUT 写回拒绝）、声明+绑定一并篡改（`_CellLoc` 结构检查拦截且 cause 为 `StoreTypeError`），延续既有"装载后篡改"测试风格。
+- 修改文件：`src/runtime/executor.py`（import 补 StoreError/StoreTypeError、`_CellLoc.write`、`_run` 异常元组、`_write_out_bindings`、`_call_func`）、`tests/test_runtime_executor.py`（40→43 项：import 补 StoreTypeError + 新增测试类 3 项）。
+- 明确未修改：`src/runtime/numeric.py`、`src/runtime/__init__.py`（本轮意见不涉及，SHA-256 与 Round 1 一致，见 scope_manifest）；`ir.py`/`loader.py`/`store.py`/`process_image.py` 及全部 scope 外文件零改动（交接文件除外）；未执行任何 Git 操作。
+- 实际测试命令与结果（2026-07-14 本轮实际运行，Fable5，均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor` → Ran **43** tests, OK（40 + 3 新增反证）。
+  2. `python -m unittest tests.test_runtime_store` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **813** tests, OK（810 + 3，零破坏）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **881** tests, OK（813 + 68）。
+- 已知疑问与延后边界：① 本轮防御收口聚焦 Codex 点名的两条路径（异常包装/ret_type、OUT 写回/_CellLoc）；FUNCTION frame 的 VAR_INPUT 拷入与 frame cell 初值播种（`_call_func`/`_make_ctx` 直接构造 dict，不经 `_CellLoc.write`）在"绑定类型与 Const 值一并被结构性篡改"的极端场景下仍可能播入错误 Python 类型的初值——后续任何持久 Store 写回会被拦截，frame 内读写以类型标签为准；如 Codex 认为该播种点也须结构性校验，属同类小改，可下轮补或另列。② `_write_out_bindings` 的 `declared=None` 跳过仅适用于 `_PinLoc`（库块管脚类型待 L2 描述符），维持既有诚实边界。③ Round 1 其余已知疑问（adapter 协议、REAL DIV 除零候选行为等）维持原状，Codex Round 1 未要求变更。以上 Python 测试仅证明当前实现行为，不构成与目标 PLC 语义一致的证据。
+- scope_manifest:
+  - `159e04a5ef57cb9f9c4316049ef178e77fd80af700ec42627b89412f94ab1dc2  src/runtime/executor.py`
+  - `9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b  src/runtime/numeric.py`
+  - `7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c  src/runtime/__init__.py`
+  - `edfdd96d78001d5c204d8fdcacdf160e052c07c87758dbe951e148d3958a49d7  tests/test_runtime_executor.py`
+- scope_sha256: 2a3f5c59f785b89c302a882066d37e133d493b7d9e5ba8334647d21cbb6ff1b0
+- handoff_to: codex
+- implementation_finished_at: 2026-07-14 18:40 CST
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：Round 1 点名的两条缺陷已按提交说明落地：`src/runtime/executor.py:351-365` 现已把 `StoreError` 族统一包装为带上下文的 `IRExecutionError`，`src/runtime/executor.py:625-631` 也补上了 `CallFunc.ret_type` 与 FUNCTION 定义返回类型的一致性校验；`src/runtime/executor.py:165-173,590-612` 为 `_CellLoc.write()` 与 OUT 写回路径增加了结构性类型检查，`tests/test_runtime_executor.py:746-793` 也新增了 3 条对应反证。Codex 独立复跑 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_executor` = 43/43、`discover -s tests -t .` = 813/813、`discover -s prototype_05 -t .` = 68/68、`discover -t .` = 881/881，均通过。
+- 项目工程约定：`src/runtime/numeric.py` 中 F1 中间位宽政策、`int_native_width=64`、位运算按声明位宽解释以及 `fidelity_f2` 明确拒绝等分层表述仍然诚实，未被包装成 IEC / CODESYS 官方已证实语义；`CallStd` / `CallFb` 的注入边界保持在正式 L2 注册表工作包之外，这一职责边界未被越界扩张。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度与 REAL DIV 除零行为、library adapter 最终协议仍需 `TARGET_PROFILE.md` / 黄金轨迹 / 后续 L2 工作包裁决；当前 Python 测试只证明现实现行为，不证明与目标 PLC 语义一致。
+- 必须返修：1) **FUNCTION frame 播种仍绕过结构性类型检查，装载后篡改的非法值可静默进入 frame 并被当成合法类型执行。** `src/runtime/executor.py:640-656` 把 `VAR_INPUT` / `VAR_OUTPUT` / `VAR` 的初值直接写入 `callee.cells[...] = [iec_type, value]`，`src/runtime/executor.py:789-791` 的 `_initial_of(...)` 也直接返回声明初值，两条路径都没有经过 `check_value_type(...)` 或 `_CellLoc.write()`。结果是 Round 2 修复覆盖了“写回”阶段，却没覆盖“播种”阶段。我做了两条最小反证，当前代码都会**静默成功**而不是报错：① 合法装载后把 `CallFunc("AddHalf", ...)` 的绑定篡改为 `Binding("I", "IN", Const(1, "INT"), "REAL")`，其中 `FUNCTION AddHalf(I: REAL): REAL` 的函数体仅做 `I + 0.5`；`execute_programs()` 最终把 `X` 写成 `1.5`（`float`），全过程无异常。② 合法装载后把 `FUNCTION LocalHalf` 的局部声明篡改为 `VarDecl("a", "REAL", initial=1)`，函数体同样做 `a + 0.5`；`execute_programs()` 也静默得到 `X=1.5`。这违反了模块与测试文件反复声明的“运行期防御不只信 loader / 装载后篡改仍须拦截”目标。请在 FUNCTION frame 的 `VAR_INPUT` 拷入与 `VAR/VAR_OUTPUT` 初值播种路径补上结构性类型校验，并新增覆盖这两条篡改路径的反证测试。
+- 非阻塞建议：返修时保持当前的“装载校验通过后篡改 IR/声明”测试风格即可，不需要引入新的测试框架；把上述两条最小反证各固化成一条测试，后续执行器/调用帧重构时更不容易把同类漏洞带回。
+- 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=2a3f5c59f785b89c302a882066d37e133d493b7d9e5ba8334647d21cbb6ff1b0`，`review_finished_sha256=2a3f5c59f785b89c302a882066d37e133d493b7d9e5ba8334647d21cbb6ff1b0`。逐文件 SHA-256：`src/runtime/executor.py=159e04a5ef57cb9f9c4316049ef178e77fd80af700ec42627b89412f94ab1dc2`，`src/runtime/numeric.py=9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b`，`src/runtime/__init__.py=7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c`，`tests/test_runtime_executor.py=edfdd96d78001d5c204d8fdcacdf160e052c07c87758dbe951e148d3958a49d7`。除复跑 4 组测试外，本轮还手工复现了两条 post-load 篡改反证：`Binding("I","IN",Const(1,"INT"),"REAL")` 进入 `FUNCTION AddHalf(I: REAL): REAL := I + 0.5` 后静默写出 `X=1.5`；`VarDecl("a","REAL", initial=1)` 进入 `FUNCTION LocalHalf(): REAL := a + 0.5` 后同样静默写出 `X=1.5`。
+- handoff_to: fable5
+- reviewed_at: 2026-07-14 19:16 CST
+
+### Fable5 实施交接（Round 3，返修）
+
+- 完成内容：Codex Round 2 唯一"必须返修"（FUNCTION frame **播种阶段**绕过结构性类型检查）落地，非阻塞建议（两条反证固化为测试）全部采纳。**修复**：`src/runtime/executor.py` 新增 `_seed_cell(...)` 播种入口——所有 FUNCTION frame cell 的建立（VAR_INPUT 拷入、VAR_OUTPUT/VAR 按 `_initial_of` 初值重建）统一经该入口做 `check_value_type` 结构性检查（与 `Store.write`/`_CellLoc.write` 同口径），违约抛带 POU/where/pc/指令上下文的 `IRExecutionError`；VAR_INPUT 路径另补"绑定 TypedValue 类型 vs 形参声明类型"一致性核对（镜像 loader 静态规则,不只信 loader）。**检查作用于 `on_store` 之前的原始值**：F1 模式下 `quantize_real32(1)` 会把 int 洗成合法 float,检查若放在数值钩子之后,播种防御在 F1 下会被掩盖——此点已写入 `_seed_cell` docstring 与调用点注释。模块 docstring"调用帧"要点同步补播种防御一句。**反证固化**：`TestPostLoadTamperingDefenses` 新增 2 项,完全按 Codex 复现构造——① 装载后把 IN 绑定篡改为 `Binding("I","IN",Const(1,"INT"),"REAL")` 进入 `AddHalf(I: REAL): REAL := I + 0.5`；② 装载后把局部声明篡改为 `VarDecl("a","REAL",initial=1)` 进入 `LocalHalf(): REAL := a + 0.5`。两者此前静默算出 X=1.5,现均在播种点抛 `IRExecutionError`（含上下文）,并断言 X 未被写出（仍为 0.0）。
+- 修改文件：`src/runtime/executor.py`（模块 docstring、`_seed_cell` 新增、`_call_func` 播种块改经 `_seed_cell`）、`tests/test_runtime_executor.py`（43→45 项：新增 `_addhalf_def`/`_localhalf_def` 辅助 + 反证 2 项）。
+- 明确未修改：`src/runtime/numeric.py`、`src/runtime/__init__.py`（本轮意见不涉及,SHA-256 与 Round 2 一致,见 scope_manifest）；`ir.py`/`loader.py`/`store.py`/`process_image.py` 及全部 scope 外文件零改动（交接文件除外）；未执行任何 Git 操作。
+- 有意未加检查的两处播种及理由：① `_make_ctx` 的 VAR_TEMP 播种值 = `default_value(d.iec_type)`,由类型直接派生,不存在"声明与值分离"的可篡改缝隙（除非 `default_value` 自身实现错误,属另一类缺陷）；② `_call_fb_instance` 的 IN 拷入经 `Store.write`,已有结构性检查兜底（Round 2 已由 `_run` 的 `StoreError` 包装带上下文）。如 Codex 认为①也应统一过 `_seed_cell`,属同类小改可再补。
+- 实际测试命令与结果（2026-07-14 本轮实际运行,Fable5,均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor` → Ran **45** tests, OK（43 + 2 新增反证）。
+  2. `python -m unittest tests.test_runtime_store` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **815** tests, OK（813 + 2,零破坏）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **883** tests, OK（815 + 68）。
+- 已知疑问与延后边界：① VAR_INPUT 播种的"绑定类型 vs 形参声明类型"核对是本轮顺带补的同源防御（同一播种点、Codex 反证①的变体路径）,若认为超出返修范围可指出,回退不影响两条点名反证的拦截（结构性检查独立生效）；② Round 1/2 其余已知疑问（adapter 协议、REAL DIV 除零候选行为、FUNCTION frame 播种以外的边界）维持原状。以上 Python 测试仅证明当前实现行为,不构成与目标 PLC 语义一致的证据。
+- scope_manifest:
+  - `22ed199148d1ff1dfed9ea5bcd7d2c79b654aa7ab7efc7b7a981ac6463ad6bbf  src/runtime/executor.py`
+  - `9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b  src/runtime/numeric.py`
+  - `7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c  src/runtime/__init__.py`
+  - `a8a4861ab28f3eac3c0ce497b0415f0f71902fd72f617d7c1db6b1f54a60a738  tests/test_runtime_executor.py`
+- scope_sha256: e9788870660b3a3cdf886f518f5b4944c9c2ec493c2c946923eebd8e3f4c1f22
+- handoff_to: codex
+- implementation_finished_at: 2026-07-14 20:35 CST
+
+### Codex 审核结论（Round 3）
+
+- verdict: BLOCKED
+- 已验证事实：`src/runtime/executor.py:617-633,665-690` 已新增 `_seed_cell(...)` 并把 FUNCTION frame 的 VAR_INPUT/VAR_OUTPUT/VAR 播种统一经结构性类型检查；`tests/test_runtime_executor.py:813-851` 也新增了两条装载后篡改反证。Codex 独立复跑 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_executor` = 45/45、`python -m unittest discover -s tests -t .` = 815/815、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -t .` = 883/883，均通过。
+- 项目工程约定：`src/runtime/numeric.py:1-31,141-199` 中 F1 中间位宽政策、`int_native_width=64`、位运算按声明位宽解释以及 `fidelity_f2` 明确拒绝等分层表述仍然诚实，未被包装成 IEC / CODESYS 官方已证实语义；`CallStd` / `CallFb` 的注入边界也仍停留在正式 L2 注册表工作包之外。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度与 REAL DIV 除零行为、library adapter 最终协议仍需 `TARGET_PROFILE.md` / 黄金轨迹 / 后续 L2 工作包裁决；当前 Python 测试只证明现实现行为，不证明与目标 PLC 语义一致。
+- 必须返修 / 阻塞原因：1) **Round 3 声称修复的“F1 下原始值先验结构检查”仍可被 `on_const` 洗掉。** `src/runtime/executor.py:569-572` 在处理 `Const` 实参时先执行 `self.mode.on_const(...)`，`src/runtime/executor.py:681-683` 再把已经量化后的 `tv.value` 当作 `_seed_cell(..., raw=...)` 的原始值传入。结果是在 `NumericMode(mode="fidelity_f1")` 下，装载后把 `CallFunc("AddHalf", ...)` 的绑定篡改为 `Binding("I","IN",Const(1,"INT"),"REAL")` 仍会静默成功，`execute_programs()` 最终把 `X` 写成 `1.5`，没有抛出 `IRExecutionError`。这与 Fable5 在 Round 3 交接里“检查作用于 `on_store` 之前的原始值，F1 不会把非法 int 洗成合法 float”的表述不一致；现有反证测试 `tests/test_runtime_executor.py:813-833` 只在默认 engineering 模式下执行，没锁住 F1 路径。
+- 必须返修 / 阻塞原因：2) **FUNCTION 返回边界与被调体内 `LoadConst` 仍缺少结构性原始值校验，F1 下同样可把非法 REAL 值洗白。** `src/runtime/executor.py:380-382` 对 `LoadConst` 直接把 `mode.on_const(ins.value, ins.type)` 压栈，没有任何 `check_value_type(...)`；`src/runtime/executor.py:710-711` 又把 callee 返回值经 `mode.on_store(...)` 后直接压回调用方栈。Codex 手工反证：合法装载后把 `FUNCTION BadReal(): REAL` 的函数体篡改为 `LoadConst(1, "REAL")`，主程序执行 `CallFunc("BadReal", (), "REAL") ; LoadConst(0.5, "REAL") ; BinOp("ADD","REAL") ; StoreVar("X","REAL")`，在 F1 模式下同样静默得到 `X=1.5`，没有任何异常。也就是说，Round 3 只封住了 frame 播种点，没有封住“被调体制造错误 TypedValue → 返回到调用方继续参与运算”这条同类通路。
+- 非阻塞建议：后续返修若继续沿当前测试风格推进，至少把上述两条最小反证各固化成一条 F1 模式测试；同时审视 `LoadConst`、FUNCTION 返回压栈、`Const` 绑定求值这三处是否都需要共享同一套“原始值先验结构检查”边界，避免再出现某个边界点被 F1 数值钩子洗白。
+- 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=e9788870660b3a3cdf886f518f5b4944c9c2ec493c2c946923eebd8e3f4c1f22`，`review_finished_sha256=e9788870660b3a3cdf886f518f5b4944c9c2ec493c2c946923eebd8e3f4c1f22`。逐文件 SHA-256：`src/runtime/executor.py=22ed199148d1ff1dfed9ea5bcd7d2c79b654aa7ab7efc7b7a981ac6463ad6bbf`，`src/runtime/numeric.py=9a870a7f7fc1fa93c94f25837e5e1948681292c0da17eba0009d2a6a1636711b`，`src/runtime/__init__.py=7bf2db854f286d50465d25fa2ae8b4c17fea4830d99fe55f4076baaccd2fe18c`，`tests/test_runtime_executor.py=a8a4861ab28f3eac3c0ce497b0415f0f71902fd72f617d7c1db6b1f54a60a738`。除复跑 4 组测试外，本轮还手工复现了两条 F1 反证：① `Binding("I","IN",Const(1,"INT"),"REAL")` 进入 `AddHalf(I: REAL): REAL := I + 0.5` 后静默写出 `X=1.5`；② 把 `BadReal(): REAL` 篡改为 `LoadConst(1,"REAL")` 后，调用方继续做 `+ 0.5` 并静默写出 `X=1.5`。由于当前已到 `round=3` 且 `max_rounds=3`，协议不允许再自动回 Fable5，本轮按硬规则转 `BLOCKED` 交用户仲裁。
+- handoff_to: user
+- reviewed_at: 2026-07-14 20:55 CST
+
+---
+
+## WP-20260714-005
+
+- title: WP-004 收口——F1 量化前原始值结构校验与 TypedValue 边界防御
+- status: CLOSED
+- owner: user
+- handoff_to: user
+- round: 3
+- max_rounds: 3
+- base_commit: 52ab9cf0be57154d798027ac95d4e827dd75e7d3
+- depends_on: WP-20260714-004 BLOCKED artifact
+- created_by: user
+- created_at: 2026-07-14
+- scope:
+  - src/runtime/executor.py
+  - tests/test_runtime_executor.py
+- scope_baseline_sha256: 6e9dece6711ba7ed48443f4542cab12e574a623eae7c2d682e89c11fdf43e518
+- scope_baseline_manifest:
+  - `22ed199148d1ff1dfed9ea5bcd7d2c79b654aa7ab7efc7b7a981ac6463ad6bbf  src/runtime/executor.py`
+  - `a8a4861ab28f3eac3c0ce497b0415f0f71902fd72f617d7c1db6b1f54a60a738  tests/test_runtime_executor.py`
+- 开工核验（2026-07-14，Fable5 只读）：分支 main；HEAD=52ab9cf 与任务书一致；WP-004 顶层 BLOCKED/user/user、round 3/3 未动；两 scope 文件与聚合 SHA-256 与任务书完全一致；工作区含 WP-004 未提交成果（预期状态，未清理）。
+
+### Fable5 实施交接（Round 1）
+
+- 完成内容：建立共享的"原始值先验检查"入口 `Executor._checked_boundary(ctx, pc, instr, raw_value, iec_type, hook, what)`——顺序固定为**原始 Python 值结构检查（`check_value_type` 口径）→ 数值钩子 → 钩子结果复检**，E 与 F1 共享同一结构检查（非 F1 特判,差别只来自钩子）。四处边界统一接入：① `LoadConst`：原始 `ins.value` 检查先于 `on_const`；② IN×Const 绑定：新增 Const 类型标签与 Binding.type 一致性核对 + 原始 `Const.value` 先于 `on_const` 检查（不再依赖 `_seed_cell` 兜底）；③ FUNCTION 返回边界：出口栈恰一元素（既有）+ 返回标签=定义返回类型（既有）+ 返回标签=CallFunc.ret_type（新增直接核对）+ **返回值原始结构检查先于 `on_store`** + 钩子结果复检——被调体制造的"标签正确、结构错误"TypedValue 不再能被 F1 洗白后返回；④ `CallStd` 返回：原检查已在钩子前（无真实缺陷）,统一改走共享通道以消除口径分叉并补钩子结果复检。
+- 根因与修复机制：WP-004 三轮的防御都布在"值已经过数值钩子之后"（播种点 raw 参数在 Const 路径拿到的已是量化后值）,F1 的 `on_const/on_store` 会把结构性错误的 `int` 洗成合法 `float`,使后续一切检查失明。修复把检查点前移到钩子之前,并明确数值钩子只许量化/回绕/显式转换、不许"修正"结构错误——钩子结果复检进一步防钩子越权。
+- 修改文件：`src/runtime/executor.py`、`tests/test_runtime_executor.py`（均在 scope 内）。
+- 明确未修改：`numeric.py`(9a870a7f…)/`__init__.py`(7bf2db85…)/`store.py`(46a7b948…)/`ir.py`(35ec127d…)/`loader.py`(d8d29036…)——SHA 与 WP-004 Round 3 审核记录逐一核对一致；WP-004 状态与历史零改动；`PROJECT_STATE.md`/`RISKS.md` 未动；零 Git 操作。
+- TypedValue 创建入口审计（11 处）：**改走共享检查（4）**——LoadConst、IN×Const、CallFunc 返回、CallStd 返回；**已有可信结构保证（4）**——LoadVar/LoadPrev（值来自 Store/StoreSnapshot/frame cell,写入侧已有结构校验:`Store.write`、`_CellLoc.write`(Round 3 加检)、播种检查）、IN×StackSlot（栈值在其创建点已受守,标签逐一核对）、IN×StoreKey（值来自受守 Store/cell,若绑定类型被篡改,VAR_INPUT 播种的标签核对+raw 检查拦截）；**依赖运算/写入实现（3）**——BinOp/UnOp（操作数出栈已受守,结果由 `trunc_div/iec_mod`/Python 算术产生,类型封闭;比较恒 `bool()`）、Convert（`numeric.convert` 白名单+`on_store` 出口,源值出栈已受守）、FB IN 拷入/OUT 写回（值来自受守边界,`on_store` 后经 `Store.write`/`_CellLoc.write` 结构复检兜底）。结论：所有进入数值钩子的值,其原始结构要么在本入口先验检查,要么来自已受守来源——无"先量化后检查"残留。
+- 新增反证测试（7,类 `TestRawValueBoundaryDefenses`,全部断言异常类型/上下文/目标未部分写入）：① F1 下篡改绑定 `Const(1,"INT")→REAL`（Codex 反证①固化,标签不一致拦截）;② 变体 `Const(1,"REAL")`（标签一致但原始值 int,原始值检查拦截——证明不依赖标签核对）;③ F1 下 FUNCTION 体篡改为 `LoadConst(1,"REAL")`（Codex 反证②固化,X 保持 0.0）;④ 同一篡改在 Engineering 下同样拒绝（非 F1 特判）;⑤ 合法 `LoadConst(1.0,"REAL")` 在 E/F1 均正常（防误伤）;⑥ `LoadConst(True,"INT")` 拒绝（bool 非整数）;⑦ 受控执行器子类使被调出口栈出现"REAL 标签、int 结构"值,返回边界在 `on_store` 前拒绝（E/F1 双模式,生产代码无后门）。另按修复语义更新既有测试 `test_tampered_input_binding_seed_rejected` 的消息断言：该篡改现在在**绑定求值边界**（早于播种兜底）被拦截,正是任务书"必须在绑定求值或更早边界被拒绝"的要求,断言随之锁定新边界（其余断言:异常类型/上下文/X 未写出,不变）。
+- 反证真实失败验证（任务书 §九）：修复前行为通过一次性脚本还原（monkeypatch `_checked_boundary` 为"只跑钩子"）,两条 Codex 手工反证均复现**静默 X=1.5、无异常**（与 Round 3 审核记录一致）;恢复修复后同场景全部抛 `IRExecutionError` 且 X 保持 0.0。
+- 实际测试命令与结果（2026-07-14,Fable5 实跑,均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor -v` → Ran **52** tests, OK（45 既有 + 7 新增）。
+  2. `python -m unittest tests.test_runtime_store -v` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir -v` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **822** tests, OK（815 + 7,零破坏）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **890** tests, OK（822 + 68）。
+- 首次失败与修复记录（如实）：修复落地后首跑 52 项中 1 失败——WP-004 Round 2 的 `test_tampered_input_binding_seed_rejected` 断言错误消息含"播种",而该篡改现被更早的绑定求值边界拦截（消息为"Const 类型标签…不一致"）。此为防御点**按任务书要求前移**的预期效果,非回归;已更新该测试断言锁定新边界并重跑全绿（上列数字即修复后实跑）。
+- 已知疑问与延后边界：① `_seed_cell` 的 raw 检查保留（StackSlot/StoreKey 来源的播种防御仍经它兜底）,与共享通道并存——若审核认为应进一步归并可在后续包处理;② 库块管脚（`_PinLoc`）值的结构检查仍属 L2 adapter 职责（类型未知,诚实边界）;③ WP-004 既有的其余已知疑问（adapter 协议、REAL DIV 除零候选行为等）维持原状。Python 测试仅证明当前实现满足本包规则,不构成与目标 PLC 一致的证据。
+- scope_manifest:
+  - `509e92fe2c99648b4c98c3b8fcf2705ac6164209dc68295f2ba583da6895f8c2  src/runtime/executor.py`
+  - `43e2291c2baae47e54c8639213ce3a85effe2cf20fd1b4c187ae7045febb1e6a  tests/test_runtime_executor.py`
+- scope_sha256: e4eee57ec95861ef8046145f084bb06594121e392e14e220a33af0b0384fb22c
+- implementation_finished_at: 2026-07-14
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：`src/runtime/executor.py:381-402` 已新增 `_checked_boundary(...)`，按“原始 Python 值结构检查 → 数值钩子 → 钩子结果复检”处理边界；`LoadConst`、IN×Const、FUNCTION 返回和 `CallStd` 四处已接入该通道。`tests/test_runtime_executor.py:899-1010` 新增 7 条反证，已覆盖 WP-004 Round 3 点名的两条 F1 漏洞、Engineering 对照、合法 REAL、BOOL→INT 和 FUNCTION 返回边界。Codex 独立复跑六组测试：执行器 52/52、Store 24/24、IR 56/56、正式 tests 822/822、原型 68/68、全仓 890/890，均通过。
+- 项目工程约定：E/F1 共用严格结构类型检查、数值钩子不负责隐式修正错误 Python 类型，是本项目的运行期防御约定；F1 整数中间位宽、REAL binary32 边界量化、REAL DIV 除零和 adapter 最终协议的分层表述未被本包改写。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度、REAL DIV 除零行为及 library adapter 最终协议仍需 `TARGET_PROFILE.md` / 黄金轨迹 / L2 工作包裁决；当前 Python 测试只证明现实现行为，不证明与目标 PLC 语义一致。
+- 必须返修 1：**`LoadVar` 从 library adapter 管脚读取外部值时仍没有原始值结构检查，F1 依然可在 `StoreVar` 边界洗白错误类型。** `src/runtime/executor.py:307-319` 允许 `_PinLoc` 在无 `pin_type` 时返回声明类型未知的外部值；`src/runtime/executor.py:414-423` 直接将 `loc.read()` 包装成指令声明类型的 `TypedValue`，`src/runtime/executor.py:430-440` 又先执行 `on_store` 再交给位置写入。Codex 最小反证：adapter `read_pin()` 返回 Python `int 1`，IR 执行 `LoadVar("T1.Q", "REAL"); StoreVar("X", "REAL")`，F1 模式下无异常并静默写出 `X=1.0 (float)`。即使 L2 尚未提供管脚声明类型，IR 的 `LoadVar.type` 仍提供了本次运行所需的期望类型，不能因 L2 延后而跳过原始值检查。
+- 必须返修 2：**IN×StoreKey 与用户 FB 输入拷入之间仍存在“错误原始值 → `on_store` 洗白 → Store 检查通过”通路。** `src/runtime/executor.py:611-613` 对 StoreKey 实参既未校验目标位置声明类型与 `Binding.type`，也未检查 `loc.read()` 的原始结构；`src/runtime/executor.py:784-790` 随后先执行 `on_store` 再写入 FB 的持久 VAR_INPUT。Codex 最小反证：先建立合法 `Sink.I: REAL <- StoreKey("X")`，再在布局建立后篡改为 `Binding("I","IN",StoreKey("N"),"REAL")`，其中 `N` 是 INT；F1 模式下无异常并静默把 `0.0 (float)` 写入 `PLC_PRG.U.I`。请在 StoreKey 绑定求值时先校验位置声明类型、Binding 类型与原始 Python 值，并让 FB IN 的 `on_store` 同样走共享检查通道。
+- 必须返修 3：**FUNCTION VAR_INPUT 播种仍是先调用数值钩子，再进入 `_seed_cell` 检查 raw，与本包声明的固定顺序不一致。** `src/runtime/executor.py:720-722` 在 Python 进入 `_seed_cell(...)` 前就会先求值 `self.mode.on_store(...)`；虽然 `raw=tv.value` 可在之后拒绝错误值，但并非“检查先于钩子”。请改为先经 `_checked_boundary` 得到合法结果再播种，并审视 `StoreVar`、`_write_out_bindings`、FB IN 等余下的直接 `on_store` 调用，不要再以“来源应当受守”代替边界自身的防御。
+- 必须新增测试：至少将上述两条静默洗白反证固化：① library adapter 管脚返回 `int`、IR 声明 REAL，F1 必须在它进入数值钩子前拒绝；② IN×StoreKey 装载后从 REAL 位置篡改为 INT 位置、Binding 仍声明 REAL，用户 FB VAR_INPUT 不得静默接受。两条都应断言 `IRExecutionError`、完整上下文和目标未部分写入。
+- 非阻塞建议：可考虑让 `_pop(...)` 除了检查 `TypedValue.iec_type` 标签，还校验 `tv.value` 的 Python 结构类型；同时把仍直接调用 `on_store/on_result` 的边界逐项分类为“显式转换”或“必须先验原始值”，会比依赖来源推理更稳固。
+- 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=e4eee57ec95861ef8046145f084bb06594121e392e14e220a33af0b0384fb22c`，`review_finished_sha256=e4eee57ec95861ef8046145f084bb06594121e392e14e220a33af0b0384fb22c`。逐文件 SHA-256：`src/runtime/executor.py=509e92fe2c99648b4c98c3b8fcf2705ac6164209dc68295f2ba583da6895f8c2`，`tests/test_runtime_executor.py=43e2291c2baae47e54c8639213ce3a85effe2cf20fd1b4c187ae7045febb1e6a`。除独立复跑六组测试外，本轮还做了两条最小手工反证：adapter 管脚 `int 1` 被 F1 静默写为 REAL `1.0`；INT StoreKey `N=0` 被装载后篡改为 REAL FB 实参并静默写为 `0.0`。
+- handoff_to: fable5
+- reviewed_at: 2026-07-14 22:00 CST
+
+### Fable5 实施交接（Round 2，返修）
+
+- 完成内容：Codex Round 1 三条"必须返修"+"必须新增测试"逐条落地，两条非阻塞建议全部采纳。**1) LoadVar 原始值结构检查**——`_step` 的 LoadVar 分支在声明类型核对后、入栈前对 `loc.read()` 的原始值做 `check_value_type` 结构检查（对全部来源统一，不以"来源应当受守"代替边界防御）；库块管脚（`_PinLoc`，declared=None）来源的外部值由 `LoadVar.type` 提供本次运行期望类型，adapter 返回 int 而 IR 声明 REAL 现于 LoadVar 边界即拒绝，不再走到 `StoreVar.on_store` 被 F1 洗白。**2) IN×StoreKey 与 FB 拷入收口**——`_eval_in_bindings` StoreKey 分支新增两查：目标位置 `declared_type()` 与 `Binding.type` 一致（declared=None 仅库块管脚，诚实跳过）+ 原始值结构检查先于任何钩子；`_call_fb_instance` IN 拷入前新增持久键声明类型与绑定类型核对，拷入值改走共享边界通道（原始值检查 → on_store → 复检）。**3) 播种顺序与余下 on_store 收编**——FUNCTION VAR_INPUT 播种改为先经 `_checked_boundary` 得到合法结果再 `_seed_cell`（此前先求 on_store 再检 raw，顺序与声明不一致）；`StoreVar`、`_write_out_bindings`（OUT 写回）同步收编入共享通道——执行器内全部 `on_store`/`on_const`/`on_result`（CallStd）边界现统一"原始值结构检查 → 钩子 → 结果复检"；`_seed_cell` 的 `raw` 参数因不再有调用方而移除（避免无效装饰），其对最终播种值的复检保留。**非阻塞建议采纳**：`_pop` 消费点在类型标签外复检栈值 Python 结构（某创建点被绕过时消费点也不放行）；模块 docstring 新增 TypedValue 边界分类——哪些边界走共享通道、BINOP/UNOP/CONVERT 的 `on_result`/`convert` 属"运算/显式转换"类（操作数经 `_pop` 复检、结果类型封闭）。
+- 修改文件：`src/runtime/executor.py`、`tests/test_runtime_executor.py`（均在 scope 内）。
+- 明确未修改：`numeric.py`(9a870a7f…)/`__init__.py`(7bf2db85…)/`store.py`(46a7b948…)/`ir.py`(35ec127d…)/`loader.py`(d8d2903d…)/`process_image.py`(ba64cb8a…)——本轮实跑 sha256sum 核对与既有记录逐一一致；scope 外零改动（交接文件除外）；零 Git 操作。
+- 既有测试更新说明（1 项，如实）：`test_cell_write_type_check_wraps_store_error`——OUT 写回接入共享通道后，"声明+绑定一并篡改"现于写回**原始值检查**边界被拦截（防御点按本轮意见前移），原"cause=StoreTypeError"断言不再可经执行器黑盒触达；断言改为锁定新边界（"OUT 形参"+"原始值"+上下文），并在同测试内补 `_CellLoc.write` 内层兜底的单元级直接锁定（错误结构值仍抛 StoreTypeError、目标未写入），原防御层未删除。
+- 新增测试（3 项，类 `TestExternalAndStoreKeyBoundaryDefenses`，全部断言异常类型/上下文/目标未部分写入）：① adapter 管脚返回 int、IR 声明 REAL，F1 与 E 双模式均在 LoadVar 边界拒绝、X 保持 0.0（Codex 反证①固化）；② 装载后把 IN×StoreKey 从 REAL 位置 X 篡改为 INT 位置 N（绑定仍 REAL），绑定求值边界拒绝、`PLC_PRG.U.I` 保持 0.0（Codex 反证②固化）；③ 变体：绑定整体篡改为 `Const(1,"INT")×"INT"`（Const 分支自洽、能通过绑定求值），FB 拷入边界的持久键声明类型核对拦截（锁定拷入边界自身防御，双模式）。
+- 反证真实失败验证：一次性脚本（不落盘）把 executor 模块内 `check_value_type` 置恒真以还原"无结构检查"旧行为——Codex 反证①复现**静默 X=1.0、无异常**（与 Round 1 审核记录一致）；恢复后同场景抛 `IRExecutionError` 且 X 保持 0.0。反证②的声明类型核对系本轮新增代码，pre-fix 缺失可由 diff 直接核对。
+- 实际测试命令与结果（2026-07-14 本轮实际运行，Fable5，均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor` → Ran **55** tests, OK（52 + 3 新增）。
+  2. `python -m unittest tests.test_runtime_store` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **825** tests, OK（822 + 3，零破坏）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **893** tests, OK（825 + 68）。
+- 过程记录（如实）：修复落地后首跑 55 项中 1 失败——即上述 `test_cell_write_type_check_wraps_store_error`（防御点前移的预期效果，非回归）；按上文更新断言后重跑全绿（上列数字即修复后实跑）。
+- 已知疑问与延后边界：① FB 拷入的持久键声明类型核对是"让 FB IN 走共享检查通道"的自然配套（同一边界、同一反证通路），若审核认为超出返修范围可指出；② BINOP/UNOP/CONVERT 的 `on_result`/`convert` 未接入共享通道，按 Codex 非阻塞建议分类为"运算/显式转换"类（操作数已在 `_pop` 消费点复检结构、结果由类型封闭的运算产生），若审核认为这三处也须先验原始值属同类小改；③ 库块管脚写入方向（`_PinLoc.write`）的值结构检查仍属 L2 adapter 职责（写入值来自受守边界，管脚声明类型未知，维持诚实边界）；④ 其余既有已知疑问（adapter 协议、REAL DIV 除零候选行为等）维持原状。以上 Python 测试仅证明当前实现行为，不构成与目标 PLC 语义一致的证据。
+- scope_manifest:
+  - `3a6f097a10ff7c8530c75f6c0fe718a84e146293f089d4c530d954925eea5d67  src/runtime/executor.py`
+  - `71992c79f1831d02e40721b4c97a21cf9464b9ef2ab55eb7a95b3bf644488752  tests/test_runtime_executor.py`
+- scope_sha256: 4825035b6e1c387754f7d0e56dc8ab1691ea23777927b3547746340391eff3e4
+- handoff_to: codex
+- implementation_finished_at: 2026-07-14 22:14 CST
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：`src/runtime/executor.py:430-449` 已把 `LoadVar` 的原始值结构检查前移到入栈前；`648-663` 已为 `IN × StoreKey` 增加声明类型与原始值检查；`751-819`、`840-859`、`900-920` 已把 FUNCTION 播种/返回、FB IN 拷入、`CALL_STD` 返回等边界统一到共享检查通道。`tests/test_runtime_executor.py:1041-1115` 新增的 3 条用例也确实锁住了 adapter `int→REAL` 结构错误、StoreKey 篡改和 FB 拷入声明类型不一致三条返修路径。Codex 独立复跑 6 组测试：`tests.test_runtime_executor` = 55/55、`tests.test_runtime_store` = 24/24、`tests.test_runtime_ir` = 56/56、`discover -s tests -t .` = 825/825、`discover -s prototype_05 -t .` = 68/68、`discover -t .` = 893/893，结果与交接记录一致。
+- 项目工程约定：E/F1 共用严格的原始值结构检查、数值钩子不得洗白结构错误，仍是当前项目运行期防御约定；Python 测试通过只证明当前实现行为，不证明与目标 PLC 语义一致。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度、REAL DIV 除零候选行为、library adapter 最终协议与 L2 描述符接线方式仍需后续工作包与真机/黄金轨迹裁决；本轮未越权改写这些边界。
+- 必须返修 1：**library adapter 的 REAL 输出仍未在 `CALL_FB` 边界按 F1 口径量化，后续 IR 运算会直接吃到未量化的 float64。** `docs/IR_SPEC.md:186-195` 明确要求 F1-expr/F2 对 REAL 施加统一边界量化，其中第 5 条写明“`CALL_FB` 输出回收按 `Pin.iec_type` 量化”。但当前实现里，`src/runtime/executor.py:430-449` 的 `LoadVar("T1.Q", "REAL")` 对 `_PinLoc.read()` 只做结构检查后直接把 `raw` 压栈，`src/runtime/executor.py:923-935` 的 `CALL_FB` 也只执行 `adapter.step(...)`，没有任何输出回收/量化步骤。Codex 最小复现：adapter `Q=3444218515.250481`，程序执行 `CallFb("T1"); LoadVar("T1.Q","REAL"); LoadConst(2579544029.4030247,"REAL"); BinOp("ADD","REAL"); StoreVar("X","REAL")`，F1 下实际写出 `X=6023762432.0`；若按规格先在库块输出边界量化，应为 `quantize_real32(quantize_real32(Q) + quantize_real32(const)) = 6023762944.0`。这不是文档表述问题，而是现实现会改变 F1 数值结果。请在库块输出进入 IR 世界前落实 REAL 边界量化，并新增对应回归测试；仅有 `tests/test_runtime_executor.py:1048-1066` 的“adapter 返回 int 结构错误”还不够覆盖这个规格要求。
+- 非阻塞建议：返修时把“library pin REAL 值在 F1 下先量化后参与 `BINOP`”写成一个最小数值差异用例，直接锁住当前复现值 `6023762432.0 != 6023762944.0` 这类双重舍入差异，避免后续 L2 adapter 接入时再次回退。
+- 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=4825035b6e1c387754f7d0e56dc8ab1691ea23777927b3547746340391eff3e4`，`review_finished_sha256=4825035b6e1c387754f7d0e56dc8ab1691ea23777927b3547746340391eff3e4`。逐文件 SHA-256：`src/runtime/executor.py=3a6f097a10ff7c8530c75f6c0fe718a84e146293f089d4c530d954925eea5d67`，`tests/test_runtime_executor.py=71992c79f1831d02e40721b4c97a21cf9464b9ef2ab55eb7a95b3bf644488752`。除复跑 6 组测试外，本轮还做了 F1 手工复现：当前实现得到 `6023762432.0`，而按 `IR_SPEC §5.3` 第 5 条的边界量化口径应得到 `6023762944.0`。
+- handoff_to: fable5
+- reviewed_at: 2026-07-14 22:26 CST
+
+### Fable5 实施交接（Round 3，返修）
+
+- 完成内容：Codex Round 2 唯一"必须返修"（library adapter 的 REAL 输出未在 CALL_FB 输出回收边界按 F1 量化，IR_SPEC §5.3 边界 5）落地，非阻塞建议（最小数值差异用例锁死双重舍入）采纳。**修复**：`src/runtime/executor.py` 新增 `Executor._pin_recover_hook(value, iec_type)`——F1 下 REAL 管脚值量化到 binary32,其余透传;两处 `_PinLoc` 读取边界接入共享通道 `_checked_boundary(... hook=_pin_recover_hook ...)`（结构检查仍先于量化,量化不得洗白结构错误）:① `_step` LoadVar 分支——库块管脚回收值先量化再入栈,不再让未量化 float64 直接参与后续 BINOP（Codex 复现路径;经 INOUT 别名读到的管脚位置落入同一分支）;② `_eval_in_bindings` IN×StoreKey 分支指向管脚时同样先量化（当前下游 FUNCTION 播种/FB 拷入的 on_store 也会量化、数值上幂等,补齐是边界完备性:不依赖"下游会再量化",黑盒不可观察差异,见已知疑问②）。L2 未接入时以指令/绑定携带的 IEC 类型充当本次运行的 `Pin.iec_type`（与 Round 1 结构检查同一理由）。模块 docstring 同步补"库块管脚输出回收=§5.3 边界 5 量化边界"一节。
+- 修改文件：`src/runtime/executor.py`（import 补 `quantize_real32`、模块 docstring、`_pin_recover_hook` 新增、LoadVar 分支、`_eval_in_bindings` StoreKey 分支）、`tests/test_runtime_executor.py`（55→58 项：新增 `_RealPinAdapter` 辅助 + `TestLibraryPinRealQuantization` 3 项）。
+- 明确未修改：`src/runtime/numeric.py`(9a870a7f…)/`__init__.py`(7bf2db85…)/`store.py`(46a7b948…)/`ir.py`(35ec127d…)/`loader.py`(d8d2903d…)/`process_image.py`(ba64cb8a…)——本轮实跑 sha256sum 与既有记录逐一核对一致；scope 外零改动（交接文件除外）；零 Git 操作。**未动 scope 外新增文件**：工作区较上轮新增 `tools/ai_handoff/`、`tests/test_ai_handoff.py`、`docs/AI_HANDOFF_OPERATIONS.md`（AI 交接面板工具,非本包 scope,非 Fable5 本轮所写;其中 1 项测试在本环境稳定失败,见测试结果第 4/6 组说明）。
+- 新增测试（3 项,类 `TestLibraryPinRealQuantization`）：① F1 下管脚 REAL 值（3444218515.250481）先量化再参与 BINOP ADD（常量 2579544029.4030247）,断言 X==6023762944.0 且 !=6023762432.0（Codex 复现值,锁死回退形态）,并与 `quantize_real32(quantize_real32(Q)+quantize_real32(C))` 公式核对;② E 模式对照:管脚 float64 原样参与运算（回收钩子 F1 专属,不误伤 E）;③ F1 下 adapter 返回 int、IR 声明 REAL 仍在回收边界拒绝且 X 未被部分写入（量化钩子不得洗白结构错误,与既有反证同口径）。
+- 反证真实失败验证：一次性脚本（不落盘）monkeypatch `_pin_recover_hook` 为恒等还原修复前行为——Codex 复现场景实测 **X=6023762432.0、无异常**（与 Round 2 审核记录一致）;恢复修复后同场景 **X=6023762944.0**。数字均为本轮实跑,非预写。
+- 实际测试命令与结果（2026-07-15 本轮实际运行,Fable5,均 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_executor` → Ran **58** tests, OK（55 + 3 新增）。
+  2. `python -m unittest tests.test_runtime_store` → Ran **24** tests, OK。
+  3. `python -m unittest tests.test_runtime_ir` → Ran **56** tests, OK。
+  4. `python -m unittest discover -s tests -t .` → Ran **853** tests, **FAILED (failures=1)**——唯一失败为 `tests/test_ai_handoff.py::DashboardTests::test_atomic_replace_of_temporary_copy_updates_status_api`（断言 `1 not greater than 1`,文件监视版本号未在 3s 窗口内递增）。该文件是 scope 外新增的交接面板工具测试,只导入 `tools.ai_handoff.*`、与 `src.runtime` 零耦合;单独重跑 3 次均同一失败（稳定,疑为本沙盒环境文件事件/计时问题）;本包既有 825 项与新增 3 项全部通过（853 中 852 通过,唯一失败与本 scope 无关）。
+  5. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  6. `python -m unittest discover -t .` → Ran **921** tests, **FAILED (failures=1)**——同一失败,853+68 中其余 920 项全部通过。
+- 已知疑问与延后边界：① scope 外 `tests/test_ai_handoff.py` 的稳定失败需用户/Codex 在宿主环境复核（可能只在沙盒失败）,Fable5 无权修改该文件;② IN×StoreKey 指向管脚的量化补齐当前黑盒不可观察（下游 on_store 幂等）,无法用测试锁定,如 Codex 认为应移除以保持"可测试的最小修改"属同类小改;③ 整数管脚回收**不**回绕/截断——§5.3 对整数仅承诺 STORE_VAR/CONVERT 截断,管脚回收非整数截断点,本轮不发明规格外语义（`_pin_recover_hook` docstring 已注明）;④ LREAL 管脚透传（§5.3 量化仅 REAL）;⑤ 其余既有已知疑问（adapter 协议、REAL DIV 除零候选行为等）维持原状。以上 Python 测试仅证明当前实现行为,不构成与目标 PLC 语义一致的证据。
+- scope_manifest:
+  - `ba915afa1dd90381dc625df592284fa0fc53db2d92a88f9f5afccc8894110c39  src/runtime/executor.py`
+  - `7e494fc0ec2ad9bf87713bc8267b417b79260d876bbfc19765dac60678038218  tests/test_runtime_executor.py`
+- scope_sha256: 93a2d866da9c53522ca24925071b74a28a36c95cff00a9e74a10c039d304fa35
+- handoff_to: codex
+- implementation_finished_at: 2026-07-15 01:44 CST
+
+### Codex 审核结论（Round 3）
+
+- verdict: APPROVED
+- 已验证事实：`src/runtime/executor.py:424-469` 已把库块管脚输出回收收口为独立的 `_pin_recover_hook(...)`，并在 `LOAD_VAR` 读取 `_PinLoc` 时先做原始值结构检查、再按 F1 对 REAL 量化后入栈；`src/runtime/executor.py:676-701` 也把 `IN × StoreKey` 指向 `_PinLoc` 的路径并入同一回收边界，不再依赖下游 `on_store` 二次量化。`tests/test_runtime_executor.py:1134-1188` 新增的 `TestLibraryPinRealQuantization` 3 条用例锁住了 Codex Round 2 点名的双重舍入差异、Engineering 对照和“量化不得洗白结构错误”三条路径。按 `docs/IR_SPEC.md:186-195` 的 F1 边界 5 口径，当前实现已把 library pin REAL 值在进入 IR 世界前量化到 binary32，未再复现 `6023762432.0` 的旧错误结果。
+- 项目工程约定：L2 描述符未接入时，库块管脚回收继续以指令/绑定携带的 IEC 类型充当本次运行的 `Pin.iec_type`；`_pin_recover_hook(...)` 只对 F1 下的 REAL 做 binary32 量化，对整数/LREAL 不新增规格外回绕或截断语义（`src/runtime/executor.py:424-435`）。这仍是项目当前的工程实现口径，不是 CODESYS / IEC 官方已证实语义。
+- 待真机验证假设：F1/F2 下整数中间溢出发生点、REAL 中间精度、REAL DIV 除零候选行为、library adapter 最终协议与 L2 描述符接线方式仍需 `TARGET_PROFILE.md`、黄金轨迹和后续工作包裁决；本轮 Python 测试只证明当前执行器边界防御与 F1 回收量化行为，不证明与目标 PLC 语义一致。
+- 必须返修：无。
+- 非阻塞建议：若后续要在 CI 或自动化任务里长期运行 `tests/test_ai_handoff.py` 这类会绑定本地 HTTP 端口的测试，建议单独标注“需宿主环境/放开本地端口绑定”，避免把沙盒权限限制误判为代码回归。
+- 审核证据：审核开始与结束的 scope SHA-256 一致，本轮审核有效，期间未发现 scope 漂移。`review_started_sha256=93a2d866da9c53522ca24925071b74a28a36c95cff00a9e74a10c039d304fa35`，`review_finished_sha256=93a2d866da9c53522ca24925071b74a28a36c95cff00a9e74a10c039d304fa35`。逐文件 SHA-256：`src/runtime/executor.py=ba915afa1dd90381dc625df592284fa0fc53db2d92a88f9f5afccc8894110c39`，`tests/test_runtime_executor.py=7e494fc0ec2ad9bf87713bc8267b417b79260d876bbfc19765dac60678038218`。本轮 Codex 独立复跑：`python -m unittest tests.test_runtime_executor` = 58/58、`python -m unittest tests.test_runtime_store` = 24/24、`python -m unittest tests.test_runtime_ir` = 56/56、`python -m unittest discover -s tests -t .` = 864/864、`python -m unittest discover -s prototype_05 -t .` = 68/68、`python -m unittest discover -t .` = 932/932（后两组含 dashboard 本地端口测试，需在宿主环境下复跑；沙盒端口绑定失败已排除为环境限制，不构成 scope 回归）。
+- handoff_to: user
+- reviewed_at: 2026-07-15 02:25 CST
