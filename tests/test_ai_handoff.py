@@ -203,6 +203,26 @@ class WatcherTests(unittest.TestCase):
             finally:
                 watcher.stop()
 
+    def test_start_returns_only_after_watcher_is_ready(self):
+        """开始调用返回后立即原地写入，首个事件不得落在注册窗口。"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "handoff.md"
+            source.write_text(package_text(), encoding="utf-8")
+            changed = threading.Event()
+            watcher = HandoffWatcher(
+                source, changed.set, debounce_seconds=0.01,
+                fallback_interval=0.05,
+            )
+            watcher.start()
+            try:
+                self.assertTrue(watcher._ready.is_set())
+                source.write_text(
+                    package_text(status="CODEX_REVIEWING"), encoding="utf-8"
+                )
+                self.assertTrue(changed.wait(2.0), f"watcher mode={watcher.mode}")
+            finally:
+                watcher.stop()
+
     def test_atomic_replace_triggers_reload(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "handoff.md"

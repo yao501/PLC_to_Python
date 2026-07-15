@@ -29,15 +29,23 @@ class HandoffWatcher:
         self.mode = "native-kqueue" if self._native_supported else "degraded-low-frequency-check"
         self.degraded_reason = None if self._native_supported else "当前平台不可用 kqueue，每 5 秒低频检查交接文件"
         self._stop = threading.Event()
+        # start() 必须等监听器完成注册再返回；否则调用方紧接着
+        # 写文件时，首个事件可能落在后台线程建立 kqueue 之前。
+        self._ready = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._ready.clear()
         target = self._run_kqueue if self._native_supported else self._run_fallback
         self._thread = threading.Thread(target=target, name="ai-handoff-watcher", daemon=True)
         self._thread.start()
+        if not self._ready.wait(timeout=2.0):
+            self._stop.set()
+            self._thread.join(timeout=2.0)
+            raise RuntimeError("交接文件监听器未在 2 秒内完成启动")
 
     def stop(self) -> None:
         self._stop.set()
@@ -87,6 +95,9 @@ class HandoffWatcher:
                 queue.control([file_event], 0, 0)
 
             reopen_file()
+            # 目录与当前文件 inode 已完成注册，从此时点起调用方
+            # 可安全修改目标文件，不会丢失启动窗口内的首个事件。
+            self._ready.set()
             pending_at: float | None = None
             while not self._stop.is_set():
                 events = queue.control(None, 8, 0.25)
@@ -114,6 +125,8 @@ class HandoffWatcher:
 
     def _run_fallback(self) -> None:
         previous = self._signature()
+        # 降级路径以基线签名取得完成作为就绪点。
+        self._ready.set()
         while not self._stop.wait(self.fallback_interval):
             current = self._signature()
             if current != previous:
