@@ -131,6 +131,9 @@ live 启动会先执行 Claude Code 登录探针；登录无效、命令缺失�
 未显式启用时直接拒绝启动。Codex 和 Claude 共用一个跨进程执行租约，因此任何时刻最多只有
 一个真实 AI 子进程。调度线程不阻塞文件监听和网页，页面会显示
 `scheduled / running / completed / failed / timed-out / cancelled` 生命周期。
+子进程退出码为 0 仍不等于协议成功：协调器会重读权威交接文件，校验目标状态、
+`owner / handoff_to`、轮次与 scope 哈希证据。如果 AI 安全停笔却以 0 退出，或只输出
+报告而未原子交接，生命周期必须记为 `postcondition-failed` 并保留失败告警。
 
 运行状态仍放在项目对应的 macOS 临时目录，不写入仓库：
 
@@ -193,7 +196,7 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
   审核前后两次独立哈希均为
   `7cb4deaddb08078c701a01829465def87d02ffcd3e0d4f6a0a9bb5bb477b04d1`。
 - v1.3 已实现异步执行生命周期、全局单执行器互斥、陈旧 PID/运行态回收、孤儿进程安全阻塞、
-  持久失败告警和人工授权单次重试。默认仍保持 `enabled=False` 与 `dry_run=True`；本轮没有
+  持久失败告警、交接后置条件校验和人工授权单次重试。默认仍保持 `enabled=False` 与 `dry_run=True`；本轮没有
   启动真实后台服务，也没有恢复或修改双方定时任务。
 
 ### Claude Code 登录核验
