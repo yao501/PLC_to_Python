@@ -1,49 +1,56 @@
 # AI 协作交接文件(AI_REVIEW_HANDOFF)
 
-> **用途**:Fable5(实施)与 Codex(审核)之间"实施—审核"往返的唯一交接载体,支撑双侧定时轮询的自动协作。
+> **用途**:Claude(实施)与 Codex(审核)之间"实施—审核"往返的唯一交接载体,支撑本地事件协调器驱动的串行自动协作。
+> **命名**:实施方人类可见称呼统一为 **Claude**;历史记录中的 `Fable5` / `fable5` / `FABLE_WORKING` / `Fable5 实施交接` 仅作只读兼容别名保留,新内容一律使用 Claude / `CLAUDE_WORKING` / `Claude 实施交接`。
 > **职责边界**:本文件只记录工作包往返;项目状态归 `PROJECT_STATE.md`,正式风险归 `RISKS.md`,长期纪律归 `CODEX_GUIDE.md`,职责不混写。
-> **轮询机制**:Fable5 侧每 30 分钟定时检查一次本文件(Cowork 计划任务);Codex 侧检查任务由用户在 ChatGPT 配置。发现 `handoff_to` 指向自己且状态匹配时接力。
+> **事件机制**:本地协调器监听本文件的原子状态变化,完成五字段、轮次、scope 哈希和全局执行租约核验后,只唤醒当前 `handoff_to` 指向的一方。旧 Claude/Codex 30 分钟主轮询在 live 服务运行期间必须保持暂停,不得与事件协调器并行;后续低频恢复巡检只能检查服务健康并告警,不得绕过协调器直接启动 AI。
 
 ## 协议(双方必须遵守)
 
 ### 状态机(每个工作包)
 
 ```
-FABLE_WORKING → READY_FOR_CODEX → CODEX_REVIEWING
-  → CHANGES_REQUESTED(回 FABLE_WORKING,round+1)
+CLAUDE_WORKING → READY_FOR_CODEX → CODEX_REVIEWING
+  → CHANGES_REQUESTED(回 CLAUDE_WORKING,round+1)
   → APPROVED → CLOSED(用户确认)
   → BLOCKED(交用户仲裁)
 ```
+
+（历史别名:`FABLE_WORKING` 等价于 `CLAUDE_WORKING`,仅供只读解析,新交接不再写出。）
 
 ### 状态字段映射(唯一口径;自 2026-07-14 起适用于新交接与后续轮次)
 
 > 背景:此前"实施交接后 owner 写谁"存在双方理解分歧(Fable5 曾写 `owner: fable5` + `handoff_to: codex`,Codex 轮询要求 `owner=codex`,导致 2026-07-14 00:41–05:11 空转)。本节为唯一权威映射;**历史工作包文字(含 WP-20260713-002"验收与交接要求"中的 `owner: fable5` 表述)与本节冲突时,以本节为准,历史原文保留不改写**。
 
 ```text
-FABLE_WORKING:      owner=fable5   handoff_to=fable5
+CLAUDE_WORKING:     owner=claude   handoff_to=claude
 READY_FOR_CODEX:    owner=codex    handoff_to=codex
 CODEX_REVIEWING:    owner=codex    handoff_to=codex
-CHANGES_REQUESTED:  owner=fable5   handoff_to=fable5
+CHANGES_REQUESTED:  owner=claude   handoff_to=claude
 APPROVED:           owner=user     handoff_to=user
 BLOCKED:            owner=user     handoff_to=user
 CLOSED:             owner=user     handoff_to=user
 ```
+
+> 只读兼容:历史 `FABLE_WORKING: owner=fable5, handoff_to=fable5` 与
+> `CHANGES_REQUESTED: owner=fable5, handoff_to=fable5` 仍可被解析（`fable5` 规范化为 `claude`
+> 后统一显示 Claude）;新交接一律写 `claude`,不得再输出 `fable5` / `FABLE_WORKING`。
 
 字段语义:
 
 - `owner` = 当前**拥有处理权**的一方;`handoff_to` = 当前状态**要求接力**的一方。
 - 除历史轮次记录外,两者在上述所有状态中**必须一致**;状态变更时必须**原子化地同时更新** `status + owner + handoff_to`(一次写入,不允许中间态)。
 - 任一字段与映射不匹配时,双方定时任务必须**幂等退出**,不得猜测或越权处理,可在自身运行报告中提示用户存在字段异常。
-- Fable5 完成实施/返修交接时,统一写 `status: READY_FOR_CODEX, owner: codex, handoff_to: codex`,并附完整实施交接记录与 `scope_sha256`,随后立即停止修改 scope 文件。
-- Fable5 仅在 `FABLE_WORKING(owner=fable5, handoff_to=fable5)` 或 `CHANGES_REQUESTED(owner=fable5, handoff_to=fable5)` 两种组合下接手;处理 CHANGES_REQUESTED 时按协议 round+1 且不得超过 `max_rounds`。
+- Claude 完成实施/返修交接时,统一写 `status: READY_FOR_CODEX, owner: codex, handoff_to: codex`,并附完整实施交接记录与 `scope_sha256`,随后立即停止修改 scope 文件。
+- Claude 仅在 `CLAUDE_WORKING(owner=claude, handoff_to=claude)` 或 `CHANGES_REQUESTED(owner=claude, handoff_to=claude)` 两种组合下接手;处理 CHANGES_REQUESTED 时按协议 round+1 且不得超过 `max_rounds`。（历史 `FABLE_WORKING` / `owner=fable5` 组合仍可只读解析。）
 - Codex 仅在 `READY_FOR_CODEX(owner=codex, handoff_to=codex)` 且 `round<=max_rounds` 时接手,审核期间置 `CODEX_REVIEWING`。
 
 ### 写入权(始终只有一方可写工作文件)
 
-- `FABLE_WORKING`:Fable5 可改 scope 内文件;Codex 不审核漂移中的内容。
-- `READY_FOR_CODEX`:Fable5 停止写入,只等待。
+- `CLAUDE_WORKING`(历史别名 `FABLE_WORKING`):Claude 可改 scope 内文件;Codex 不审核漂移中的内容。
+- `READY_FOR_CODEX`:Claude 停止写入,只等待。
 - `CODEX_REVIEWING`:Codex 只读检查,仅写本文件的审核区。
-- `CHANGES_REQUESTED`:Codex 停止,Fable5 按意见返修。
+- `CHANGES_REQUESTED`:Codex 停止,Claude 按意见返修。
 - `APPROVED`:工作包通过;Git 提交等外部操作仍须用户授权。
 
 ### 硬规则
@@ -53,11 +60,11 @@ CLOSED:             owner=user     handoff_to=user
 3. 审核结论必须是 `APPROVED / CHANGES_REQUESTED / BLOCKED` 三值之一,不能只写模糊评价。
 4. 每个工作包最多自动往返 **3 轮**(`max_rounds`),超过转 `BLOCKED` 交用户仲裁。
 5. 涉及删除、Git 提交/推送、范围扩大、规格裁决时,置 `BLOCKED` 并等用户,**不得自动执行**。
-   附(用户裁决 2026-07-13):Git 提交 / GitHub 推送类任务经用户授权后由 **Codex 审核并执行**;Fable5 不执行任何 Git 写操作,只提供修改清单与测试证据。
+   附(用户裁决 2026-07-13):Git 提交 / GitHub 推送类任务经用户授权后由 **Codex 审核并执行**;Claude(实施方)不执行任何 Git 写操作,只提供修改清单与测试证据。
 6. 双方反复同意**不能**把缺少真机证据的假设升级为已验证事实;结论仍须按"已证实事实/工程约定/待真机假设"分层。
 7. 历史逐轮追加,不覆盖;新工作包新开一节。
 8. 某一方超时/中断后,停在当前可恢复状态,不得猜测对方已完成。
-9. 自动轮询接力前必须同时校验 `work_package_id + status + owner + handoff_to + round`;同一工作包同一轮已处理过则幂等退出,任一字段不匹配时不得写入。
+9. 自动接力前必须同时校验 `work_package_id + status + owner + handoff_to + round`;同一工作包同一轮已处理过则幂等退出,任一字段不匹配时不得写入。
 10. 实施方交接时记录 scope 文件的 `scope_sha256`;审核方在开始与结束时分别记录并比对同一 scope 的 SHA-256。任一文件漂移则本轮审核作废,转 `BLOCKED` 交用户处理。
 
 ### 记录格式
@@ -361,7 +368,10 @@ CLOSED:             owner=user     handoff_to=user
 ## WP-20260714-004
 
 - title: 阶段 1 显式顺序 IR 执行、TypedValue 求值栈与用户 POU 调用帧
-- status: BLOCKED
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-16
+- closure_note: 用户确认 WP-005 已完整承接并收口本包 Round 3 的 F1 原始值结构校验阻塞项；WP-005 经三轮实施/审核最终 APPROVED，且阶段 1 执行器核心已由项目状态登记为完成。
 - owner: user
 - handoff_to: user
 - round: 3
