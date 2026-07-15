@@ -32,8 +32,23 @@ from src.runtime.process_image import (
     ProcessImageError, InputImageError, OutputImageError,
     InputSnapshot, OutputPending, latch_inputs, make_prev_snapshot,
 )
+from src.runtime.numeric import (
+    NumericMode, NumericError, UnsupportedNumericModeError,
+    UnsupportedConversionError, IECMathError,
+    quantize_real32, wrap_int, default_value, trunc_div, iec_mod,
+)
+from src.runtime.executor import (
+    Executor, TypedValue, IRExecutionError,
+    MissingStdFunctionError, MissingLibraryAdapterError,
+)
 
 __all__ = [
+    # 数值策略与执行器（WP-20260714-004）
+    "NumericMode", "NumericError", "UnsupportedNumericModeError",
+    "UnsupportedConversionError", "IECMathError",
+    "quantize_real32", "wrap_int", "default_value", "trunc_div", "iec_mod",
+    "Executor", "TypedValue", "IRExecutionError",
+    "MissingStdFunctionError", "MissingLibraryAdapterError",
     # 运行时 Store 与实例布局（WP-20260714-003）
     "Store", "StoreSnapshot", "RuntimeLayout",
     "StoreError", "UnknownStoreKeyError", "DuplicateStoreKeyError",
