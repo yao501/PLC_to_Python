@@ -12,6 +12,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
+from .heartbeat import CoordinatorHeartbeat
 from .parser import HandoffParser, ParseResult
 from .scheduler import (
     ClaudeEndpointAdapter,
@@ -205,6 +206,9 @@ class DashboardApplication:
         force_fallback: bool = False,
         claude_proxy: str | None = None,
         enable_external_processes: bool = False,
+        heartbeat_path: str | Path | None = None,
+        heartbeat_interval: float = 2.0,
+        heartbeat_stale_after: float = 10.0,
     ):
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("面板 v1 只允许绑定本机回环地址")
@@ -251,6 +255,12 @@ class DashboardApplication:
             force_fallback=force_fallback,
         )
         self.server = DashboardServer((host, port), self.state, self.watcher)
+        self.heartbeat = CoordinatorHeartbeat(
+            heartbeat_path or project_root / ".ai-handoff-runtime" / "coordinator_status.json",
+            lambda: self.state.snapshot(self.watcher)["system"],
+            interval_seconds=heartbeat_interval,
+            stale_after_seconds=heartbeat_stale_after,
+        )
         self._thread: threading.Thread | None = None
 
     @property
@@ -261,6 +271,14 @@ class DashboardApplication:
     def start(self, *, background: bool = False) -> None:
         self.state.refresh()
         self.watcher.start()
+        try:
+            self.heartbeat.start()
+        except BaseException:
+            self.watcher.stop()
+            if isinstance(self.state.scheduler, EventDrivenScheduler):
+                self.state.scheduler.shutdown()
+            self.server.server_close()
+            raise
         mode = "原生 kqueue 事件模式" if self.watcher.mode == "native-kqueue" else "降级低频检查模式"
         execution_mode = "事件执行已启用" if not self.state.scheduler.dry_run else "dry-run"
         print(f"AI 交接面板: http://{self.address[0]}:{self.address[1]}  [{mode}; {execution_mode}; 面板只读]")
@@ -277,6 +295,7 @@ class DashboardApplication:
                 if isinstance(self.state.scheduler, EventDrivenScheduler):
                     self.state.scheduler.shutdown()
                 self.server.server_close()
+                self.heartbeat.stop()
 
     def stop(self) -> None:
         self.watcher.stop()
@@ -286,6 +305,7 @@ class DashboardApplication:
         self.server.server_close()
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=2.0)
+        self.heartbeat.stop()
 
 
 def run(
