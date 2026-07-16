@@ -21,6 +21,7 @@ from tools.ai_handoff.parser import (
     canonical_actor,
     canonical_status,
 )
+from tools.ai_handoff.heartbeat import CoordinatorHeartbeat
 from tools.ai_handoff.scheduler import (
     AsyncExecutionCoordinator,
     ClaudeEndpointAdapter,
@@ -1065,6 +1066,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.scope_hash, data["dispatch"]["scope_current_sha256"])
         self.assertEqual(self.scope_hash, data["dispatch"]["scope_expected_sha256"])
 
+    def test_project_local_heartbeat_exposes_fresh_fail_closed_signal(self):
+        heartbeat_path = self.root / ".ai-handoff-runtime" / "coordinator_status.json"
+        payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        self.assertEqual("live", payload["state"])
+        self.assertTrue(payload["coordinator_live"])
+        self.assertGreater(payload["valid_until_epoch"], time.time())
+        self.assertEqual(self.app.watcher.mode, payload["watcher_mode"])
+        self.assertFalse(payload["external_processes_enabled"])
+        self.assertTrue(payload["legacy_polling_must_remain_paused"])
+        self.assertFalse(payload["legacy_polling_resume_authorized"])
+
     def test_atomic_replace_of_temporary_copy_updates_status_api(self):
         version = self.app.state.version
         replacement = self.source.with_name("replacement.md")
@@ -1105,6 +1117,41 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("new EventSource('/api/events')", html)
         self.assertIn("prefers-color-scheme: dark", html)
         self.assertIn("@media (max-width:560px)", html)
+
+
+class CoordinatorHeartbeatTests(unittest.TestCase):
+    def test_sequence_advances_and_clean_stop_is_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime" / "coordinator_status.json"
+            heartbeat = CoordinatorHeartbeat(
+                path,
+                lambda: {
+                    "watcher_mode": "native-kqueue",
+                    "external_processes_enabled": True,
+                    "execution_failure_alert": None,
+                },
+                interval_seconds=0.02,
+                stale_after_seconds=0.08,
+            )
+            heartbeat.start()
+            first = json.loads(path.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 1.0
+            current = first
+            while current["heartbeat_sequence"] == first["heartbeat_sequence"]:
+                if time.monotonic() >= deadline:
+                    self.fail("心跳序号没有推进")
+                time.sleep(0.01)
+                current = json.loads(path.read_text(encoding="utf-8"))
+            heartbeat.stop()
+            stopped = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertGreater(
+            current["heartbeat_sequence"], first["heartbeat_sequence"]
+        )
+        self.assertEqual("stopped", stopped["state"])
+        self.assertFalse(stopped["coordinator_live"])
+        self.assertFalse(stopped["legacy_polling_resume_authorized"])
+        self.assertLessEqual(stopped["valid_until_epoch"], time.time())
 
 
 class DashboardWatcherPathTests(unittest.TestCase):

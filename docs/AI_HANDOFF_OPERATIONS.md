@@ -148,6 +148,14 @@ live 启动会先执行 Claude Code 登录探针；登录无效、命令缺失�
 - `executions.jsonl`：只追加的生命周期历史。
 - `execution_block.json`：需要人工处置的持久阻塞与失败告警。
 
+Claude 的隔离执行环境无法访问宿主机的 `127.0.0.1:8765`，也不能读取上述 macOS 临时目录。
+因此协调器另外把**只读存活投影**原子写到项目内被 Git 忽略的
+`.ai-handoff-runtime/coordinator_status.json`。该文件包含 PID、UTC 更新时间、递增序号、
+有效期、监听模式、真实外部进程开关和失败告警。只有 `coordinator_live=true` 且当前时间不晚于
+`valid_until_epoch` 才能证明协调器仍在运行；缺失、损坏、`stopped` 或过期都必须失败关闭并告警。
+该投影不含锁、令牌或执行授权，`legacy_polling_resume_authorized` 永远为 `false`；任何 AI 都不得
+仅因心跳异常自行恢复旧 30 分钟轮询，恢复仍需用户或外部监督器明确授权。
+
 进程重启时，若租约的父进程和子进程都已消失，会自动记录恢复事件并释放陈旧租约；若父进程
 已消失但子进程仍存活，则安全停机并保持告警，绝不再启动第二个 AI。租约或历史损坏同样
 失败关闭，不根据不完整数据猜测。
