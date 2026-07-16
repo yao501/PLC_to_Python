@@ -132,8 +132,10 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff --enable-external-processes
 ```
 
 live 启动会先执行 Claude Code 登录探针；登录无效、命令缺失、代理不合法或任一 adapter
-未显式启用时直接拒绝启动。Codex 和 Claude 共用一个跨进程执行租约，因此任何时刻最多只有
-一个真实 AI 子进程。调度线程不阻塞文件监听和网页，页面会显示
+未显式启用时直接拒绝启动。经本工具启动的 Codex 和 Claude 共用一个跨进程执行租约，因此
+在**协调器控制的执行域内**任何时刻最多只有一个真实 AI 子进程。该租约不会被旧 Codex/Claude
+独立定时任务获取，因而不能约束被另行恢复的定时任务；两侧旧主轮询保持暂停是 live 模式的
+硬前提，而不是可由租约替代的可选防线。调度线程不阻塞文件监听和网页，页面会显示
 `scheduled / running / completed / failed / timed-out / cancelled` 生命周期。
 子进程退出码为 0 仍不等于协议成功：协调器会重读权威交接文件，校验目标状态、
 `owner / handoff_to`、轮次与 scope 哈希证据。如果 AI 安全停笔却以 0 退出，或只输出
