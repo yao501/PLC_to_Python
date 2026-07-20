@@ -45,8 +45,17 @@ from src.runtime.engine import (
     ScanEngine, ScanResult,
     ScanError, ScanConfigError, OutputStagingError, ScanReentryError,
 )
+from src.runtime.output_policy import (
+    OutputPolicy, SafetySnapshot, SafetyStateService, OutputPolicyService,
+    OutputPolicyError, OutputPolicyConfigError, OutputPolicyReentryError,
+    SafetyStateError,
+)
 
 __all__ = [
+    # 生产 OutputPolicy 核心与原子安全状态快照（WP-20260716-007）
+    "OutputPolicy", "SafetySnapshot", "SafetyStateService", "OutputPolicyService",
+    "OutputPolicyError", "OutputPolicyConfigError", "OutputPolicyReentryError",
+    "SafetyStateError",
     # 五步扫描编排骨架（WP-20260716-006）
     "ScanEngine", "ScanResult",
     "ScanError", "ScanConfigError", "OutputStagingError", "ScanReentryError",
