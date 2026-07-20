@@ -639,7 +639,11 @@ CLOSED:             owner=user     handoff_to=user
 ## WP-20260716-006
 
 - title: 阶段 1 五步扫描编排骨架与确定性单拍执行
-- status: APPROVED
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-16
+- closure_note: 用户接受 Codex Round 1 证据更正后的 `APPROVED` 结论，并授权关闭本包、启动下一工作包及使用事件协调器继续 Claude—Codex 串行协作。
+- closure_baseline_commit: aa15d27bbe4b3a22640291e38874dee394bd8ca6
 - owner: user
 - handoff_to: user
 - round: 1
@@ -726,3 +730,186 @@ CLOSED:             owner=user     handoff_to=user
 - 审核证据：`review_started_sha256=76764354a4048c2494217654d4e94fabe204b914107ec63cef273caf5d6154d3`，`review_finished_sha256=76764354a4048c2494217654d4e94fabe204b914107ec63cef273caf5d6154d3`，复核前后 scope 无漂移。Codex 已独立运行扫描 28/28、执行器 58/58、Store 24/24、IR 56/56、正式 tests 937/937、原型 68/68、全仓 1005/1005；首次环境失败与 scope 外监听时序波动均已如实记录。
 - handoff_to: user
 - reviewed_at: 2026-07-16 03:36 CST
+
+---
+
+## WP-20260716-007
+
+- title: 阶段 1 生产 OutputPolicy 核心与原子安全状态快照
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-20
+- closure_note: 用户确认接受 Codex Round 3 的 `APPROVED` 结论，授权关闭本包、完成 Git/PR 收尾、恢复事件协调器并创建下一工作包。Python 验证只证明当前实现行为，不构成与目标 PLC/CODESYS 或真实 HAL 一致的证据。
+- owner: user
+- handoff_to: user
+- round: 3
+- max_rounds: 3
+- base_commit: aa15d27bbe4b3a22640291e38874dee394bd8ca6
+- created_by: user
+- created_at: 2026-07-16 21:47 CST
+- depends_on:
+  - WP-20260716-006 CLOSED
+- scope:
+  - src/runtime/output_policy.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_output_policy.py
+- scope_baseline_sha256: 1be108cf92e8d373a745d9ce8d5338d4838a6d69d2d81bf903f8aa2d865a88bc
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/output_policy.py`
+  - `6a66edd8f4de1ccd9a194bdcf8ba4820d2f4c6e6d1dc48f9e0e7ed794cc95472  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_output_policy.py`
+
+### 工作包创建行政证据（Claude 启动前）
+
+- 用户已明确授权 Codex 关闭 WP-006、更新项目状态、启动下一工作包并让 Claude/Codex 按事件机制继续协作；因此 `docs/PROJECT_STATE.md` 由 Codex 作为**创建工作包的行政动作**更新，不属于 Claude 的实施 scope，也不是 scope 漂移。
+- 实际原子创建/启动时间为 `2026-07-16 21:47:42 CST`：`docs/PROJECT_STATE.md` 的宿主 mtime 为该时刻；协调器生命周期记录 Claude 子进程也于同一时刻启动。任务书原先预填的 `created_at: 21:44 CST` 是编写任务期间的准备时间，现按可核验事件时间更正为 `21:47 CST`。
+- 行政更新后的 `docs/PROJECT_STATE.md` SHA-256 为 `c0455052eaf8157c76aba1090a74ca48c30f9d97028337fd163c90116309e90c`；Claude 启动后不得修改该文件。Claude 交接中的“scope 外零文件改动”专指其 `21:47:42 CST` 启动后的实施生命周期，不否认这项已授权、预先存在的 Codex 行政更新。
+- review_retry_authorized_at: 2026-07-16 22:10 CST
+- review_retry_reason: 已补齐上述用户授权与行政变更来源证据；scope 三文件及其实施哈希未发生变化，允许同一幂等键重新执行一次只读审核。
+
+### 用户授权与任务书（Round 1）
+
+- 目标：按 `docs/ENGINE_SCAN_SPEC.md §4/§4.1/§4.2` 与 `.cursor/rules/00a-runtime-contract.mdc`、`04-platform-runtime.mdc`，实现正式工程的分类型 `OutputPolicy` 核心和原子安全状态快照；产物必须直接满足现有 `ScanEngine` 的 `stage_outputs(pending, store, inputs, prev)` 注入端口，而不是另造平行扫描器。
+- 配置模型：为每个 OUT 映射建模 `var / iec_type / safe_value / rate_limit / commit_fault_retry_n` 及六类 `on_*` 策略。`on_safety_trip / on_scan_fault / on_watchdog` 必须固定为 `safe`，非法配置在策略服务装配期拒绝；`safe_value`、request 与最终值必须严格符合声明 IEC 类型，不做隐式转换。整数限速不得靠浮点舍入猜测语义：若配置不能在声明类型内精确表达，应在装配期拒绝并在交接中说明边界。
+- 安全状态：提供不可变快照及一个线程安全、整包替换的最小安全状态服务。快照至少覆盖 `system_ready / output_enable / comm_ok / safety_ok / interlock_ok / scan_ok / watchdog_ok`；策略服务每拍只读取一次完整快照，禁止逐字段读取形成撕裂状态。本包只**消费**这些信号，不实现 startup 计时、watchdog 计时或 outer scan runner。
+- 故障决策：多原因并发严格按 `safety_trip ≥ watchdog ≥ scan_fault > comm_loss > startup_not_ready > operator_disable`；任一强制安全原因命中即一步落 `safe_value`，不受限速约束。可配置原因命中 `hold` 时取该通道 `last_effective`；冷启动无历史时退化为 `safe_value`。
+- 正常路径：无故障时 BOOL 直接采用 request；REAL/整数按 `rate_limit` 约束每拍变化且保持声明类型。冷启动基准为 `safe_value`（阶段 7 HAL 未提供可信设备反馈前的冻结分支），后续以 `last_effective` 为基准。每次完整策略计算成功后更新每通道 `last_effective`。
+- 原子性与隔离：对一拍全部 OUT 通道先完整校验和计算，再统一 stage 并提交内部 `last_effective`；任何通道失败不得留下部分 pending 或部分内部状态。外部取得的安全快照/诊断副本不得反向污染服务；多个策略服务实例状态互不串扰；同一服务并发调用必须失败关闭或串行化，不能交错两拍。
+- IOMap 对齐：只处理 `direction=OUT`；拒绝重复通道、策略缺失、策略 var/type 与 IOMap/Store 声明不一致、未知 Store 变量和非生产策略对象。不得从 `prototype_05` 导入或复制运行时代码。
+- 稳定导出：`src/runtime/__init__.py` 只导出本包经测试的公共类型、服务与专用异常；保持现有导出不回归。
+- 最低测试：覆盖 BOOL/REAL/整数正常路径；非零安全值；六类原因及并发优先级；三类强制 safe 配置拒绝；每一种可配置 `hold/safe`；冷启动 hold；安全落值绕过限速、恢复后从 safe 基准限速；两拍 `last_effective`；多通道原子失败；安全状态整包快照/并发读取；IOMap/Store/类型/数值非法配置；直接注入真实 `ScanEngine` 至少连续两拍且策略没有绕过 pending。
+- 必跑验证（均设置 `PYTHONDONTWRITEBYTECODE=1`）：`tests.test_runtime_output_policy`；既有 `tests.test_runtime_engine`、`tests.test_runtime_executor`、`tests.test_runtime_store`、`tests.test_runtime_ir`；正式 `tests/` 全量；`prototype_05` 全量；全仓 discovery。逐组报告真实计数、首次失败、根因、修复与重跑结果，不得预写结果。
+- 明确不实现：watchdog/scan-fault 信号生成、扫描异常外层安全提交、shadow mode、`last_physical_committed`、真实驱动提交、`commit_fault`/`channel_fault` 锁存与复位、可信设备反馈/HAL、实时线程、L2 adapter 注册表、参数装载总闸门。上述内容留给后续独立工作包，不得以“顺手完善”为由扩 scope。
+- 禁止修改：除上述三个 scope 文件和本交接文件的本轮原子交接记录外，Claude 不得修改任何代码、测试、规格、`docs/PROJECT_STATE.md`、协调器/双方自动化配置或 Git 元数据；本节上方已登记的 `docs/PROJECT_STATE.md` 变更是 Codex 在 Claude 启动前执行的已授权行政动作，不计入 Claude scope。不得执行 Git/PR 写操作，不得恢复旧 30 分钟轮询。
+- 交接要求：实施前复算 baseline 聚合 SHA-256 并与任务书一致；完成后按 scope 顺序报告逐文件 SHA、聚合 SHA、实际测试证据、工程约定与未验证边界，随后原子改为 `READY_FOR_CODEX / codex / codex` 并停笔。Codex 审核只读 scope；结论按协议原子写为 `CHANGES_REQUESTED / claude / claude`、`APPROVED / user / user` 或 `BLOCKED / user / user`。
+
+### Claude 实施交接（Round 1）
+
+- 接手核验：实施前复算 baseline 聚合 SHA-256 = `1be108cf92e8d373a745d9ce8d5338d4838a6d69d2d81bf903f8aa2d865a88bc`，与任务书 `scope_baseline_sha256` 一致（`output_policy.py`/`test_runtime_output_policy.py` ABSENT，`__init__.py` = `6a66edd8…95472`）；五字段 `status=CLAUDE_WORKING / owner=claude / handoff_to=claude / round=1 / max_rounds=3` 组合合法，未超轮次；协调器心跳 `coordinator_live=true` 且未过期。仅改本轮三个 scope 文件与本交接记录，未触碰 Git/状态/协调器配置。
+- 完成内容：按任务书实现生产 `OutputPolicy` 门控核心 + 原子安全状态快照，产物直接插入现有 `ScanEngine.stage_outputs(pending, store, inputs, prev)` 端口（未另造平行扫描器）。① `OutputPolicy`（frozen 配置值对象）：`var/iec_type/safe_value/rate_limit/commit_fault_retry_n` + 六类 `on_*`；构造期校验——IEC 类型合法、`safe_value` 严格匹配声明类型（不隐式转换）、六类动作 ∈{safe,hold}、`on_safety_trip/on_scan_fault/on_watchdog` 固定 `safe`（配 hold 拒绝）、整数类型限速须为非负 `int`（拒绝 float/bool，杜绝浮点舍入猜测语义）、REAL/LREAL 限速须为非负 `float`、BOOL/STRING 拒绝限速、`commit_fault_retry_n` 须正整数。② `SafetySnapshot`（frozen 七信号：system_ready/output_enable/comm_ok/safety_ok/interlock_ok/scan_ok/watchdog_ok，全布尔校验）+ `SafetyStateService`（`threading.Lock` 下整包 `replace`/`read`，只暴露整包 read、无逐字段 getter，杜绝撕裂）。③ `OutputPolicyService`：装配期对齐 IOMap（只取 OUT、拒绝重复通道/策略缺失/非生产策略对象/policy.var 与 IOMap 不一致/policy.iec_type 与 Store 声明不一致/未知 Store 变量）；`stage_outputs` 每拍只 `read()` 一次安全快照，全通道**先完整计算到局部、再统一 stage、最后统一提交内部状态**（任一失败不留部分 stage/部分内部状态），非阻塞锁并发/递归失败关闭（`OutputPolicyReentryError`）。故障决策按 `safety_trip≥watchdog≥scan_fault>comm_loss>startup_not_ready>operator_disable` 取最严者：强制 safe 或配 safe 一步落 `safe_value`（绕过限速）并置边界复位（恢复首拍从 safe 基准限速）；配 hold 取 `last_effective`，冷启动无历史退化为 `safe_value`。正常路径 BOOL 直取 request、模拟量按 `rate_limit` 对与基准之差限速（冷启动/恢复首拍基准=safe_value，此后=last_effective），成功后更新每通道 `last_effective`。④ `src/runtime/__init__.py` 新增导出 8 个公共名，既有导出未回归。
+- 修改文件（即 scope 三文件）：`src/runtime/output_policy.py`（新建）、`src/runtime/__init__.py`（仅追加本包导出）、`tests/test_runtime_output_policy.py`（新建，47 用例）。
+- 明确未修改：scope 外零文件改动。未实现（遵守任务书冻结边界，属后续独立工作包）：watchdog/scan-fault 信号生成、扫描异常外层安全提交（§4.3 scan runner）、shadow mode、`last_physical_committed`、真实驱动提交、`commit_fault`/`channel_fault` 锁存与复位（§4.4）、可信设备反馈/HAL（§4.1 阶段 7）、实时线程、L2 adapter 注册表、参数装载总闸门；`inputs`/`prev` 端口参数本包不消费（留给可信反馈工作包）。未执行任何 Git 写操作，未改 `docs/PROJECT_STATE.md`、协调器/自动化配置。
+- 测试命令与实际结果（2026-07-16 本轮实际运行，均设 `PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_output_policy` → Ran **47** tests, OK。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran **166** tests, OK。
+  3. `python -m unittest discover -s tests -t .` → Ran **987** tests, OK（既有 940 基线 + 47 新增，零破坏）。
+  4. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  5. `python -m unittest discover -s . -t .` → Ran **1055** tests, OK（987 + 68）。
+- 工程约定与未验证边界（分层，诚实声明）：输出基准/故障制度/限速语义为**项目工程约定、非 CODESYS 官方语义**，未经真机验证；Python 测试不构成与 PLC 语义一致的证据。§4.1 四类"重建物理基准边界"本包只落地**冷启动**一类 + "安全落值后恢复首拍从 safe 基准限速"；其余三类（shadow→实写、提交故障恢复、`channel_fault` 复位）显式不在范围。F1/binary32 输出量化未接入（属数值/HAL 层）；整数限速仅校验类型精确表达（非负 int），未按声明位宽做范围/回绕（数值层，engineering 模式默认不回绕）。
+- 已知疑问（请审核裁决，均不涉及规格修改；若认为需写入规格则属规格裁决转用户）：① `hold` 命中且有历史时，输出保持 `last_effective` 且**不**置边界复位（恢复正常路径从 `last_effective` 继续限速，物理上输出未离开该值）——与"safe 落值后置边界复位从 safe 基准"区分处理；此解读贴合 §4.1"last_effective 基准"与物理连续性，任务书"恢复后从 safe 基准限速"按其字面仅约束**安全落值**分支。② `commit_fault_retry_n` 仅建模字段，其锁存/复位行为（§4.4）不在本包实现。③ 服务运行期从 `stage_outputs` 传入的 `store` 读 request（引擎契约），装配期类型校验用构造 `store`；约定二者为同一对象（引擎即如此注入）。
+- scope_sha256: 843af9b22561793f2d999642e3436dc7c938e9bdb626416dd34154ea6f627ca0
+- scope_manifest:
+  - `9cd2ba12cf5850b1ad6fc1ff39dfb7dfbb4390fb3ab6048a0ed67c30ecde1b9f  src/runtime/output_policy.py`
+  - `83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700  src/runtime/__init__.py`
+  - `45119a3d494c208922a9243d8fa7db37ff83ef5f8f967e2e52cb798ea2d4a564  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-16 22:03 CST
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：`src/runtime/output_policy.py:127-199` 已建立 frozen `OutputPolicy` 配置对象并拒绝三类强制安全原因的 `hold` 配置；`211-268` 已实现七信号不可变 `SafetySnapshot` 与锁下整包替换/读取的 `SafetyStateService`；`275-466` 已把策略服务直接实现为 `ScanEngine.stage_outputs(pending, store, inputs, prev)` 端口，安全状态每拍只读一次，多原因优先级、正常路径限速、全通道先计算后 stage、并发/递归失败关闭的主体结构均已落地。`src/runtime/__init__.py:48-58` 只追加本包 8 个稳定导出。`tests/test_runtime_output_policy.py` 的 47 项覆盖了任务书大部分主路径，并能与真实 `ScanEngine` 连续两拍集成。
+- 项目工程约定：分原因策略、`safe_value` 基准、故障落安全值绕过限速以及恢复首拍从 `safe_value` 限速，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义；本包诚实保留了 shadow、`last_physical_committed`、提交故障锁存/复位、可信反馈/HAL 和 outer scan runner 的后续边界。
+- 待真机验证假设：输出基准与限速行为尚未经目标 SP16.1 真机/真实 HAL 验证；F1/binary32 输出边界、真实提交故障、watchdog/scan-fault 生成与外部安全回路也不在本包证据覆盖内。当前 Python 测试只证明实现行为，不证明与 PLC 语义一致。
+- 必须返修 1：`last_effective` 的更新语义与任务书及冻结规格冲突。任务书 `docs/AI_REVIEW_HANDOFF.md:772-774` 要求 `hold` 取上拍逻辑生效值且每次完整策略计算成功后更新 `last_effective`；`ENGINE_SCAN_SPEC.md:84,90-104` 也规定它在每拍第 4 步完成后更新。当前 `src/runtime/output_policy.py:282-284` 却把它收窄成“上次正常路径值”，`409-421` 的 safe 分支和冷启动 hold 分支分别保留旧值/`None`。最小反证：正常拍输出 50 → `safety_trip` 强制输出 0 → 下一拍仅 `comm_loss` 且配置 `hold`，当前实现错误重新输出 50，诊断仍为 50；正确的上拍逻辑生效值应为 0。请让所有成功策略计算（正常、safe、hold，包括冷启动 hold→safe）都把本拍 final 提交为新的 `last_effective`，同时保持“安全落值后恢复正常路径以 safe 基准限速”的独立边界状态；新增“forced safe→可配置 hold”与冷启动 hold 诊断反证。
+- 必须返修 2：声明 IEC 类型的数值合法性校验只做了 Python 结构类型检查，未满足任务书 `docs/AI_REVIEW_HANDOFF.md:770,777` 的“整数限速须在声明类型内精确表达、类型/数值非法配置拒绝”，也回退了 `docs/RISKS.md:8,117` 已登记的原型安全配置 NaN/Infinity/整数范围闭环。`src/runtime/output_policy.py:155-158,181-199,378-381,424-427` 会接受 `REAL safe_value=NaN/Infinity`、`REAL rate_limit=NaN/Infinity`、`USINT rate_limit=256`、`USINT safe_value=999`；运行期也会把 `REAL request=NaN` 和 `USINT request=999` 实际 stage。请为安全值、限速、request 与 final 采用一致的 IEC 数值合法性检查：REAL/LREAL 必须有限；固定宽度整数/位串须在声明范围内（无符号不得为负）；整数限速须是非负整数且其值可由声明类型精确表示。新增上述配置期和运行期反证，且不得用隐式转换、舍入或回绕“修正”非法值。
+- 非阻塞建议：`OutputPolicyService` 装配期使用构造时的 Store 校验，运行期却读取 `stage_outputs(...)` 传入的 Store；当前依赖“二者是同一对象”的未强制约定。后续参数装载总闸门建立前，可在本 scope 内保存并核对对象身份，避免把已对齐的策略服务误插入另一套 `RuntimeLayout`。
+- 审核证据：五字段接手值为 `WP-20260716-007 / READY_FOR_CODEX / codex / codex / round=1`，且 `1 <= max_rounds=3`；协调器心跳在接手与结束核验时均 live 且未过期。独立从 `base_commit=aa15d27bbe4b3a22640291e38874dee394bd8ca6` 复算 baseline 聚合 SHA-256=`1be108cf92e8d373a745d9ce8d5338d4838a6d69d2d81bf903f8aa2d865a88bc`，与任务书一致；`docs/PROJECT_STATE.md` 实盘 SHA-256=`c0455052eaf8157c76aba1090a74ca48c30f9d97028337fd163c90116309e90c`，与启动前行政证据一致。Codex 独立运行：`tests.test_runtime_output_policy`=47/47、既有四组运行时测试合并=166/166、排除 scope 外 dashboard 模块后的正式测试=903/903、原型=68/68；完整正式 987 项和全仓 1055 项在当前受限环境各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 978/978、1046/1046 通过。两条手工反证分别稳定复现 safe→hold 错误回跳到 50，以及非有限/越界数值被配置和 stage 接受。
+- review_started_sha256: 843af9b22561793f2d999642e3436dc7c938e9bdb626416dd34154ea6f627ca0
+- review_finished_sha256: 843af9b22561793f2d999642e3436dc7c938e9bdb626416dd34154ea6f627ca0
+- handoff_to: claude
+- reviewed_at: 2026-07-16 22:25 CST
+
+### Claude Round 2 返修执行权限说明
+
+- 协调器的 Claude 执行白名单允许 `python ...`、`python3 ...` 以及带 `PYTHONDONTWRITEBYTECODE=1` 前缀的 Python 命令；不允许 `shasum`、`cat`、`date`、shell `for`、`tee` 等通用 shell 命令。首次返修因选用了后者而被白名单拒绝，未修改任何文件，scope 仍保持 Codex 审核结束哈希。
+- 接手哈希必须改用 Python 标准库完成，例如通过 `hashlib.sha256` 按 scope 顺序生成逐文件清单与聚合 SHA；心跳和当前 epoch 必须通过 Python 的 `json` / `time` 读取与比较；测试继续使用任务书已列出的 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`。不得再次请求被禁 shell 工具，也不得因可用 Python 路径而降低任何核验要求。
+- rework_retry_authorized_at: 2026-07-16 22:35:51 CST
+- rework_retry_reason: 首次返修未写入 scope，失败原因为验证命令触发执行白名单；现已明确等价的 Python 标准库核验路径，并仅授权原幂等键重试一次。
+
+### Claude 实施交接（Round 2）
+
+- 接手核验：五字段接手值为 `WP-20260716-007 / CHANGES_REQUESTED / owner=claude / handoff_to=claude / round=1`，组合与状态映射一致，按协议 round+1 → `round=2 <= max_rounds=3`，未超轮次。按上节授权仅用 Python 标准库核验（`hashlib` / `json` / `time`，未请求 `shasum`/`cat`/`date` 等被禁 shell 工具）：接手时复算 scope 聚合 SHA-256 = `843af9b22561793f2d999642e3436dc7c938e9bdb626416dd34154ea6f627ca0`，与 Codex `review_started_sha256` / `review_finished_sha256` **三者一致**，逐文件哈希亦与 Round 1 `scope_manifest` 全等（`9cd2ba12…b1b9f` / `83a49879…d17700` / `45119a3d…d4a564`），**无证据漂移**；协调器心跳 `coordinator_live=true` 且 `valid_until_epoch` 未过期。`docs/PROJECT_STATE.md` 实盘 SHA-256 = `c0455052eaf8157c76aba1090a74ca48c30f9d97028337fd163c90116309e90c`，与启动前行政证据一致且本轮未改。
+- 完成内容：Codex Round 1 两条“必须返修”逐条落地，均只改 scope 内文件。
+  1. **`last_effective` 前移语义收口（必须返修 1）**：`src/runtime/output_policy.py::_compute` 三条路径现统一把**本拍 final** 作为新的 `last_effective` 返回——safe 分支由 `(safe_value, last_effective, True)` 改为 `(safe_value, safe_value, True)`；冷启动 hold 分支由 `(safe_value, None, True)` 改为 `(safe_value, safe_value, True)`；hold 有历史分支 final 即 `last_effective`，语义不变。依据 `docs/ENGINE_SCAN_SPEC.md:92`（“每拍第 4 步策略计算完成后更新，shadow 与正常模式都更新”）与 `:126`（“策略层照常计算 final 并更新 `last_effective`，保持逻辑连续”），以及 `:84`（`hold` = 上次**逻辑生效值**）。`boundary_reset` 按 Codex 要求**保留为独立边界状态**（safe 落值与冷启动 hold 置位，正常路径清位），未与 `last_effective` 合并。Codex 的最小反证已复现并转为常驻用例：正常 50 → `safety_trip` 落 0 → 仅 `comm_loss(hold)` 现输出 **0**（旧实现错误回跳 50），诊断亦为 0。
+  2. **IEC 数值合法性收口（必须返修 2）**：新增模块内单一口径 helper `_iec_value_error(iec_type, value)`，在 `store.check_value_type` 的**结构类型**映射之上补**数值域**——REAL/LREAL 必须有限（拒绝 NaN/±Infinity）；固定宽度整数/位串必须落在声明范围内（无符号不得为负），范围**复用 `src/runtime/numeric.INT_WIDTHS`**、不另立表。该 helper 同时接入四个位点，保证配置期与运行期同一口径：`OutputPolicy.__post_init__` 的 `safe_value`、`_validate_rate_limit` 的 `rate_limit`（整数限速须在声明类型内**精确表达**，`USINT rate_limit=256` / `SINT rate_limit=128` 现拒绝）、`stage_outputs` 的 `request` 与 `final`。全部为**判定与拒绝**，未使用任何隐式转换、舍入或回绕“修正”非法值（回绕仍属数值层 `numeric.wrap_int` 的 F1/engineering 语义）。Codex 点名的四例 `REAL safe_value=NaN/Infinity`、`REAL rate_limit=NaN/Infinity`、`USINT rate_limit=256`、`USINT safe_value=999` 现均在装配期拒绝；`REAL request=NaN`、`USINT request=999` 现在运行期拒绝且**不 stage、不前移内部状态**（失败关闭）。
+- 修改文件（均在 scope 内，共 2 个）：`src/runtime/output_policy.py`（`_compute` 前移语义、新增 `_iec_value_error` / `_int_range`、四处接入、`import math` 与 `INT_WIDTHS`、相应 docstring 同步）、`tests/test_runtime_output_policy.py`（47 → **60** 用例，+13）。
+- 明确未修改：`src/runtime/__init__.py` **本轮零改动**（哈希仍为 `83a49879…d17700`）——两条返修未引入新公共名，`_iec_value_error` / `_int_range` 为模块私有，现有导出无回归。scope 外零文件改动；未改 `docs/PROJECT_STATE.md`、协调器/自动化配置；未执行任何 Git 写操作（含暂存/提交/推送/建 PR/合并）。任务书冻结边界继续未实现（属后续独立工作包）：watchdog/scan-fault 信号生成、§4.3 外层安全提交、shadow mode、`last_physical_committed`、真实驱动提交、`commit_fault`/`channel_fault` 锁存与复位、可信反馈/HAL、实时线程、L2 adapter 注册表、参数装载总闸门；`inputs`/`prev` 端口参数仍不消费。Codex 的**非阻塞建议**（装配期/运行期 Store 对象身份核对）本轮**未实施**——它不在两条“必须返修”内，且属行为扩张，留待 Codex 裁决是否单开工作包或授权纳入本包。
+- 新增测试（13 项，逐条对应返修意见）：`test_forced_safe_then_configurable_hold_holds_safe_value`（Codex 反证 1 原样固化）、`test_configurable_safe_then_hold_holds_safe_value`、`test_cold_start_hold_then_hold_keeps_degraded_value`、`test_hold_with_history_keeps_last_effective_stable`、`test_real_safe_value_must_be_finite`、`test_real_rate_limit_must_be_finite`、`test_safe_value_out_of_declared_int_range_rejected`、`test_safe_value_at_declared_int_bounds_accepted`、`test_rate_limit_not_exactly_representable_in_declared_type_rejected`、`TestRuntimeNumericValidity` 四项（非有限 REAL request / 越界整数 request 拒绝且不 stage、边界内合法值不误杀、限速 final 走同一校验）。既有 `test_cold_start_hold_degrades_to_safe` 的诊断断言由 `{"CH": None}` 更新为 `{"CH": 4}`——该断言锁的正是被 Codex 判为错误的旧语义，按返修 1 同步。
+- 测试命令与实际结果（2026-07-16 本轮实际运行，均设 `PYTHONDONTWRITEBYTECODE=1`；无失败，故无“首次失败/根因/修复后重跑”记录）：
+  1. `python -m unittest tests.test_runtime_output_policy` → Ran **60** tests, OK（47 + 13 新增）。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran **166** tests, OK（与 Round 1 同值，零破坏）。
+  3. `python -m unittest discover -s tests -t .` → Ran **1000** tests, OK（Round 1 为 987，+13 新增）。
+  4. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  5. `python -m unittest discover -s . -t .` → Ran **1068** tests, OK（1000 + 68）。
+  - 环境差异说明：Codex Round 1 环境中 `tests/test_ai_handoff.py` 有 9 项因禁止绑定本地 HTTP 端口报 `PermissionError`；本轮环境允许绑定，故第 3/5 组为全量通过（1000/1000、1068/1068），非本轮改动所致。
+- 工程约定与未验证边界（分层，诚实声明，与 Round 1 一致）：`last_effective` 前移制度、输出基准、故障落安全值绕过限速、恢复首拍从 `safe_value` 限速，以及本轮新增的 IEC 数值域拒绝制度，均为**项目工程约定、非 CODESYS / IEC 61131-3 官方已证实语义**，未经目标 SP16.1 真机或真实 HAL 验证；上述 60/166/1000/68/1068 项 Python 测试**只证明本实现行为，不构成与 PLC 语义一致的证据**。§4.1 四类“重建物理基准边界”本包仍只落地冷启动一类 + 安全落值后恢复首拍；F1/binary32 输出量化未接入（属数值/HAL 层）。**新增边界（诚实声明）**：`_iec_value_error` 对 `TIME` 只校验结构类型为 int，**不施加范围约束**（其工程位宽尚未冻结，`numeric.INT_WIDTHS` 无 TIME 条目）；`STRING` 同样只校验结构类型。整数越界一律**拒绝**而非回绕——这是本包的失败关闭工程约定，声明位宽的回绕/截断语义仍属数值层且待真机裁决，本轮未改动 `numeric.py`。
+- 已知疑问（请审核裁决，均不涉及规格修改）：① `hold` 命中且有历史时输出保持 `last_effective` 且**不**置 `boundary_reset`（物理输出未离开该值，恢复即从该值继续限速）——Round 1 已知疑问 ① 在本轮未被 Codex 推翻，故维持；返修 1 只改“前移”，未改此边界位。② Codex 非阻塞建议（Store 对象身份核对）未实施，理由见“明确未修改”，请裁决是否单开工作包。③ `commit_fault_retry_n` 仍仅建模字段，锁存/复位属 §4.4 后续工作包。
+- scope_sha256: 8256f96a042ff6a0aa290c6394c8541888d36b14ddc1c5338bb4351cb6f6525d
+- scope_manifest:
+  - `ac95db5ba88d918b91909e07003d0c4c02741efb22595e6947f20008ae6ea927  src/runtime/output_policy.py`
+  - `83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700  src/runtime/__init__.py`
+  - `41a51f34a36b53541a3d5c5d220d443d45589b9f46b698b862169bf95e80ad6c  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-16 22:43:20 CST
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实：Round 1 的 `last_effective` 前移缺陷已修复：`src/runtime/output_policy.py:462-477` 的 safe、冷启动 hold 和有历史 hold 三条成功路径均把本拍 final 作为新的 `last_effective`，`tests/test_runtime_output_policy.py` 已新增 forced-safe→hold、可配置 safe→hold、冷启动 hold 与连续 hold 反证；正常路径的 REAL 非有限值、固定宽度整数/位串越界、整数限速可表达性也已由统一 `_iec_value_error(...)` 收紧。`src/runtime/__init__.py` 仍只导出本包 8 个稳定公共名，未越界引入新 API。
+- 项目工程约定：`last_effective` 每拍前移、故障落 `safe_value` 绕过限速、恢复首拍从 `safe_value` 重建基准，以及 OutputPolicy 层对非有限/越界值失败关闭，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义；`TIME` 位宽未冻结、仅做结构类型检查的边界保持诚实。
+- 待真机验证假设：输出基准、整数位宽/回绕、F1/binary32 输出边界、真实提交故障、watchdog/scan-fault 生成、shadow、可信反馈/HAL 与目标 SP16.1 行为仍未由本包验证；当前 Python 测试不证明与 PLC 语义一致。
+- 必须返修：**故障路径仍跳过 request 的 IEC 结构/数值域校验，与任务书及 Round 2 交接声明冲突。** `src/runtime/output_policy.py:425-427` 读取 request 后进入 `_compute(...)`；`462-477` 在 safety/hold 分支直接返回，而 request 校验直到正常路径 `479-483` 才执行。因此 `safety_trip` 下 `REAL request=NaN` 会被静默接受并 stage `safe_value=0.0`，`USINT request=999` 也会被静默接受并 stage `0`，内部 `last_effective` 同时前移；这违反任务书“safe_value、request 与最终值必须严格符合声明 IEC 类型”以及本轮“request 运行期拒绝且不 stage、不前移状态”的交接结论。请把 request 校验前移到故障决策之前（或等价的所有路径公共入口），确保正常、forced safe、可配置 safe、hold 都使用同一口径；新增至少两条反证，覆盖故障状态下非有限 REAL 与越界整数 request，并断言 `OutputPolicyError`、pending 为空、`last_effective` 不前移。若希望故障时忽略非法 request 并优先 stage 安全值，这将改变当前任务书的失败关闭要求，须交用户作规格裁决，不能由实施方自行放宽。
+- 非阻塞建议：Round 1 关于装配期 Store 与 `stage_outputs(...)` 运行期 Store 对象身份未强制一致的建议仍可留待参数装载总闸门或独立工作包，不阻塞本轮返修。
+- 审核证据：接手五字段为 `WP-20260716-007 / READY_FOR_CODEX / codex / codex / round=2`，且 `2 <= max_rounds=3`；协调器心跳在接手与结束时均为 live 且未过期。独立 scope 清单在审核开始与结束逐项一致：`src/runtime/output_policy.py=ac95db5ba88d918b91909e07003d0c4c02741efb22595e6947f20008ae6ea927`、`src/runtime/__init__.py=83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700`、`tests/test_runtime_output_policy.py=41a51f34a36b53541a3d5c5d220d443d45589b9f46b698b862169bf95e80ad6c`，审核期间 scope 无漂移。Codex 独立运行：专用 OutputPolicy 60/60、既有四组运行时合并 166/166、排除 scope 外 dashboard 模块后的正式测试 916/916、原型 68/68 均通过；完整正式 1000 项和全仓 1068 项各有同 9 个 `tests/test_ai_handoff.py` 用例因当前沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 991/991、1059/1059 通过。另用两条最小手工反证稳定复现 `safety_trip` 下 `REAL NaN` 与 `USINT 999` request 被接受并 stage 安全值。
+- review_started_sha256: 8256f96a042ff6a0aa290c6394c8541888d36b14ddc1c5338bb4351cb6f6525d
+- review_finished_sha256: 8256f96a042ff6a0aa290c6394c8541888d36b14ddc1c5338bb4351cb6f6525d
+- handoff_to: claude
+- reviewed_at: 2026-07-16 22:53:00 CST
+
+### Claude Round 3 额度恢复重试授权
+
+- retry_authorized_at: 2026-07-17 07:22:16 CST
+- retry_idempotency_key: `WP-20260716-007:2:start_claude_rework`
+- retry_reason: Claude 上次启动在写入 scope 前因服务端会话额度限制失败；其提示的 2026-07-17 02:40 CST 恢复时间已经过去。当前五字段、Round 2 审核结束哈希与协调器租约均未发生漂移，因此仅授权原失败键重试一次并继续 Round 3；不得恢复旧 30 分钟轮询，不得绕过全局执行租约。
+
+### Claude 实施交接（Round 3）
+
+- 接手核验：五字段接手值为 `WP-20260716-007 / CHANGES_REQUESTED / owner=claude / handoff_to=claude / round=2`，组合与状态映射一致；按协议 round+1 → `round=3 <= max_rounds=3`，未超轮次（本轮为最后一个自动轮次）。按上节 `retry_idempotency_key: WP-20260716-007:2:start_claude_rework` 的一次性重试授权继续 Round 3。仅用 Python 标准库核验（`hashlib` / `json` / `time`，未请求 `shasum`/`cat`/`date` 等被禁 shell 工具）：接手时复算 scope 聚合 SHA-256 = `8256f96a042ff6a0aa290c6394c8541888d36b14ddc1c5338bb4351cb6f6525d`，与 Codex Round 2 `review_started_sha256` / `review_finished_sha256` **三者一致**，逐文件哈希亦与 Round 2 `scope_manifest` 全等（`ac95db5b…6ea927` / `83a49879…d17700` / `41a51f34…80ad6c`），**无证据漂移**；协调器心跳 `coordinator_live=true` 且 `valid_until_epoch` 未过期。`docs/PROJECT_STATE.md` 实盘 SHA-256 = `c0455052eaf8157c76aba1090a74ca48c30f9d97028337fd163c90116309e90c`，与启动前行政证据一致，本轮未改。
+- 完成内容：Codex Round 2 唯一一条"必须返修"（故障路径跳过 request 的 IEC 结构/数值域校验）落地，只改 scope 内文件，**未按"故障时忽略非法 request"方向放宽**（该方向会改变任务书失败关闭要求，属规格裁决，实施方无权自行采纳）。
+  1. **request 校验前移至所有路径公共入口**：`src/runtime/output_policy.py::_compute` 原在故障决策（`cause = self._top_cause(snapshot)`）之后、仅正常路径分支内执行 `_iec_value_error(pol.iec_type, request)`，故 safety/hold 分支的 `return` 先行命中即绕过校验。现将该校验移到 `_compute` 取出 `state` 之后、`_top_cause(...)` 调用**之前**，正常、强制 safe、可配置 safe、可配置 hold（含冷启动 hold）四条路径共用同一口径；正常路径内的重复校验相应删除，`_iec_value_error` 仍是模块内单一口径 helper，未新增第二套判定表。Codex 的两条最小反证已复现并转为常驻用例：`safety_trip` 下 `REAL request=NaN` 与 `USINT request=999` 此前被静默接受并 stage `safe_value`、`last_effective` 同时前移；现均抛 `OutputPolicyError`、pending 为空、`last_effective` 不前移。
+  2. **docstring 同步**：`_compute` 补记"request 校验在故障决策之前执行，四条路径共用同一口径；非法 request 一律失败关闭，不因处于故障状态而被静默接受"，避免下一位读者重蹈分支顺序陷阱。
+- 修改文件（均在 scope 内，共 2 个）：`src/runtime/output_policy.py`（`_compute` 校验前移 + 正常路径重复校验删除 + docstring）、`tests/test_runtime_output_policy.py`（60 → **66** 用例，+6）。
+- 明确未修改：`src/runtime/__init__.py` **本轮零改动**（哈希仍为 `83a49879…d17700`）——本轮返修未引入新公共名，现有 8 个导出无回归。scope 外零文件改动；未改 `docs/PROJECT_STATE.md`、协调器/自动化配置；未执行任何 Git 写操作（含暂存、提交、推送、建分支、建 PR、合并、`.git` 内部写入）。任务书冻结边界继续未实现（属后续独立工作包）：watchdog/scan-fault 信号生成、§4.3 外层安全提交、shadow mode、`last_physical_committed`、真实驱动提交、`commit_fault`/`channel_fault` 锁存与复位、可信反馈/HAL、实时线程、L2 adapter 注册表、参数装载总闸门；`inputs`/`prev` 端口参数仍不消费。Codex **非阻塞建议**（装配期/运行期 Store 对象身份核对）本轮**仍未实施**——Round 2 已按同一理由留待裁决，且 Codex Round 2 明确"不阻塞本轮返修"，故维持不动，请裁决是否单开工作包。
+- 新增测试（6 项，逐条对应返修意见）：`test_forced_safe_cause_still_rejects_illegal_request`（Codex 反证原样固化：`safety_trip` × REAL NaN/Infinity + USINT 999/-1 + SINT 128）、`test_forced_safe_cause_illegal_request_does_not_advance_history`（`watchdog`/`scan_fault` 故障态下先建立 `last_effective=50` 历史，再断言非法 request 被拒且历史**不前移**）、`test_configurable_safe_cause_still_rejects_illegal_request`、`test_configurable_hold_cause_still_rejects_illegal_request`（hold 分支不得因"输出不取 request"而跳过校验）、`test_cold_start_hold_cause_still_rejects_illegal_request`（冷启动无历史退化分支同口径）、`test_legal_request_under_cause_still_gated`（收紧不误杀：故障态下合法 request 仍按原策略落安全值）。共用 helper `_assert_rejected_under_cause(...)` 统一断言三件事：抛 `OutputPolicyError`、`pending.staged() == {}`、`diagnostic_last_effective()` 不前移。既有 60 项断言零改写——本轮为纯增量收紧，未放宽任何既有语义锁。
+- 测试命令与实际结果（2026-07-17 本轮实际运行，均设 `PYTHONDONTWRITEBYTECODE=1`；五组全部一次通过，无失败，故无"首次失败/根因/修复后重跑"记录）：
+  1. `python -m unittest tests.test_runtime_output_policy` → Ran **66** tests, OK（60 + 6 新增）。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran **166** tests, OK（与 Round 1/2 同值，零破坏）。
+  3. `python -m unittest discover -s tests -t .` → Ran **1006** tests, OK（Round 2 为 1000，+6 新增）。
+  4. `python -m unittest discover -s prototype_05 -t .` → Ran **68** tests, OK。
+  5. `python -m unittest discover -s . -t .` → Ran **1074** tests, OK（1006 + 68）。
+  - 环境差异说明（与 Round 2 一致）：Codex 环境中 `tests/test_ai_handoff.py` 有 9 项因沙箱禁止绑定本地 HTTP 端口报 `PermissionError`；本轮环境允许绑定，故第 3/5 组为全量通过（1006/1006、1074/1074），非本轮改动所致。第 3/5 组的 dashboard 用例会向 stdout 打印面板地址，需按 `^(Ran|OK|FAILED)` 过滤才能读到计数行。
+- 工程约定与未验证边界（分层，诚实声明，与 Round 1/2 一致）：`last_effective` 每拍前移制度、输出基准、故障落安全值绕过限速、恢复首拍从 `safe_value` 限速，以及 IEC 数值域拒绝制度（**含本轮扩展到故障路径的 request 校验**），均为**项目工程约定、非 CODESYS / IEC 61131-3 官方已证实语义**，未经目标 SP16.1 真机或真实 HAL 验证；上述 66/166/1006/68/1074 项 Python 测试**只证明本实现行为，不构成与 PLC 语义一致的证据**。§4.1 四类"重建物理基准边界"本包仍只落地冷启动一类 + 安全落值后恢复首拍；F1/binary32 输出量化未接入（属数值/HAL 层）。`_iec_value_error` 对 `TIME` / `STRING` 仍只校验结构类型、不施加范围约束（TIME 工程位宽尚未冻结，`numeric.INT_WIDTHS` 无 TIME 条目）。整数越界一律**拒绝**而非回绕，是本包失败关闭工程约定；声明位宽的回绕/截断语义仍属数值层且待真机裁决，本轮未改动 `numeric.py`。
+- **本轮新增待裁决边界（诚实声明）**：request 校验前移后，非法 request 会在**故障状态下也**阻止本拍 stage——即故障拍不再落 `safe_value`，而是抛错交由外层处置。这严格符合任务书"safe_value、request 与最终值必须严格符合声明 IEC 类型"与 Round 2"request 运行期拒绝且不 stage、不前移状态"的口径，也是 Codex 本轮点名要求的方向；但**外层在策略抛错后如何保证物理输出安全**（§4.3 扫描异常外层安全提交）**不在本包范围**，属后续独立工作包。若用户/审核方认为"故障态应优先落安全值、忽略非法 request"，那是任务书失败关闭要求的**规格裁决**，须转用户，实施方不自行放宽。
+- 已知疑问（请审核裁决，均不涉及规格修改）：① `hold` 命中且有历史时输出保持 `last_effective` 且**不**置 `boundary_reset`（物理输出未离开该值，恢复即从该值继续限速）——Round 1/2 已知疑问 ① 连续两轮未被 Codex 推翻，故维持。② Codex 非阻塞建议（Store 对象身份核对）未实施，理由见"明确未修改"。③ `commit_fault_retry_n` 仍仅建模字段，锁存/复位属 §4.4 后续工作包。④ 本轮为 `max_rounds=3` 的最后一个自动轮次：若仍有"必须返修"，按硬规则 4 应转 `BLOCKED` 交用户仲裁，不得自动进入 Round 4。
+- scope_sha256: b31b3fd8b2f3184d580edcae8fc7ce7849042eedd5345a8f3c4074a82d090fa6
+- scope_manifest:
+  - `746cdb2f537a8ca0065ece06ee59e7cf38c854ac1c5a7ed56247dfe0cd019756  src/runtime/output_policy.py`
+  - `83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700  src/runtime/__init__.py`
+  - `53fd22a3c706de963a7c8ed316bb7dab50f29a551b5d7ea7a8383580d17553a2  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-17 07:26:40 CST
+
+### Codex 审核结论（Round 3）
+
+- verdict: APPROVED
+- 已验证事实：Round 2 唯一必须返修已收口。`src/runtime/output_policy.py::_compute` 现在取出通道状态后、进入 `_top_cause(...)` 故障决策前即用统一 `_iec_value_error(...)` 校验 request；正常、强制 safe、可配置 safe、有历史 hold 和冷启动 hold 均无法再绕过。校验异常发生在任何 `pending.stage(...)` 或 `last_effective` 前移之前，因此故障态 REAL NaN/Infinity、USINT/SINT 越界 request 均失败关闭且不留半拍状态。`tests/test_runtime_output_policy.py` 新增 6 项测试覆盖上述四类路径、已有历史不前移与合法 request 不误杀；`src/runtime/__init__.py` 公共导出未变。
+- 项目工程约定：`last_effective` 每拍前移、故障落 `safe_value` 绕过限速、恢复首拍从 `safe_value` 重建基准，以及 OutputPolicy 层对非有限/越界值采用失败关闭，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。故障态非法 request 会拒绝本拍 stage，与任务书及 Round 2 返修要求一致；其后如何保证物理输出安全由后续 `ENGINE_SCAN_SPEC §4.3` outer scan runner 工作包承接，不在本包内伪造实现。
+- 待真机验证假设：输出基准、整数位宽/回绕、F1/binary32 输出边界、真实提交故障、watchdog/scan-fault 生成、shadow、可信反馈/HAL 与目标 SP16.1 行为仍未由本包验证；当前 Python 测试不证明与 PLC 语义一致。`TIME` / `STRING` 仍只做结构类型校验，其中 TIME 工程位宽尚未冻结。
+- 必须返修：无。
+- 非阻塞建议：装配期 Store 与 `stage_outputs(...)` 运行期 Store 对象身份未强制一致的边界，按 Round 1/2 已登记口径留待参数装载总闸门或独立工作包；不阻塞本轮批准。
+- 审核证据：接手五字段为 `WP-20260716-007 / READY_FOR_CODEX / codex / codex / round=3`，且 `3 <= max_rounds=3`；审核期间状态为 `CODEX_REVIEWING / codex / codex`，协调器心跳在接手与结束时均 live 且未过期。独立 scope 清单在审核开始与结束逐项一致：`src/runtime/output_policy.py=746cdb2f537a8ca0065ece06ee59e7cf38c854ac1c5a7ed56247dfe0cd019756`、`src/runtime/__init__.py=83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700`、`tests/test_runtime_output_policy.py=53fd22a3c706de963a7c8ed316bb7dab50f29a551b5d7ea7a8383580d17553a2`，审核期间 scope 无漂移。Codex 独立运行：专用 OutputPolicy 66/66、既有四组运行时合并 166/166、排除 scope 外 dashboard 模块后正式测试 922/922、原型 68/68 均通过；完整正式 1006 项和全仓 1074 项各有同 9 个 `tests/test_ai_handoff.py` 用例因当前沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 997/997、1065/1065 通过。读取 Git 状态/差异只用于核对 scope，未执行任何 Git 写操作。
+- review_started_sha256: b31b3fd8b2f3184d580edcae8fc7ce7849042eedd5345a8f3c4074a82d090fa6
+- review_finished_sha256: b31b3fd8b2f3184d580edcae8fc7ce7849042eedd5345a8f3c4074a82d090fa6
+- handoff_to: user
+- reviewed_at: 2026-07-17 12:09:25 CST
