@@ -40,11 +40,14 @@
 
 —— 明确不实现（诚实边界，均属后续独立工作包，不在本包"顺手完善"）——
 
-watchdog / scan-fault 信号**生成**、扫描异常外层安全提交（§4.3 由 scan runner
-承担）、shadow mode、``last_physical_committed``、真实驱动提交、``commit_fault``
-/ ``channel_fault`` 锁存与复位（§4.4）、可信设备反馈 / HAL（§4.1 阶段 7）、
-实时线程、L2 adapter 注册表、参数装载总闸门。本包只**消费**注入的安全信号，
-不生成 startup/watchdog 计时，也不实现 outer scan runner。
+watchdog / scan-fault 信号**生成**、扫描异常外层安全提交的**编排**（§4.3 由
+scan runner 承担；本模块自 WP-20260720-008 起只提供其消费的两阶段安全映像入口
+``stage_safe_image()``（准备/staging）+ ``confirm_safe_image()``（提交成功后才前移
+策略历史），不做外层捕获/分类/提交编排）、shadow mode、
+``last_physical_committed``、真实驱动提交、``commit_fault`` / ``channel_fault``
+锁存与复位（§4.4）、可信设备反馈 / HAL（§4.1 阶段 7）、实时线程、L2 adapter
+注册表、参数装载总闸门。本包只**消费**注入的安全信号，不生成 startup/watchdog
+计时，也不实现 outer scan runner 本体。
 
 **基准边界的落地范围（诚实声明）**：§4.1 列出四类需重建物理输出基准的边界
 （冷启动、shadow→实写、提交故障恢复、``channel_fault`` 复位）。本包只实现其中
@@ -317,6 +320,36 @@ class SafetyStateService:
 
 
 # ---------------------------------------------------------------------------
+# 安全映像确认令牌（两阶段安全事务的一次性、不可伪造准备凭证）
+# ---------------------------------------------------------------------------
+
+class SafeImageTicket:
+    """``stage_safe_image()`` 返回的**一次性、不可伪造**安全映像确认令牌。
+
+    两阶段安全事务的“准备凭证”：只能由**签发它的**同一
+    ``OutputPolicyService.confirm_safe_image()`` 消费**恰一次**，携带本次已 staging
+    的安全映像独立副本（``channel -> safe_value``）。这样 ``confirm`` 确认的一定是
+    同一次 ``stage_safe_image()`` 准备并（由外层 runner）提交的安全映像——任意
+    ``Mapping`` 无法冒充“已提交事务”去污染 ``last_effective``
+    （Codex WP-20260720-008 Round 2 反证 2）。
+
+    令牌本身不做校验；校验（签发者身份、一次性、逐通道值 == 配置 ``safe_value``）
+    全部由 ``confirm_safe_image`` 在锁内完成。
+    """
+    __slots__ = ("_issuer", "_token", "_image")
+
+    def __init__(self, issuer: "OutputPolicyService", token: object, image: dict):
+        self._issuer = issuer
+        self._token = token
+        self._image = dict(image)
+
+    @property
+    def image(self) -> dict:
+        """本次安全映像独立副本（``channel -> safe_value``），供审计 / 提交。"""
+        return dict(self._image)
+
+
+# ---------------------------------------------------------------------------
 # OutputPolicy 门控服务（ScanEngine 第 4 步注入端口）
 # ---------------------------------------------------------------------------
 
@@ -347,6 +380,8 @@ class OutputPolicyService:
         # channel -> [last_effective, boundary_reset]；冷启动 last_effective 无
         # 历史（None）、boundary_reset=True（首个正常拍以 safe_value 为基准）。
         self._state: dict = {}
+        # 未消费的安全映像令牌（两阶段事务：stage 签发，confirm 消费恰一次）。
+        self._pending_ticket: object = None
 
         seen: set = set()
         for io in io_map:
@@ -391,6 +426,16 @@ class OutputPolicyService:
             self._state[channel] = [None, True]
 
     # ---- 观察/诊断（返回独立副本，不反向污染服务） ----
+
+    @property
+    def safety_state(self) -> SafetyStateService:
+        """本服务注入的**同一** ``SafetyStateService`` 实例。
+
+        外层 scan/watchdog runner 通过它写入 ``scan_ok`` / ``watchdog_ok=False``
+        的锁存证据——runner 复用本属性而非另建第二套安全状态，保证 runner 写入
+        的信号与本策略每拍 ``read()`` 的信号是同一份。
+        """
+        return self._safety
 
     def channels(self) -> tuple:
         return tuple(self._order)
@@ -438,6 +483,117 @@ class OutputPolicyService:
             # 阶段 2b：全部 stage 成功后才统一提交内部状态（原子）。
             for channel in self._order:
                 self._state[channel] = new_state[channel]
+        finally:
+            self._lock.release()
+
+    def stage_safe_image(self, pending: Any) -> "SafeImageTicket":
+        """外层 scan/watchdog 恢复专用入口（``ENGINE_SCAN_SPEC §4.3/§4.4``）：
+        对**全部** OUT 通道一步落 ``safe_value`` 的安全映像，作为**两阶段安全事务
+        的第一阶段（仅准备/staging，不前移策略历史）**。
+
+        与 ``stage_outputs`` 的本质区别：**不读取业务 request、不做限速、不读安全
+        快照原因**。外层 runner 在扫描/看门狗故障后调用本入口，**绕过**本拍可能已
+        损坏或非法的 request，直接按已验证通道配置生成安全映像。复用同一
+        ``_order`` / ``_policy`` / ``_iec_value_error`` 口径，**不复制第二套类型表、
+        限速表或通道策略**。
+
+        全有或全无（原子）：先对全部通道的 ``safe_value`` 做与运行期同一口径的 IEC
+        结构/数值域校验（``safe_value`` 虽在装配期已校验，此处再校验一次以防御通道
+        配置漂移），任一不合法即整体失败关闭——不 stage、不前移任何内部状态。全部
+        通过后统一 stage 到 ``pending``。
+
+        **不在本方法前移 ``last_effective`` / ``boundary_reset``**：策略历史只有在
+        安全映像**真正提交成功后**才由外层 runner 调用 ``confirm_safe_image()`` 前移
+        （两阶段事务的第二阶段）。若底层提交失败，runner 不会 confirm，故
+        ``diagnostic_last_effective()`` **绝不冒充**未真正生效的安全映像（§4.3
+        “策略历史须与真正提交的安全映像一致 / 失败不得声称已安全提交”）。
+
+        与 ``stage_outputs`` 共用同一非重入锁：并发/递归调用**失败关闭**
+        （``OutputPolicyReentryError``），不与正常门控拍交错。返回**一次性、不可
+        伪造**的 ``SafeImageTicket``（携带本次安全映像独立副本），外层 runner 提交
+        成功后须用**同一令牌**调用 ``confirm_safe_image()`` 前移历史——任意 ``Mapping``
+        无法冒充已提交事务（Codex Round 2 反证 2）。
+        """
+        if not self._lock.acquire(blocking=False):
+            raise OutputPolicyReentryError(
+                "同一 OutputPolicyService 的 stage_safe_image() 不可重入"
+                "（递归或并发）：本拍拒绝")
+        try:
+            # 阶段 1：全通道校验 safe_value（不读 request、不看安全快照）。
+            results: dict = {}
+            for channel in self._order:
+                pol = self._policy[channel]
+                safe_value = pol.safe_value
+                err = _iec_value_error(pol.iec_type, safe_value)
+                if err is not None:
+                    raise OutputPolicyError(
+                        "通道 '%s' 的 safe_value %r %s（安全映像拒绝落值）"
+                        % (channel, safe_value, err))
+                results[channel] = safe_value
+            # 阶段 2：全通道 stage（全有或全无；类型已在阶段 1 校验）。
+            # **不前移 _state**——历史前移留待提交成功后的 confirm_safe_image()。
+            for channel in self._order:
+                pending.stage(channel, results[channel])
+            # 签发一次性令牌：confirm 据此校验“确认的是同一次准备并提交的映像”。
+            token = object()
+            self._pending_ticket = token
+            return SafeImageTicket(self, token, results)
+        finally:
+            self._lock.release()
+
+    def confirm_safe_image(self, ticket: "SafeImageTicket") -> None:
+        """两阶段安全事务的第二阶段：外层 runner 在安全映像**已真正提交成功后**
+        调用，才把每通道 ``last_effective`` 前移为已提交的 ``safe_value`` 并置
+        ``boundary_reset``（恢复后首个正常拍从 ``safe_value`` 基准限速，§4.1/§4.2；
+        与 ``_compute`` 强制 safe 路径的状态前移完全一致）。
+
+        提交失败时 runner 不会调用本方法，故 ``last_effective`` 不会冒充未生效的
+        安全映像。``ticket`` **必须**是本服务同一次 ``stage_safe_image()`` 签发、
+        尚未消费的 ``SafeImageTicket``（一次性；签发者身份 + 令牌双重校验），且其
+        安全映像须恰好覆盖装配通道集合、逐通道值**严格等于当前配置 ``safe_value``**
+        并满足 IEC 结构/数值域（防御装配后配置漂移，与 ``stage`` 同口径）——任一不满
+        足即整体失败关闭、不前移任何通道、不消费令牌，杜绝任意映像污染
+        ``last_effective``（Codex Round 2 反证 2）。与 ``stage_outputs`` /
+        ``stage_safe_image`` 共用同一非重入锁。
+        """
+        if not self._lock.acquire(blocking=False):
+            raise OutputPolicyReentryError(
+                "同一 OutputPolicyService 的 confirm_safe_image() 不可重入"
+                "（递归或并发）：本拍拒绝")
+        try:
+            # 1) 签发者身份 + 一次性令牌校验：拒绝任意映像 / 他服务 / 重复令牌。
+            if not isinstance(ticket, SafeImageTicket) or ticket._issuer is not self:
+                raise OutputPolicyError(
+                    "confirm_safe_image 需要本服务 stage_safe_image() 签发的 "
+                    "SafeImageTicket；拒绝任意映像冒充已提交安全事务")
+            if self._pending_ticket is None or ticket._token is not self._pending_ticket:
+                raise OutputPolicyError(
+                    "安全映像令牌已消费或非本次 stage_safe_image() 所签发"
+                    "（一次性确认，拒绝重复/过期令牌）")
+            image = ticket._image
+            # 2) 通道集合校验。
+            if set(image) != set(self._order):
+                raise OutputPolicyError(
+                    "confirm_safe_image 的安全映像通道 %r 与装配通道 %r 不一致"
+                    % (sorted(image), sorted(self._order)))
+            # 3) 逐通道值校验：== 当前配置 safe_value（严格类型）且 IEC 合法。
+            for channel in self._order:
+                pol = self._policy[channel]
+                value = image[channel]
+                err = _iec_value_error(pol.iec_type, value)
+                if err is not None:
+                    raise OutputPolicyError(
+                        "通道 '%s' 确认值 %r %s（安全映像拒绝前移）"
+                        % (channel, value, err))
+                if type(value) is not type(pol.safe_value) or value != pol.safe_value:
+                    raise OutputPolicyError(
+                        "通道 '%s' 确认值 %r 与当前配置 safe_value %r 不一致"
+                        "（拒绝污染 last_effective）"
+                        % (channel, value, pol.safe_value))
+            # 4) 全有或全无：仅在三重校验通过后统一前移；消费令牌（一次性）。
+            for channel in self._order:
+                self._state[channel] = [image[channel], True]
+            self._pending_ticket = None
         finally:
             self._lock.release()
 

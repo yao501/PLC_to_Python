@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 import re
 from typing import Iterable
@@ -46,9 +47,9 @@ STATUS_MAP = {
 }
 
 NEXT_ACTION = {
-    "CLAUDE_WORKING": "Claude 完成实施并交接给 Codex。",
-    "FABLE_WORKING": "Claude 完成实施并交接给 Codex。",  # legacy alias（只读）
-    "READY_FOR_CODEX": "Codex 开始只读审核。",
+    "CLAUDE_WORKING": "Claude 完成实施 → 交接前自审（PASS 后）→ 原子交接给 Codex。",
+    "FABLE_WORKING": "Claude 完成实施 → 交接前自审（PASS 后）→ 原子交接给 Codex。",  # legacy alias（只读）
+    "READY_FOR_CODEX": "Codex 开始独立只读审核（与 Claude 自审是两个独立动作）。",
     "CODEX_REVIEWING": "Codex 完成审核并写回结论。",
     "CHANGES_REQUESTED": "Claude 按最近审核意见返修，再次交接 Codex。",
     "APPROVED": "用户确认后关闭工作包；Git 操作仍需单独授权。",
@@ -60,7 +61,187 @@ _WP_HEADING = re.compile(r"^##\s+(WP-[A-Za-z0-9-]+)\s*$", re.MULTILINE)
 _SUBHEADING = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 _FIELD = re.compile(r"^-\s+([^:：]+?)[：:]\s*(.*?)\s*$")
 _HASH = re.compile(r"\b[0-9a-fA-F]{64}\b")
-_TIME_KEYS = ("implementation_finished_at", "reviewed_at")
+_TIME_KEYS = ("self_review_finished_at", "implementation_finished_at", "reviewed_at")
+
+# 三阶段协议（v2）：
+#   1. Claude 交接前自审  —— CLAUDE_WORKING 状态内、原子交接之前完成；
+#   2. Claude 实施交接    —— 仅在自审 PASS 后才可原子写 READY_FOR_CODEX；
+#   3. Codex 独立审核结论 —— 仅在交接完成后启动，保持独立的开始/结束哈希与 verdict。
+# 历史工作包（无结构化自审段）继续只读解析，并显式标注 legacy，不据此伪造自审证据。
+SELF_REVIEW_HEADINGS = ("Claude 交接前自审", "交接前自审")
+IMPLEMENTATION_HEADINGS = ("Claude 实施交接", "Fable5 实施交接")  # 后者仅历史只读兼容
+REVIEW_HEADINGS = ("Codex 审核结论",)
+
+LEGACY_SELF_REVIEW_NOTE = "历史格式：自审证据未独立结构化"
+V2_MISSING_NOTE = "v2 自审缺失：已声明三阶段协议但没有结构化自审段"
+V2_INVALID_NOTE = "v2 自审无效：结构化自审段存在但未通过门禁校验"
+V2_UNDECLARED_NOTE = "协议未声明：新工作包必须显式写 handoff_protocol: v2"
+
+# legacy 范围**只**由这份明确 ID 白名单界定（协议生效边界，不可歧义）。
+# 不得再用"缺少 handoff_protocol / 缺少自审段"来推断 legacy——否则新包漏写即被静默降级。
+LEGACY_WORK_PACKAGE_IDS = frozenset({
+    "WP-20260712-001",
+    "WP-20260713-002",
+    "WP-20260714-003",
+    "WP-20260714-004",
+    "WP-20260714-005",
+    "WP-20260716-006",
+    "WP-20260716-007",
+    "WP-20260720-008",
+})
+
+# 只有这些取值算显式声明三阶段协议。
+V2_PROTOCOL_TOKENS = {"v2", "2"}
+
+# 自审测试证据必须来自这些**结构化字段**；正文/已知疑问里的 "Ran N tests" 一律不算。
+SELF_REVIEW_TEST_FIELDS = (
+    "实际测试命令与结果",
+    "测试命令与实际结果",
+    "实际执行的测试命令及结果",
+    "self_review_tests",
+)
+# 命令特征：至少要能看出跑了什么（unittest/pytest/python -m ...）。
+_TEST_COMMAND_HINT = re.compile(r"(python\s+-m\s+\w+|unittest|pytest|discover)", re.IGNORECASE)
+_TRUE_TOKENS = {"true", "yes", "是", "满足", "已满足", "pass"}
+# 自审时间戳必须**整串完整匹配**（禁止 substring 搜索，前后缀垃圾一律拒绝）。
+# 允许：YYYY-MM-DD HH:MM[:SS] 后接可选时区标记。
+# 时区标记只接受：Z / UTC / CST / ±HH:MM / ±HHMM；其余（如 XYZ、nonsense）一律拒绝。
+# **项目约定**：`CST` 在本项目明确解释为 Asia/Shanghai，即 UTC+08:00（不是美国中部时间）。
+_TIMESTAMP_FULL = re.compile(
+    r"(?P<y>\d{4})-(?P<mo>\d{2})-(?P<d>\d{2})[ T](?P<h>\d{2}):(?P<mi>\d{2})"
+    r"(?::(?P<s>\d{2}))?"
+    r"(?:\s*(?P<tz>Z|UTC|CST|[+-]\d{2}:?\d{2}))?"
+)
+PROJECT_TZ = timezone(timedelta(hours=8))  # Asia/Shanghai，供 CST 与 naive 时间戳使用
+
+
+def _timezone_from_token(token: str | None) -> timezone | None:
+    if token is None:
+        return None
+    token = token.strip()
+    if token in {"Z", "UTC"}:
+        return timezone.utc
+    if token == "CST":  # 项目约定 = Asia/Shanghai = +08:00
+        return PROJECT_TZ
+    sign = 1 if token[0] == "+" else -1
+    digits = token[1:].replace(":", "")
+    hours, minutes = int(digits[:2]), int(digits[2:])
+    if hours > 23 or minutes > 59:
+        return None
+    return timezone(sign * timedelta(hours=hours, minutes=minutes))
+
+
+def parse_timestamp(value: str | None) -> datetime | None:
+    """严格解析自审时间戳：整串完整匹配 + 合法日历日期 + 已知时区。
+
+    返回 aware 或 naive datetime；无法解析（格式不符、前后缀垃圾、非法日期、
+    未知时区）一律返回 None。naive 与 aware 的混用由调用方显式处理。
+    """
+    if not value:
+        return None
+    match = _TIMESTAMP_FULL.fullmatch(value.strip())
+    if not match:
+        return None
+    tz_token = match.group("tz")
+    tzinfo = _timezone_from_token(tz_token) if tz_token else None
+    if tz_token and tzinfo is None:
+        return None  # 偏移量数值非法
+    try:
+        return datetime(
+            int(match.group("y")), int(match.group("mo")), int(match.group("d")),
+            int(match.group("h")), int(match.group("mi")),
+            int(match.group("s")) if match.group("s") else 0,
+            tzinfo=tzinfo,
+        )
+    except ValueError:
+        return None  # 非法日历日期/时刻，例如 2026-02-30 或 25:00
+
+
+def to_utc(moment: datetime) -> datetime:
+    """naive 视为项目本地时区（Asia/Shanghai），统一折算到 UTC 后比较。"""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=PROJECT_TZ)
+    return moment.astimezone(timezone.utc)
+# 自审 manifest 每项必须是「64 位十六进制 SHA-256 + 两空格 + scope 路径」。
+_MANIFEST_ENTRY = re.compile(r"^([0-9a-fA-F]{64})\s{2}(\S.*)$")
+# 结构化测试字段里出现任一失败标记即拒绝，不允许被等额计数掩盖。
+_TEST_FAILURE_MARK = re.compile(r"(FAILED|FAIL\b|ERROR|ERRORS|失败|错误|不通过)", re.IGNORECASE)
+# 等额计数还必须带明确成功标记。
+_TEST_SUCCESS_MARK = re.compile(r"(\bOK\b|\bPASS(?:ED)?\b|通过|全绿)", re.IGNORECASE)
+
+
+def canonical_manifest(entries: list[str]) -> str:
+    """按交接协议构造规范 manifest 文本：每行 `<sha256>  <path>\\n`。"""
+    return "".join(f"{sha}  {path}\n" for sha, path in entries)
+
+
+def validate_manifest(
+    entries: list[str],
+    scope: list[str],
+    expected_digest: str | None = None,
+    current_manifest: list[str] | None = None,
+) -> str | None:
+    """校验逐文件 SHA-256 清单，并与自审聚合哈希做**密码学绑定**。
+
+    仅检查"64 位 SHA + 路径"的外形不足以建立信任：还必须按 scope 声明顺序
+    重建规范 manifest，其 SHA-256 必须等于 `self_review_scope_sha256`；
+    若调度器提供了当前重算 manifest，则逐项比对，从而覆盖文件内容漂移。
+    """
+    if not entries:
+        return "自审缺少逐文件 SHA-256（self_review_manifest）；不得交接"
+    parsed: list[tuple[str, str]] = []
+    for entry in entries:
+        match = _MANIFEST_ENTRY.match(entry.strip())
+        if not match:
+            return f"自审 manifest 条目格式非法（应为 <64位SHA-256>␠␠<路径>）: {entry!r}"
+        parsed.append((match.group(1).lower(), match.group(2).strip().strip("`")))
+    paths = [path for _, path in parsed]
+    duplicates = {path for path in paths if paths.count(path) > 1}
+    if duplicates:
+        return f"自审 manifest 存在重复路径: {sorted(duplicates)}"
+    missing, extra = set(scope) - set(paths), set(paths) - set(scope)
+    if missing:
+        return f"自审 manifest 缺少 scope 文件: {sorted(missing)}"
+    if extra:
+        return f"自审 manifest 含 scope 之外的无关路径: {sorted(extra)}"
+    # 顺序是规范 manifest 的一部分：必须与 scope 声明顺序完全一致。
+    if paths != list(scope):
+        return f"自审 manifest 顺序与 scope 声明顺序不一致: 期望 {list(scope)}, 实际 {paths}"
+    # 密码学绑定：规范 manifest 的 SHA-256 必须等于自审聚合哈希。
+    if expected_digest:
+        rebuilt = hashlib.sha256(canonical_manifest(parsed).encode("utf-8")).hexdigest()
+        if rebuilt != expected_digest.lower():
+            return (
+                "自审 manifest 与 self_review_scope_sha256 不匹配（聚合哈希无法由清单重建）："
+                f"重建={rebuilt}, 声明={expected_digest}"
+            )
+    # 与调度器重算的当前 manifest 逐项比对：覆盖文件内容/顺序漂移。
+    if current_manifest is not None:
+        declared_lines = canonical_manifest(parsed).splitlines(keepends=True)
+        if declared_lines != list(current_manifest):
+            for index, (declared, current) in enumerate(zip(declared_lines, current_manifest)):
+                if declared != current:
+                    return (
+                        f"自审 manifest 第 {index + 1} 项与当前实际文件不一致："
+                        f"自审={declared.strip()!r}, 当前={current.strip()!r}"
+                    )
+            return "自审 manifest 与当前 scope 实际文件清单条目数不一致"
+    return None
+
+
+def validate_test_evidence(value: str | None) -> str | None:
+    """校验结构化测试字段：需含实际命令、明确成功标记与真实计数。"""
+    if not value:
+        return "自审缺少结构化字段「实际测试命令与结果」；不得交接"
+    if not _TEST_COMMAND_HINT.search(value):
+        return "自审测试字段未包含可识别的实际测试命令；不得交接"
+    if _TEST_FAILURE_MARK.search(value):
+        return f"自审测试字段出现失败标记，不得视为通过: {value.strip()[:120]}"
+    if not _TEST_SUCCESS_MARK.search(value):
+        return "自审测试字段缺少明确成功标记（OK / PASS / 通过）；等额计数本身不代表成功"
+    if not _test_count_in(value):
+        return "自审测试字段缺少真实测试计数（如 Ran N tests, OK）；不得交接"
+    return None
 
 
 @dataclass
@@ -105,6 +286,35 @@ class WorkPackage:
     implementation_scope_sha256: str | None = None
     review_started_sha256: str | None = None
     review_finished_sha256: str | None = None
+    # —— 阶段 1：Claude 交接前自审（结构化证据；与 Codex 独立审核严格区分）——
+    handoff_protocol: str | None = None
+    protocol_is_v2: bool = False
+    protocol_declared_v2: bool = False
+    is_legacy_package: bool = False
+    self_review_present: bool = False
+    self_review_is_legacy: bool = False
+    self_review_state: str = "unknown"  # legacy | v2-ok | v2-missing | v2-invalid | v2-undeclared
+    self_review_note: str | None = None
+    self_review_round: int | None = None
+    implementation_round: int | None = None
+    implementation_after_self_review: bool = False
+    self_review_started_at: str | None = None
+    self_review_finished_at: str | None = None
+    self_review_verdict: str | None = None
+    self_review_scope_sha256: str | None = None
+    self_review_manifest: list[str] = field(default_factory=list)
+    self_review_test_command: str | None = None
+    self_review_test_count: int | None = None
+    self_review_test_result: str | None = None
+    self_review_first_failure: str | None = None
+    self_review_root_cause: str | None = None
+    self_review_fix: str | None = None
+    self_review_rerun: str | None = None
+    self_review_known_issues: str | None = None
+    self_review_unverified: str | None = None
+    self_review_ready: str | None = None
+    handoff_gate_ok: bool = False
+    handoff_gate_reason: str | None = None
     blocked_reason: str | None = None
     next_action: str | None = None
     status_explanation: str | None = None
@@ -251,14 +461,26 @@ class HandoffParser:
             if package.round > package.max_rounds:
                 package.warnings.append(f"round 超限: {package.round} > {package.max_rounds}")
 
+        package.handoff_protocol = _one(values, "handoff_protocol")
         package.records = _records(section)
+        self_reviews = [r for r in package.records if r.kind == "self_review"]
         implementations = [r for r in package.records if r.kind == "implementation"]
         reviews = [r for r in package.records if r.kind == "review"]
+        _apply_self_review(package, self_reviews)
         if implementations:
             latest = implementations[-1]
             package.latest_implementation_at = latest.fields.get("implementation_finished_at")
             package.latest_implementation_summary = _summary(latest.fields.get("完成内容"))
             package.implementation_scope_sha256 = _record_hash(latest, "scope_sha256")
+            package.implementation_round = latest.round
+            # 顺序校验：本轮实施交接必须出现在本轮自审**之后**（禁止先交接后补自审）。
+            order = [r.kind for r in package.records]
+            try:
+                last_sr = len(order) - 1 - order[::-1].index("self_review")
+                last_impl = len(order) - 1 - order[::-1].index("implementation")
+                package.implementation_after_self_review = last_impl > last_sr
+            except ValueError:
+                package.implementation_after_self_review = False
         if reviews:
             latest = reviews[-1]
             package.latest_review_at = latest.fields.get("reviewed_at")
@@ -280,11 +502,197 @@ class HandoffParser:
         if reviews and not package.review_finished_sha256:
             package.warnings.append("最近审核记录缺少 review_finished_sha256")
         package.latest_test_count, package.latest_test_result = _latest_test(package.records)
+        package.handoff_gate_reason = self_review_gate(package)
+        package.handoff_gate_ok = package.handoff_gate_reason is None
+        # 显式 v2 且有自审段时，按门禁结果区分 ok / invalid；绝不回落成"历史格式"。
+        if package.self_review_present:
+            package.self_review_state = "v2-ok" if package.handoff_gate_ok else "v2-invalid"
+            if not package.handoff_gate_ok:
+                package.self_review_note = V2_INVALID_NOTE
         if package.status == "BLOCKED":
             package.blocked_reason = _blocked_reason(package.records) or _one(values, "blocked_reason")
             if not package.blocked_reason:
                 package.warnings.append("BLOCKED 状态未找到明确阻塞原因")
         return package
+
+
+def _first_field(record: Record, *names: str) -> str | None:
+    for name in names:
+        value = record.fields.get(name)
+        if value:
+            return value.strip().strip("`")
+    return None
+
+
+def _apply_self_review(package: WorkPackage, self_reviews: list[Record]) -> None:
+    """把最近一条结构化自审记录投影到工作包；legacy 只由 ID 白名单界定，不靠缺字段推断。"""
+    declared = (package.handoff_protocol or "").strip().lower()
+    package.protocol_declared_v2 = declared in V2_PROTOCOL_TOKENS
+    package.is_legacy_package = package.work_package_id in LEGACY_WORK_PACKAGE_IDS
+    # 非白名单包一律按 v2 对待：漏写 handoff_protocol 也不降级，只会在门禁被拒。
+    package.protocol_is_v2 = package.protocol_declared_v2 or not package.is_legacy_package
+    package.self_review_present = bool(self_reviews)
+
+    if not self_reviews:
+        if package.is_legacy_package and not package.protocol_declared_v2:
+            # 仅现存历史包可标 legacy。
+            package.self_review_is_legacy = True
+            package.self_review_state = "legacy"
+            package.self_review_note = LEGACY_SELF_REVIEW_NOTE
+        elif not package.protocol_declared_v2:
+            package.self_review_state = "v2-undeclared"
+            package.self_review_note = V2_UNDECLARED_NOTE
+        else:
+            # 显式 v2 却没有自审段：绝不能显示成"历史格式"。
+            package.self_review_state = "v2-missing"
+            package.self_review_note = V2_MISSING_NOTE
+        return
+
+    latest = self_reviews[-1]
+    package.self_review_round = latest.round
+    package.self_review_started_at = _first_field(latest, "self_review_started_at", "自审开始时间")
+    package.self_review_finished_at = _first_field(latest, "self_review_finished_at", "自审结束时间")
+    verdict = _first_field(latest, "self_review_verdict", "自审结论")
+    package.self_review_verdict = verdict.upper() if verdict else None
+    package.self_review_scope_sha256 = _record_hash(latest, "self_review_scope_sha256")
+    package.self_review_manifest = _nested_list(latest.body, "self_review_manifest") or _nested_list(
+        latest.body, "逐文件 SHA-256"
+    )
+    # 测试证据**只**从结构化字段取；不扫描整段正文，避免"已知疑问"里的计数被当成证据。
+    package.self_review_test_command = _first_field(latest, *SELF_REVIEW_TEST_FIELDS)
+    if package.self_review_test_command:
+        package.self_review_test_count = _test_count_in(package.self_review_test_command)
+        if package.self_review_test_count:
+            package.self_review_test_result = (
+                f"{package.self_review_test_count}/{package.self_review_test_count} 通过"
+            )
+    package.self_review_first_failure = _first_field(latest, "首次失败", "self_review_first_failure")
+    package.self_review_root_cause = _first_field(latest, "失败根因", "self_review_root_cause")
+    package.self_review_fix = _first_field(latest, "修复内容", "self_review_fix")
+    package.self_review_rerun = _first_field(latest, "修复后重跑结果", "self_review_rerun")
+    package.self_review_known_issues = _first_field(latest, "已知疑问", "self_review_known_issues")
+    package.self_review_unverified = _first_field(latest, "未验证边界", "self_review_unverified")
+    package.self_review_ready = _first_field(latest, "是否满足交接条件", "self_review_ready")
+
+    if package.self_review_verdict not in {"PASS", "BLOCKED"}:
+        package.warnings.append(
+            f"自审 verdict 非法或缺失: {package.self_review_verdict!r}（应为 PASS 或 BLOCKED）"
+        )
+    if not package.self_review_scope_sha256:
+        package.warnings.append("自审记录缺少 self_review_scope_sha256")
+
+
+def self_review_gate(
+    package: WorkPackage, current_manifest: list[str] | None = None
+) -> str | None:
+    """交接门禁：返回拒绝原因；None 表示允许交接到 READY_FOR_CODEX。
+
+    legacy 仅由 `LEGACY_WORK_PACKAGE_IDS` 白名单界定；其余一律按 v2 强制。
+    `current_manifest` 由调度器传入（当前实际文件重算结果），用于逐项比对。
+    """
+    # 门禁只约束"已交接/待审核"方向；CLAUDE_WORKING 内允许继续实施与自审。
+    if canonical_status(package.status) not in {"READY_FOR_CODEX", "CODEX_REVIEWING"}:
+        return None
+    # 直接由 ID / 字段自行判定，不依赖解析期副作用（手工构造的 WorkPackage 同样受约束）。
+    is_legacy = package.is_legacy_package or package.work_package_id in LEGACY_WORK_PACKAGE_IDS
+    declared_v2 = package.protocol_declared_v2 or (
+        (package.handoff_protocol or "").strip().lower() in V2_PROTOCOL_TOKENS
+    )
+    if is_legacy and not declared_v2:
+        return None  # 现存历史包只读兼容
+    if not declared_v2:
+        return "新工作包必须显式声明 handoff_protocol: v2；漏写不得降级为历史格式"
+    if not package.self_review_present:
+        return "缺少 Claude 交接前自审记录；v2 工作包必须先完成结构化自审才能交接"
+
+    # (1) 自审轮次必须存在且等于当前轮次（None 一律拒绝）
+    if package.round is None:
+        return "工作包缺少 round，无法校验自审轮次"
+    if package.self_review_round is None:
+        return "自审记录缺少明确 Round 编号；不得交接"
+    if package.self_review_round != package.round:
+        return (
+            f"自审轮次({package.self_review_round})与当前轮次({package.round})不一致；本轮必须重新自审"
+        )
+    # (2) 自审起止时间必须存在、可解析为合法日期时间，且顺序正确
+    started, finished = package.self_review_started_at, package.self_review_finished_at
+    if not started or not finished:
+        return "自审缺少 self_review_started_at / self_review_finished_at；不得交接"
+    ts_start, ts_end = parse_timestamp(started), parse_timestamp(finished)
+    if ts_start is None:
+        return f"自审开始时间无法解析为合法时间（需完整匹配 YYYY-MM-DD HH:MM[:SS][时区]）: {started!r}"
+    if ts_end is None:
+        return f"自审结束时间无法解析为合法时间（需完整匹配 YYYY-MM-DD HH:MM[:SS][时区]）: {finished!r}"
+    # 显式处理 aware/naive 混用，绝不静默忽略偏移量。
+    if (ts_start.tzinfo is None) != (ts_end.tzinfo is None):
+        return (
+            "自审时间戳时区标注不一致（一个带时区、一个不带），无法可靠比较："
+            f"开始={started!r}, 结束={finished!r}"
+        )
+    if to_utc(ts_end) < to_utc(ts_start):
+        return (
+            f"自审时间顺序非法：结束({finished} → {to_utc(ts_end).isoformat()}) "
+            f"早于开始({started} → {to_utc(ts_start).isoformat()})"
+        )
+    # (3) verdict
+    if package.self_review_verdict != "PASS":
+        return f"自审结论为 {package.self_review_verdict or '缺失'}，未通过；必须保持 CLAUDE_WORKING，不得交接"
+    # (4) 测试证据：结构化字段，须含命令 + 明确成功标记 + 真实计数，且无任何失败标记
+    evidence_error = validate_test_evidence(package.self_review_test_command)
+    if evidence_error:
+        return evidence_error
+    # (5) 逐文件 manifest：格式、无重复、顺序与 scope 一致，且与自审聚合哈希密码学绑定
+    manifest_error = validate_manifest(
+        package.self_review_manifest,
+        package.scope,
+        expected_digest=package.self_review_scope_sha256,
+        current_manifest=current_manifest,
+    )
+    if manifest_error:
+        return manifest_error
+    # (6) 是否满足交接条件必须明确为真
+    ready = (package.self_review_ready or "").strip().lower()
+    if ready not in _TRUE_TOKENS:
+        return f"自审「是否满足交接条件」未明确为是/true（实际: {package.self_review_ready or '缺失'}）"
+    # (7)(8) 哈希证据
+    if not package.self_review_scope_sha256:
+        return "自审缺少 self_review_scope_sha256；不得交接"
+    if not package.implementation_scope_sha256:
+        return "实施交接缺少 scope_sha256；不得交接"
+    if package.self_review_scope_sha256 != package.implementation_scope_sha256:
+        return (
+            "自审结束哈希与实施交接哈希不一致（自审后 scope 已漂移）："
+            f"self_review={package.self_review_scope_sha256}, "
+            f"implementation={package.implementation_scope_sha256}"
+        )
+    # (9) 实施交接必须属于当前轮次，且记录顺序在自审之后
+    if package.implementation_round is None:
+        return "实施交接记录缺少明确 Round 编号；不得交接"
+    if package.implementation_round != package.round:
+        return (
+            f"实施交接轮次({package.implementation_round})与当前轮次({package.round})不一致；"
+            "不得用过期交接记录冒充本轮"
+        )
+    if not package.implementation_after_self_review:
+        return "记录顺序非法：本轮实施交接出现在自审之前；不得先交接后补自审"
+    return None
+
+
+def _nested_list(text: str, key: str) -> list[str]:
+    lines = text.splitlines()
+    pattern = re.compile(rf"^\s*-\s+{re.escape(key)}\s*[:：]\s*$")
+    for index, line in enumerate(lines):
+        if pattern.match(line):
+            items: list[str] = []
+            for child in lines[index + 1:]:
+                match = re.match(r"^\s{2,}-\s+(.+?)\s*$", child)
+                if not match:
+                    break
+                value = match.group(1).strip().strip("`")
+                if value:
+                    items.append(value)
+            return items
+    return []
 
 
 def _top_fields(text: str) -> tuple[dict[str, list[str]], set[str]]:
@@ -333,10 +741,15 @@ def _records(section: str) -> list[Record]:
     records: list[Record] = []
     for index, match in enumerate(matches):
         heading = match.group(1)
+        # 顺序要紧：先判自审，避免 "Claude 交接前自审" 被误分类。
         # 同时识别历史 "Fable5 实施交接" 与新 "Claude 实施交接"。
-        is_implementation = "Claude 实施交接" in heading or "Fable5 实施交接" in heading
-        kind = "implementation" if is_implementation else "review" if "Codex 审核结论" in heading else "other"
-        if kind == "other":
+        if any(token in heading for token in SELF_REVIEW_HEADINGS):
+            kind = "self_review"
+        elif any(token in heading for token in IMPLEMENTATION_HEADINGS):
+            kind = "implementation"
+        elif any(token in heading for token in REVIEW_HEADINGS):
+            kind = "review"
+        else:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
         body = section[match.end():end]
@@ -401,6 +814,28 @@ def _named_hash(value: str | None, name: str) -> str | None:
         return None
     match = re.search(rf"\b{re.escape(name)}\s*=\s*([0-9a-fA-F]{{64}})\b", value)
     return match.group(1).lower() if match else None
+
+
+def _test_count_in(body: str) -> int | None:
+    """从一段记录正文里提取"全部通过"的真实测试计数；不匹配则返回 None。"""
+    counts: list[int] = []
+    for pattern in (
+        r"Ran\s+\*\*(\d+)\*\*\s+tests?,\s*OK",
+        r"Ran\s+(\d+)\s+tests?,\s*OK",
+        r"(?:=|→)\s*\*\*(\d+)\*\*/\*\*(\d+)\*\*",
+        r"(?:=|→)\s*(\d+)/(\d+)",
+    ):
+        for match in re.finditer(pattern, body, re.IGNORECASE):
+            first = int(match.group(1))
+            if match.lastindex and match.lastindex > 1 and int(match.group(2)) != first:
+                continue
+            counts.append(first)
+    return max(counts) if counts else None
+
+
+def _test_result_of(record: Record) -> tuple[int | None, str | None]:
+    count = _test_count_in(record.body)
+    return (count, f"{count}/{count} 通过") if count else (None, None)
 
 
 def _latest_test(records: list[Record]) -> tuple[int | None, str | None]:

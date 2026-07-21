@@ -19,7 +19,14 @@ import time
 from typing import Callable
 from urllib.parse import urlparse
 
-from .parser import HandoffParser, STATUS_MAP, WorkPackage, canonical_actor, canonical_status
+from .parser import (
+    HandoffParser,
+    STATUS_MAP,
+    WorkPackage,
+    canonical_actor,
+    canonical_status,
+    self_review_gate,
+)
 
 
 # TRIGGER_MAP 的键使用**规范化后的** owner/handoff（实施方=claude）。
@@ -1029,6 +1036,8 @@ class NotificationAdapter:
     SUPPORTED_EVENTS = {
         "handoff_to_codex", "returned_to_claude", "approved", "blocked",
         "invalid_fields", "invalid_scope_hash", "watcher_degraded",
+        # 三阶段协议：Claude 交接前自审门禁未通过（与 Codex 独立审核区分）
+        "self_review_gate_failed",
         # deprecated 只读兼容别名（新代码不再产生）：
         "returned_to_fable5",
     }
@@ -1172,7 +1181,13 @@ class DryRunScheduler:
         validation = self._validate_basic(package, dry_run=dry_run)
         if validation is not None:
             return validation
+        # 先重算当前 scope 清单，供自审 manifest 逐项密码学比对（覆盖文件内容漂移）。
         integrity = self.scope_hash_resolver(package)
+        validation = self._validate_self_review(
+            package, dry_run=dry_run, current_manifest=integrity.manifest or None
+        )
+        if validation is not None:
+            return validation
         validation = self._validate_scope_integrity(package, integrity, dry_run=dry_run)
         if validation is not None:
             return validation
@@ -1248,6 +1263,29 @@ class DryRunScheduler:
         if key not in TRIGGER_MAP:
             return DispatchResult(outcome="no-action", reason="当前合法状态没有 v1 触发动作", **common)
         return None
+
+    def _validate_self_review(
+        self, package: WorkPackage, *, dry_run: bool = True,
+        current_manifest: list[str] | None = None,
+    ) -> DispatchResult | None:
+        """交接门禁：v2 工作包必须先有 PASS 的结构化自审，才允许生成 Codex 审核候选。
+
+        Claude 自审属于 CLAUDE_WORKING 阶段，本身不产生 Codex 审核候选；
+        自审缺失 / BLOCKED / 测试证据不足 / 自审哈希与交接哈希漂移时一律拒绝交接。
+        """
+        reason = self_review_gate(package, current_manifest=current_manifest)
+        if reason is None:
+            return None
+        return DispatchResult(
+            outcome="rejected-self-review",
+            dry_run=dry_run,
+            work_package_id=package.work_package_id or None,
+            round=package.round,
+            reason=f"交接门禁拒绝：{reason}；应保持 CLAUDE_WORKING 并补齐自审证据",
+            notification_candidate=self.notifier.preview(
+                "self_review_gate_failed", "Claude 交接前自审未通过", reason
+            ),
+        )
 
     def _adapter_preview(self, package: WorkPackage, action: str) -> dict[str, object]:
         adapter: CodexCommandAdapter | ClaudeEndpointAdapter | None

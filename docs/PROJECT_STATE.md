@@ -2,25 +2,26 @@
 
 > **用途**：跨会话记忆载体。每个 AI 会话开始时**先读本文件**（配合 `CODEX_GUIDE.md` 长期工作方针）。
 > **更新纪律**：仅当阶段、版本、完成项、阻塞项或下一步发生**实质变化**时更新，不做无意义编辑；只保留"当前状态 + 决策索引 + 下一步"，不写过程叙事；超过 150 行就该精简。
-> 最后更新：2026-07-20（**生产 OutputPolicy 工作包已关闭，正在执行发布与下一包启动收尾**：用户已确认 `WP-20260716-007` 为 `CLOSED`，Round 3 scope 哈希与实盘逐文件一致；watchdog/scan-fault 的状态生成、outer scan runner、shadow mode、真实驱动提交、`commit_fault`/`channel_fault` 锁存与 HAL 仍属后续包。旧 Claude/Codex 30 分钟主轮询保持暂停；事件协调器当前进程已停止、项目内心跳投影已过期，启动下一工作包前须先恢复并核验。最新 Python 验证为协作基础设施 84/84、正式 tests 1006/1006、0.5 原型 68/68、全仓 1074/1074，**只证明当前 Python 实现与协作基础设施行为，不证明与目标 PLC 语义一致**。）
+> 最后更新：2026-07-21（**外层安全扫描运行器已审核关闭，等待本次 Git/PR 发布**：`WP-20260720-008` 经 3 轮 Claude 实施与 Codex 独立审核最终 `APPROVED`，用户已确认 `CLOSED`；已落实扫描异常/显式 watchdog 的全通道安全提交、提交阶段证据、两阶段安全映像确认与结构化失败信号，不实现阶段 7 的真实时循环或硬件 watchdog。AI 协作基础设施已升级为事件驱动协调器、全局执行租约、项目内心跳和 Claude 交接前结构化自审门禁；收尾期间协调器已安全停止，旧 Claude/Codex 30 分钟主轮询继续保持暂停。最终 Python 验证为协作基础设施 144/144、WP-008 与既有运行时 274/274、正式 tests 1108/1108、0.5 原型 68/68、全仓 1176/1176，**只证明当前 Python 实现与协作基础设施行为，不证明与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致**。）
 
 ---
 
 ## 1. 项目一句话
 
-把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库，并建立了正式 L3 IR、静态校验、Store、实例布局、过程映像基础、显式顺序执行器核心与生产 OutputPolicy（最新全仓测试 1074 项，见 §2），目标是控制+AI 同平台一体化（分进程）。
+把 CODESYS SP16.1 软 PLC 复刻为 Python 原生软 PLC 平台（ST+CFC 双前端 → 语言无关可执行 IR → 扫描引擎），已迁移 14 业务块 + 8 原语作标准库，并建立了正式 L3 IR、静态校验、Store、实例布局、过程映像基础、显式顺序执行器核心、生产 OutputPolicy 与外层故障安全扫描运行器（最新全仓测试 1176 项，见 §2），目标是控制+AI 同平台一体化（分进程）。
 
 ## 2. 当前位置
 
-- **最新全仓验证**（2026-07-20，WP-007 Round 3 批准版本恢复复核）：协作基础设施 = **84/84 通过**、正式 tests = **1006/1006 通过**、0.5 原型 = **68/68 通过**、全仓 = **1074/1074 通过**。第一次受限沙箱运行中有 9 项面板测试仅因禁止绑定临时本地端口报 `PermissionError`；在获准的本机环境复跑后全部通过。
+- **最新全仓验证**（2026-07-21，WP-008 Round 3 批准/关闭版本最终复核）：协作基础设施 = **144/144 通过**、WP-008 与既有运行时 = **274/274 通过**、正式 tests = **1108/1108 通过**、0.5 原型 = **68/68 通过**、全仓 = **1176/1176 通过**。全部在获准绑定临时本地端口的宿主环境完成；这些结果只证明当前 Python 实现和协作工具行为，不是目标 PLC/CODESYS 或真机安全一致性的证据。
 - **WP-006 审核证据快照**（2026-07-16，Codex 对 `WP-20260716-006` Round 1 独立复跑）：定向 `tests.test_runtime_engine` = **28/28 通过**、`tests.test_runtime_executor` = **58/58 通过**、`tests.test_runtime_store` = **24/24 通过**、`tests.test_runtime_ir` = **56/56 通过**；当时正式 tests = **937/937 通过**、0.5 原型 = **68/68 通过**、全仓 = **1005/1005 通过**。此后协作基础设施新增 1 项监听器就绪回归和 2 项项目内心跳回归，因此最新正式/全仓计数各多 3；历史证据保留原始计数，不回写冒充当时结果。以上 Python 测试均不证明与目标 PLC 语义一致。
 
 - **阶段 0.5（语义基线修订）**，文档侧已完成**三轮**外部评审（ChatGPT5.5）修正；评审方判断"主体架构已站住，无需再大规模文档重构"。
 - 规格版本：`IR_SPEC` **v2.2.4**（0.5 冻结基线 v2.2.2 + 阶段 1 `StackSlot.index` / 持久 Store 键两项工程约定写回）/ `ENGINE_SCAN_SPEC` **v2.2.2** / `COMPONENT_CONTRACT` **v2.1** / `TARGET_PROFILE` **v1.3** / `GOLDEN_TRACE_FORMAT` **v1.2.1**。`STAGE0_DESIGN.md` 已标历史文档，不再更新。
 - **阶段 1 显式顺序执行器与五步扫描骨架已完成**：`WP-20260714-004` 三轮实现并在达到自动轮次上限后曾转 `BLOCKED`，其剩余问题由窄范围 `WP-20260714-005` 完整收口；WP-004/005/006 均已由用户确认 `CLOSED`。现已有正式 IR 值对象、装载期静态校验、声明制 Store 与隔离快照、PROGRAM/用户 FB 实例布局、原子输入锁存、输出待提交容器、显式顺序指令执行、TypedValue 求值栈、FUNCTION/用户 FB 调用帧、E/F1 数值边界以及可重复调用的确定性单拍扫描编排器。
 - **生产 OutputPolicy 与安全状态快照已关闭**：`WP-20260716-007` 已把 `ENGINE_SCAN_SPEC §4` 的分原因策略、强制安全优先级、冷启动 `hold→safe_value`、正常路径限速、`last_effective` 状态与 IEC 非有限/越界值失败关闭落实为可直接注入 `ScanEngine` 的策略端口；Round 3 Codex 结论为 `APPROVED`、用户于 2026-07-20 确认 `CLOSED`。本包只消费原子安全状态，不生成 watchdog/scan-fault，也不实现 shadow、真实提交或 HAL。
+- **外层安全扫描运行器已审核关闭**：`WP-20260720-008` Round 3 已获 Codex `APPROVED` 并由用户确认 `CLOSED`。`OuterScanRunner` 在正常路径继续复用同一 `ScanEngine` 与提交端口；提交前扫描异常或显式 watchdog 事件会绕过损坏 request，生成全通道安全映像并单次提交。`SafeImageTicket` 把 staging 与提交后策略历史确认拆成一次性两阶段事务，锁存/staging/commit/confirm 的失败均以保留原始与 fallback 异常的结构化信号上报。真实周期计时、后台线程、硬件 watchdog、shadow、真实 HAL、`last_physical_committed` 与提交故障锁存仍不在本包，须由后续工作包和真机验证承接。
 - **0.5 可执行验证原型已完成并经两轮定向返修**（Fable5 实施，`prototype_05/`，一次性代码）：最小指令集 + TON 经描述符 + BOOL OutputPolicy + ST/CFC 双路径同指令列表跑 24 拍 + 5 个语义敏感案例。Codex 首轮 6 条（驱动异常提交隔离、绑定 actual 类型、OutputPolicy 校验、无 LPC 基准、纯整数 DIV/MOD、文档对齐）+ 二轮 2 条（Binding 表结构校验：重复 formal/非法 actual_kind/const 值类型；安全配置 NaN/Infinity/整数范围拒绝）均修复，每条有反证测试（`prototype_05/tests/test_review_rework.py`）。
-- **下一步（按序）**：① Codex 完成 `WP-20260716-007` Git/PR 收尾并同步 `main`；② 恢复并核验事件协调器，另开 `WP-20260720-008` 补 outer scan runner、扫描异常安全提交与最小软件 watchdog 信号响应（不提前实现阶段 7 的真实时循环或硬件 watchdog）；③ 再补 shadow mode、提交故障锁存和正式 L2 adapter 注册表。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
+- **下一步（按序）**：① 完成本次 WP-008 + 协作基础设施 Git/PR 发布；② 独立工作包补 `commit_fault`/`channel_fault` 锁存复位及可信提交证据，再评估 shadow mode；③ 建立正式 L2 adapter 注册表与阶段 7 monitor/HAL 边界。外部依赖继续并行：真机黄金轨迹实采；后续导出样本中的含环 `.export` `IsFeedbackStart` 对照（可选）、多任务/GVL、自定义 FB 样本（清单见 FINDINGS.md）。
 
 ## 3. 文档权威地图（谁说了算）
 

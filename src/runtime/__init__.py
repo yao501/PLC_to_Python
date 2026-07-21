@@ -50,8 +50,17 @@ from src.runtime.output_policy import (
     OutputPolicyError, OutputPolicyConfigError, OutputPolicyReentryError,
     SafetyStateError,
 )
+from src.runtime.scan_runner import (
+    CommitPort, OuterScanRunner,
+    ScanRunnerError, ScanRunnerConfigError, ScanRunnerReentryError,
+    SafeCommitSignal, ScanFaultSafeCommit, WatchdogSafeCommit,
+)
 
 __all__ = [
+    # 外层安全扫描运行器与扫描/看门狗故障安全提交（WP-20260720-008）
+    "CommitPort", "OuterScanRunner",
+    "ScanRunnerError", "ScanRunnerConfigError", "ScanRunnerReentryError",
+    "SafeCommitSignal", "ScanFaultSafeCommit", "WatchdogSafeCommit",
     # 生产 OutputPolicy 核心与原子安全状态快照（WP-20260716-007）
     "OutputPolicy", "SafetySnapshot", "SafetyStateService", "OutputPolicyService",
     "OutputPolicyError", "OutputPolicyConfigError", "OutputPolicyReentryError",
