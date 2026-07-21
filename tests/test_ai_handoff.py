@@ -44,7 +44,7 @@ HASH_B = "b" * 64
 
 
 def package_text(
-    wp_id: str = "WP-TEST-001",
+    wp_id: str = "WP-20260714-003",
     *,
     status: str = "READY_FOR_CODEX",
     owner: str = "codex",
@@ -94,7 +94,7 @@ class ParserTests(unittest.TestCase):
         return HandoffParser("memory.md").parse_text(text)
 
     def test_multiple_work_packages_and_current_top_level_state(self):
-        text = package_text("WP-TEST-001", status="CLOSED", owner="user", handoff="user")
+        text = package_text("WP-20260714-003", status="CLOSED", owner="user", handoff="user")
         text += package_text("WP-TEST-002")
         result = self.parse(text)
         self.assertEqual(2, len(result.packages))
@@ -599,7 +599,7 @@ class AsyncExecutionCoordinatorTests(unittest.TestCase):
 class SchedulerTests(unittest.TestCase):
     def package(self, **overrides) -> WorkPackage:
         values = dict(
-            work_package_id="WP-TEST-001", title="test", status="READY_FOR_CODEX",
+            work_package_id="WP-20260714-003", title="test", status="READY_FOR_CODEX",
             owner="codex", handoff_to="codex", round=1, max_rounds=3,
             scope=["src/example.py"], base_commit="abc",
             scope_baseline_sha256=HASH_A,
@@ -640,7 +640,7 @@ class SchedulerTests(unittest.TestCase):
     def test_same_action_already_running_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Path(directory)
-            key = "WP-TEST-001:1:start_codex_review"
+            key = "WP-20260714-003:1:start_codex_review"
             (runtime / "runs.jsonl").write_text(
                 json.dumps({"outcome": "running", "idempotency_key": key}) + "\n",
                 encoding="utf-8",
@@ -822,7 +822,7 @@ class SchedulerTests(unittest.TestCase):
 class EventDrivenSchedulerTests(unittest.TestCase):
     def package(self, *, status="READY_FOR_CODEX", owner="codex", handoff="codex"):
         return WorkPackage(
-            work_package_id="WP-LIVE", title="live", status=status,
+            work_package_id="WP-20260716-006", title="live", status=status,
             owner=owner, handoff_to=handoff, round=1, max_rounds=3,
             scope=["src/example.py"], scope_baseline_sha256=HASH_A,
             implementation_scope_sha256=HASH_A,
@@ -999,7 +999,7 @@ class EventDrivenSchedulerTests(unittest.TestCase):
                 project_root=root,
             )
             initial = WorkPackage(
-                work_package_id="WP-TEST-001", title="test", status="READY_FOR_CODEX",
+                work_package_id="WP-20260714-003", title="test", status="READY_FOR_CODEX",
                 owner="codex", handoff_to="codex", round=1, max_rounds=3,
                 scope=["src/example.py"], scope_baseline_sha256=aggregate,
                 implementation_scope_sha256=aggregate,
@@ -1059,7 +1059,7 @@ class DashboardTests(unittest.TestCase):
     def test_status_api(self):
         with urlopen(self.base + "/api/status", timeout=3) as response:
             data = json.load(response)
-        self.assertEqual("WP-TEST-001", data["current_work_package_id"])
+        self.assertEqual("WP-20260714-003", data["current_work_package_id"])
         self.assertEqual("READY_FOR_CODEX", data["current"]["status"])
         self.assertTrue(data["system"]["read_only"])
         self.assertTrue(data["system"]["dry_run"])
@@ -1453,6 +1453,621 @@ class ClaudeNamingTests(unittest.TestCase):
         # 面板必须用 canonical_status 归一化，而不是直接输出原始 p.status
         self.assertIn("p.canonical_status || p.status", html)
         self.assertIn("p.status_explanation || p.canonical_status || p.status", html)
+
+
+def manifest_digest(entries: list[str]) -> str:
+    """按交接协议由 manifest 条目重建规范文本并求聚合 SHA-256。"""
+    return hashlib.sha256("".join(f"{e}\n" for e in entries).encode("utf-8")).hexdigest()
+
+
+SCOPE_ENTRY = f"{HASH_A}  src/example.py"
+DEFAULT_SR_DIGEST = manifest_digest([SCOPE_ENTRY])
+
+
+def three_phase_text(
+    wp_id: str = "WP-TEST-009",
+    *,
+    status: str = "READY_FOR_CODEX",
+    owner: str = "codex",
+    handoff: str = "codex",
+    round_number: int = 1,
+    max_rounds: int = 3,
+    protocol: str | None = "v2",
+    with_self_review: bool = True,
+    self_review_round: int | None = None,
+    verdict: str = "PASS",
+    self_review_hash: str | None = None,   # None → 由 manifest 真实重建
+    implementation_hash: str | None = None,  # None → 与自审哈希一致
+    with_implementation_hash: bool = True,   # False → 完全不写 scope_sha256 行
+    baseline_hash: str | None = HASH_A,
+    tests_line: str = "`python -m unittest` → Ran **1108** tests, OK",
+    with_review: bool = False,
+    self_review_round_heading: bool = True,
+    implementation_round: int | None = None,
+    implementation_before_self_review: bool = False,
+    with_manifest: bool = True,
+    manifest_lines: list[str] | None = None,
+    ready_line: str = "是",
+    started_at: str = "2026-07-20 16:11 CST",
+    finished_at: str = "2026-07-20 16:16 CST",
+    known_issue_line: str = "无",
+) -> str:
+    """新三阶段（v2）工作包：自审 / 实施交接 / Codex 独立审核 各自独立成段。"""
+    protocol_line = f"- handoff_protocol: {protocol}\n" if protocol else ""
+    baseline_line = f"- scope_baseline_sha256: {baseline_hash}\n" if baseline_hash else ""
+    sr_round = self_review_round if self_review_round is not None else round_number
+    entries_for_digest = manifest_lines if manifest_lines is not None else [SCOPE_ENTRY]
+    if self_review_hash is None:
+        self_review_hash = manifest_digest(entries_for_digest)
+    if implementation_hash is None:
+        implementation_hash = self_review_hash
+    sr_hash_line = f"- self_review_scope_sha256: {self_review_hash}\n" if self_review_hash else ""
+    self_review = ""
+    if with_self_review:
+        heading = f"Claude 交接前自审（Round {sr_round}）" if self_review_round_heading else "Claude 交接前自审"
+        entries = manifest_lines if manifest_lines is not None else [f"{HASH_A}  src/example.py"]
+        manifest_block = ""
+        if with_manifest:
+            rendered = "".join(f"  - `{line}`\n" for line in entries)
+            manifest_block = f"- self_review_manifest:\n{rendered}"
+        self_review = f"""
+### {heading}
+
+- self_review_started_at: {started_at}
+- self_review_finished_at: {finished_at}
+- self_review_verdict: {verdict}
+{sr_hash_line}{manifest_block}- 实际测试命令与结果: {tests_line}
+- 首次失败: 无
+- 失败根因: 不适用
+- 修复内容: 不适用
+- 修复后重跑结果: 与首次一致
+- 已知疑问: {known_issue_line}
+- 未验证边界: 真机未验证
+- 是否满足交接条件: {ready_line}
+"""
+    impl_hash_line = (
+        f"- scope_sha256: {implementation_hash}\n"
+        if (with_implementation_hash and implementation_hash) else ""
+    )
+    impl_round = implementation_round if implementation_round is not None else round_number
+    implementation = f"""
+### Claude 实施交接（Round {impl_round}）
+
+- 完成内容: 实现三阶段结构。
+{impl_hash_line}- implementation_finished_at: 2026-07-20 16:16 CST
+"""
+    review = ""
+    if with_review:
+        review = f"""
+### Codex 审核结论（Round {round_number}）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 独立复核。
+- 必须返修: 修边界。
+- 审核证据: review_started_sha256={HASH_A}, review_finished_sha256={HASH_A}
+- reviewed_at: 2026-07-20 16:24 CST
+"""
+    return f"""
+## {wp_id}
+
+- title: 三阶段测试工作包
+- status: {status}
+- owner: {owner}
+- handoff_to: {handoff}
+- round: {round_number}
+- max_rounds: {max_rounds}
+- base_commit: abc123
+{protocol_line}{baseline_line}- scope:
+  - src/example.py
+{implementation + self_review if implementation_before_self_review else self_review + implementation}{review}"""
+
+
+class ThreePhaseHandoffTests(unittest.TestCase):
+    """自审 / 实施交接 / Codex 独立审核 三阶段拆分与交接门禁。"""
+
+    def parse(self, text: str):
+        return HandoffParser("memory.md").parse_text(text).packages[0]
+
+    def scheduler(self, runtime, digest: str = DEFAULT_SR_DIGEST, **kwargs) -> DryRunScheduler:
+        return DryRunScheduler(
+            "source.md", runtime,
+            scope_hash_resolver=lambda package: ScopeHashResult(digest, [], []),
+            **kwargs,
+        )
+
+    # 1. 自审 PASS 后允许原子交接
+    def test_self_review_pass_allows_handoff(self):
+        package = self.parse(three_phase_text())
+        self.assertTrue(package.protocol_is_v2)
+        self.assertEqual("PASS", package.self_review_verdict)
+        self.assertTrue(package.handoff_gate_ok, package.handoff_gate_reason)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("dry-run-candidate", result.outcome)
+        self.assertEqual("start_codex_review", result.action)
+
+    # 2. 自审 BLOCKED 时拒绝交接
+    def test_self_review_blocked_rejects_handoff(self):
+        package = self.parse(three_phase_text(verdict="BLOCKED"))
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("BLOCKED", package.handoff_gate_reason)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-self-review", result.outcome)
+        self.assertIsNone(result.action)
+        self.assertIn("CLAUDE_WORKING", result.reason)
+
+    # 3. 缺少自审记录时拒绝新格式工作包交接
+    def test_missing_self_review_rejects_v2_handoff(self):
+        package = self.parse(three_phase_text(with_self_review=False))
+        self.assertTrue(package.protocol_is_v2)  # 由 handoff_protocol: v2 显式声明
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("缺少 Claude 交接前自审记录", package.handoff_gate_reason)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-self-review", result.outcome)
+
+    # 4. 自审哈希与交接哈希不一致时拒绝交接（manifest 绑定合法，但交接哈希漂移）
+    def test_self_review_hash_drift_rejects_handoff(self):
+        package = self.parse(three_phase_text(implementation_hash=HASH_B))
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("不一致", package.handoff_gate_reason)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-self-review", result.outcome)
+
+    # 5. 自审测试证据缺失时拒绝交接
+    def test_self_review_without_test_evidence_rejects_handoff(self):
+        package = self.parse(three_phase_text(tests_line="已经跑过，结果良好"))
+        self.assertIsNone(package.self_review_test_count)
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("测试命令", package.handoff_gate_reason)
+
+    def test_self_review_command_without_real_count_rejects_handoff(self):
+        # 有命令、也有明确成功标记，但没有真实计数 → 仍然拒绝
+        package = self.parse(three_phase_text(tests_line="`python -m unittest discover` → 全部通过"))
+        self.assertIsNone(package.self_review_test_count)
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("真实测试计数", package.handoff_gate_reason)
+
+    # 6. Claude 交接完成后才生成 Codex 审核候选
+    def test_codex_candidate_only_after_handoff(self):
+        package = self.parse(three_phase_text(status="READY_FOR_CODEX", owner="codex", handoff="codex"))
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("start_codex_review", result.action)
+
+    # 7. Claude 自审（CLAUDE_WORKING）不会生成 Codex 审核候选
+    def test_self_review_phase_does_not_create_codex_candidate(self):
+        package = self.parse(three_phase_text(
+            status="CLAUDE_WORKING", owner="claude", handoff="claude",
+        ))
+        # CLAUDE_WORKING 阶段当前哈希对比的是 scope_baseline_sha256
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory, digest=HASH_A).dispatch(package)
+        self.assertNotEqual("start_codex_review", result.action)
+        self.assertEqual("start_claude_implementation", result.action)
+
+    # 8. 面板分别显示自审、交接和独立审核
+    def test_dashboard_separates_three_phases(self):
+        html = (
+            Path(__file__).resolve().parents[1] / "tools" / "ai_handoff" / "dashboard.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("① Claude 交接前自审", html)
+        self.assertIn("② Claude 实施交接", html)
+        self.assertIn("③ Codex 独立审核结论", html)
+        self.assertIn("交接门禁", html)
+        # 自审不得被显示成 Codex 审核
+        self.assertIn("Claude 交接前自审", html)
+        self.assertIn("self_review_finished_at", html)
+
+    # 9. 历史记录仍可解析，并明确标为 legacy
+    def test_legacy_record_parses_and_is_marked(self):
+        package = self.parse(package_text())  # 旧两段式：无自审段
+        self.assertFalse(package.protocol_is_v2)
+        self.assertTrue(package.self_review_is_legacy)
+        self.assertEqual("历史格式：自审证据未独立结构化", package.self_review_note)
+        # 历史格式不因缺少自审被拒绝调度
+        self.assertTrue(package.handoff_gate_ok)
+        # 且不得把旧正文里的测试/哈希冒充成结构化自审证据
+        self.assertIsNone(package.self_review_verdict)
+        self.assertIsNone(package.self_review_scope_sha256)
+
+    def test_real_handoff_file_all_packages_are_legacy_but_parse(self):
+        source = Path(__file__).resolve().parents[1] / "docs" / "AI_REVIEW_HANDOFF.md"
+        result = HandoffParser(source).parse_file()
+        self.assertTrue(result.ok, result.source_error)
+        for package in result.packages:
+            self.assertTrue(package.self_review_is_legacy, package.work_package_id)
+            self.assertTrue(package.handoff_gate_ok, package.work_package_id)
+
+    # 10. 旧 Fable5 名称只读兼容，新记录统一为 Claude
+    def test_legacy_fable5_names_still_readable_in_three_phase_world(self):
+        package = self.parse(package_text(
+            status="FABLE_WORKING", owner="fable5", handoff="fable5", impl_actor="Fable5",
+        ))
+        self.assertTrue(package.valid, package.errors)
+        self.assertEqual("CLAUDE_WORKING", package.canonical_status)
+        self.assertEqual("Claude", package.waiting_for)
+        self.assertTrue(package.self_review_is_legacy)
+        new_package = self.parse(three_phase_text())
+        self.assertFalse(new_package.self_review_is_legacy)
+
+    # 11. 重复事件不会生成两次自审或两次审核
+    def test_duplicate_event_does_not_double_dispatch(self):
+        package = self.parse(three_phase_text())
+        with tempfile.TemporaryDirectory() as directory:
+            scheduler = self.scheduler(directory)
+            first = scheduler.dispatch(package)
+            second = scheduler.dispatch(package)
+        self.assertEqual("dry-run-candidate", first.outcome)
+        self.assertEqual("ignored-duplicate", second.outcome)
+        self.assertEqual(first.idempotency_key, second.idempotency_key)
+
+    def test_self_review_phase_duplicate_is_also_idempotent(self):
+        package = self.parse(three_phase_text(
+            status="CLAUDE_WORKING", owner="claude", handoff="claude",
+        ))
+        with tempfile.TemporaryDirectory() as directory:
+            scheduler = self.scheduler(directory, digest=HASH_A)
+            first = scheduler.dispatch(package)
+            second = scheduler.dispatch(package)
+        self.assertEqual("dry-run-candidate", first.outcome)
+        self.assertEqual("ignored-duplicate", second.outcome)
+
+    # 结构化字段完整投影
+    def test_structured_self_review_fields_are_projected(self):
+        package = self.parse(three_phase_text())
+        self.assertEqual("2026-07-20 16:11 CST", package.self_review_started_at)
+        self.assertEqual("2026-07-20 16:16 CST", package.self_review_finished_at)
+        self.assertEqual(DEFAULT_SR_DIGEST, package.self_review_scope_sha256)
+        self.assertEqual(1108, package.self_review_test_count)
+        self.assertEqual("无", package.self_review_first_failure)
+        self.assertEqual("不适用", package.self_review_root_cause)
+        self.assertEqual("与首次一致", package.self_review_rerun)
+        self.assertEqual("真机未验证", package.self_review_unverified)
+        self.assertEqual("是", package.self_review_ready)
+        self.assertEqual([f"{HASH_A}  src/example.py"], package.self_review_manifest)
+
+    def test_three_record_kinds_are_distinct(self):
+        package = self.parse(three_phase_text(with_review=True))
+        kinds = [record.kind for record in package.records]
+        self.assertEqual(["self_review", "implementation", "review"], kinds)
+        # Codex 审核的 verdict 不得被自审 verdict 覆盖
+        self.assertEqual("PASS", package.self_review_verdict)
+        self.assertEqual("CHANGES_REQUESTED", package.latest_review_verdict)
+
+    def test_self_review_round_mismatch_rejects_handoff(self):
+        package = self.parse(three_phase_text(round_number=2, self_review_round=1))
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertIn("轮次", package.handoff_gate_reason)
+
+
+class SelfReviewGateBypassTests(unittest.TestCase):
+    """Codex CHANGES_REQUESTED 指出的可复现绕过路径，逐条反例锁定。"""
+
+    def parse(self, text: str):
+        return HandoffParser("memory.md").parse_text(text).packages[0]
+
+    def scheduler(self, runtime, digest: str = DEFAULT_SR_DIGEST) -> DryRunScheduler:
+        return DryRunScheduler(
+            "source.md", runtime,
+            scope_hash_resolver=lambda package: ScopeHashResult(digest, [], []),
+        )
+
+    def assert_rejected(self, package, fragment: str):
+        self.assertFalse(package.handoff_gate_ok, "门禁本应拒绝但通过了")
+        self.assertIn(fragment, package.handoff_gate_reason)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-self-review", result.outcome)
+        self.assertIsNone(result.action)
+        return result
+
+    # 反例 1：自审 round 缺失（标题无 Round N）
+    def test_self_review_round_missing_is_rejected(self):
+        package = self.parse(three_phase_text(self_review_round_heading=False))
+        self.assertIsNone(package.self_review_round)
+        self.assert_rejected(package, "缺少明确 Round 编号")
+
+    # 反例 2：自审 round 不匹配
+    def test_self_review_round_mismatch_is_rejected(self):
+        package = self.parse(three_phase_text(round_number=2, self_review_round=1))
+        self.assert_rejected(package, "自审轮次(1)与当前轮次(2)不一致")
+
+    # 反例 3：实施交接 round 过期（当前2 + 自审2 + 交接1）
+    def test_stale_implementation_round_is_rejected(self):
+        package = self.parse(three_phase_text(
+            round_number=2, self_review_round=2, implementation_round=1,
+        ))
+        self.assertEqual(2, package.self_review_round)
+        self.assertEqual(1, package.implementation_round)
+        self.assert_rejected(package, "实施交接轮次(1)与当前轮次(2)不一致")
+
+    # 反例 4：实施交接早于自审（先交接后补自审）
+    def test_implementation_before_self_review_is_rejected(self):
+        package = self.parse(three_phase_text(implementation_before_self_review=True))
+        self.assertFalse(package.implementation_after_self_review)
+        self.assert_rejected(package, "记录顺序非法")
+
+    # 反例 5：测试计数藏在"已知疑问"里，不得满足门禁
+    def test_count_hidden_in_known_issues_is_not_evidence(self):
+        package = self.parse(three_phase_text(
+            tests_line="待补充",
+            known_issue_line="上轮 `python -m unittest` → Ran **1108** tests, OK",
+        ))
+        self.assertIsNone(package.self_review_test_count)
+        self.assert_rejected(package, "测试命令")
+
+    # 反例 6：新工作包漏写 handoff_protocol: v2 → 拒绝，不得降级 legacy
+    def test_new_package_without_v2_declaration_is_rejected_not_downgraded(self):
+        package = self.parse(three_phase_text(wp_id="WP-20260721-009", protocol=None))
+        self.assertFalse(package.is_legacy_package)
+        self.assertFalse(package.self_review_is_legacy)
+        self.assertEqual("v2-invalid", package.self_review_state)
+        self.assert_rejected(package, "必须显式声明 handoff_protocol: v2")
+
+    # 反例 7：显式 v2 但缺自审 → 不得标为"历史格式"
+    def test_declared_v2_missing_self_review_is_not_labelled_legacy(self):
+        package = self.parse(three_phase_text(with_self_review=False))
+        self.assertFalse(package.self_review_is_legacy)
+        self.assertEqual("v2-missing", package.self_review_state)
+        self.assertIn("v2 自审缺失", package.self_review_note)
+        self.assertNotIn("历史格式", package.self_review_note)
+        self.assert_rejected(package, "缺少 Claude 交接前自审记录")
+
+    # 其余门禁项
+    def test_missing_manifest_is_rejected(self):
+        self.assert_rejected(self.parse(three_phase_text(with_manifest=False)), "逐文件 SHA-256")
+
+    def test_ready_flag_not_true_is_rejected(self):
+        self.assert_rejected(self.parse(three_phase_text(ready_line="否")), "是否满足交接条件")
+
+    def test_reversed_self_review_timestamps_are_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 16:20 CST", finished_at="2026-07-20 16:05 CST",
+        ))
+        self.assert_rejected(package, "时间顺序非法")
+
+    def test_missing_self_review_timestamps_are_rejected(self):
+        self.assert_rejected(self.parse(three_phase_text(started_at="", finished_at="")), "self_review_started_at")
+
+    def test_missing_implementation_hash_is_rejected(self):
+        self.assert_rejected(
+            self.parse(three_phase_text(with_implementation_hash=False)),
+            "实施交接缺少 scope_sha256",
+        )
+
+    # 历史白名单包仍然放行（只读兼容不被本次收紧破坏）
+    def test_legacy_allowlisted_package_still_passes(self):
+        package = self.parse(package_text())  # 默认 wp_id 已是历史白名单 ID
+        self.assertTrue(package.is_legacy_package)
+        self.assertEqual("legacy", package.self_review_state)
+        self.assertTrue(package.handoff_gate_ok)
+
+    # ===== Codex 第二轮复审：三类新绕过 =====
+
+    # 绕过 1：时间戳必须可解析为合法日期时间
+    def test_unparseable_timestamp_is_rejected(self):
+        package = self.parse(three_phase_text(started_at="not-a-time", finished_at="also-bad"))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_impossible_calendar_date_is_rejected(self):
+        # 2026-02-30 格式合规但日期不存在
+        package = self.parse(three_phase_text(
+            started_at="2026-02-30 10:00 CST", finished_at="2026-02-30 11:00 CST",
+        ))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_impossible_clock_time_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 25:00 CST", finished_at="2026-07-20 26:00 CST",
+        ))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_finished_before_started_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 16:20 CST", finished_at="2026-07-20 16:05 CST",
+        ))
+        self.assert_rejected(package, "时间顺序非法")
+
+    def test_valid_timestamps_pass(self):
+        from tools.ai_handoff.parser import parse_timestamp
+        self.assertIsNotNone(parse_timestamp("2026-07-20 16:11 CST"))
+        self.assertIsNotNone(parse_timestamp("2026-07-20T16:11:30+08:00"))
+        self.assertIsNone(parse_timestamp("2026-02-30 10:00"))
+        self.assertIsNone(parse_timestamp("not-a-time"))
+        self.assertTrue(self.parse(three_phase_text()).handoff_gate_ok)
+
+    # 绕过 2：manifest 内容必须校验
+    def test_manifest_with_fake_sha_is_rejected(self):
+        package = self.parse(three_phase_text(manifest_lines=["zzzz  src/example.py"]))
+        self.assert_rejected(package, "条目格式非法")
+
+    def test_manifest_with_wrong_path_is_rejected(self):
+        package = self.parse(three_phase_text(manifest_lines=[f"{HASH_A}  src/WRONG.py"]))
+        self.assert_rejected(package, "缺少 scope 文件")
+
+    def test_manifest_missing_scope_entry_is_rejected(self):
+        text = three_phase_text(manifest_lines=[f"{HASH_A}  src/example.py"]).replace(
+            "- scope:\n  - src/example.py",
+            "- scope:\n  - src/example.py\n  - src/second.py",
+        )
+        package = self.parse(text)
+        self.assert_rejected(package, "缺少 scope 文件")
+
+    def test_manifest_with_duplicate_entry_is_rejected(self):
+        package = self.parse(three_phase_text(manifest_lines=[
+            f"{HASH_A}  src/example.py", f"{HASH_B}  src/example.py",
+        ]))
+        self.assert_rejected(package, "重复路径")
+
+    def test_manifest_with_extra_unrelated_path_is_rejected(self):
+        package = self.parse(three_phase_text(manifest_lines=[
+            f"{HASH_A}  src/example.py", f"{HASH_B}  src/extra.py",
+        ]))
+        self.assert_rejected(package, "scope 之外的无关路径")
+
+    def test_manifest_garbage_entry_is_rejected(self):
+        package = self.parse(three_phase_text(manifest_lines=["hello world"]))
+        self.assert_rejected(package, "条目格式非法")
+
+    # 绕过 3：测试结果必须明确成功
+    def test_equal_counts_with_failed_marker_is_rejected(self):
+        package = self.parse(three_phase_text(
+            tests_line="`python -m unittest` → 1108/1108 FAILED",
+        ))
+        self.assert_rejected(package, "失败标记")
+
+    def test_equal_counts_with_error_marker_is_rejected(self):
+        package = self.parse(three_phase_text(
+            tests_line="`python -m unittest` → 1108/1108 ERROR",
+        ))
+        self.assert_rejected(package, "失败标记")
+
+    def test_equal_counts_without_success_marker_is_rejected(self):
+        package = self.parse(three_phase_text(
+            tests_line="`python -m unittest` → 1108/1108",
+        ))
+        self.assert_rejected(package, "缺少明确成功标记")
+
+    def test_chinese_failure_marker_is_rejected(self):
+        package = self.parse(three_phase_text(
+            tests_line="`python -m unittest` → Ran **1108** tests，其中 3 项失败",
+        ))
+        self.assert_rejected(package, "失败标记")
+
+    def test_real_success_formats_pass(self):
+        for line in (
+            "`python -m unittest` → Ran **1108** tests, OK",
+            "`python -m unittest discover -s tests -t .` → 1108/1108 通过",
+            "`python -m unittest` → 1108/1108 PASSED",
+        ):
+            package = self.parse(three_phase_text(tests_line=line))
+            self.assertTrue(package.handoff_gate_ok, f"{line} -> {package.handoff_gate_reason}")
+
+    # ===== Codex 第三轮复审：P1 信任链 =====
+
+    # P1-1 时区感知：跨时区实际倒序必须拒绝
+    def test_cross_timezone_reversal_is_rejected(self):
+        # 10:00+00:00 = 10:00Z；16:00+08:00 = 08:00Z → 结束实际早于开始
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20T10:00:00+00:00",
+            finished_at="2026-07-20T16:00:00+08:00",
+        ))
+        self.assert_rejected(package, "时间顺序非法")
+
+    def test_cross_timezone_forward_is_accepted(self):
+        # 10:00+08:00 = 02:00Z；05:00+00:00 = 05:00Z → 顺序正确
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20T10:00:00+08:00",
+            finished_at="2026-07-20T05:00:00+00:00",
+        ))
+        self.assertTrue(package.handoff_gate_ok, package.handoff_gate_reason)
+
+    def test_trailing_nonsense_after_valid_time_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 16:11 nonsense", finished_at="2026-07-20 16:16 CST",
+        ))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_leading_garbage_before_valid_time_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="xx2026-07-20 16:11", finished_at="2026-07-20 16:16",
+        ))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_unknown_timezone_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 16:11 XYZ", finished_at="2026-07-20 16:16 XYZ",
+        ))
+        self.assert_rejected(package, "无法解析为合法时间")
+
+    def test_mixed_aware_and_naive_is_rejected(self):
+        package = self.parse(three_phase_text(
+            started_at="2026-07-20 16:11", finished_at="2026-07-20T16:16:00+08:00",
+        ))
+        self.assert_rejected(package, "时区标注不一致")
+
+    def test_timestamp_parser_unit_behaviour(self):
+        from tools.ai_handoff.parser import PROJECT_TZ, parse_timestamp, to_utc
+        self.assertIsNone(parse_timestamp("2026-07-20 16:11 nonsense"))
+        self.assertIsNone(parse_timestamp("xx2026-07-20 16:11"))
+        self.assertIsNone(parse_timestamp("2026-07-20 16:11 XYZ"))
+        self.assertIsNone(parse_timestamp("2026-02-30 10:00"))
+        self.assertIsNone(parse_timestamp("2026-07-20 25:00"))
+        # CST 明确解释为 Asia/Shanghai (+08:00)
+        self.assertEqual(PROJECT_TZ, parse_timestamp("2026-07-20 16:11 CST").tzinfo)
+        self.assertEqual(
+            to_utc(parse_timestamp("2026-07-20T16:00:00+08:00")),
+            to_utc(parse_timestamp("2026-07-20T08:00:00Z")),
+        )
+
+    # P1-2 manifest 与 scope 证据的密码学绑定
+    def test_manifest_with_forged_but_wellformed_sha_is_rejected(self):
+        # 路径正确、格式正确，但文件 SHA 全部伪造 → 聚合哈希无法重建
+        package = self.parse(three_phase_text(
+            manifest_lines=[f"{HASH_B}  src/example.py"],
+            self_review_hash=DEFAULT_SR_DIGEST,
+        ))
+        self.assert_rejected(package, "无法由清单重建")
+
+    def test_manifest_correct_but_declared_digest_mismatched_is_rejected(self):
+        package = self.parse(three_phase_text(self_review_hash=HASH_B))
+        self.assert_rejected(package, "无法由清单重建")
+
+    def test_manifest_order_must_match_scope_declaration_order(self):
+        entry_a = f"{HASH_A}  src/a.py"
+        entry_b = f"{HASH_B}  src/b.py"
+        text = three_phase_text(
+            manifest_lines=[entry_b, entry_a],  # 顺序与 scope 声明相反
+            self_review_hash=manifest_digest([entry_b, entry_a]),
+        ).replace("- scope:\n  - src/example.py", "- scope:\n  - src/a.py\n  - src/b.py")
+        self.assert_rejected(self.parse(text), "顺序与 scope 声明顺序不一致")
+
+    def test_multi_file_manifest_in_declared_order_passes(self):
+        entry_a = f"{HASH_A}  src/a.py"
+        entry_b = f"{HASH_B}  src/b.py"
+        digest = manifest_digest([entry_a, entry_b])
+        text = three_phase_text(
+            manifest_lines=[entry_a, entry_b], self_review_hash=digest,
+        ).replace("- scope:\n  - src/example.py", "- scope:\n  - src/a.py\n  - src/b.py")
+        package = self.parse(text)
+        self.assertTrue(package.handoff_gate_ok, package.handoff_gate_reason)
+
+    def test_stale_manifest_rejected_when_current_files_changed(self):
+        # 调度器重算的当前 manifest 与自审记录不一致 → 逐项比对必须拒绝
+        package = self.parse(three_phase_text())
+        self.assertTrue(package.handoff_gate_ok)
+        current = [f"{HASH_B}  src/example.py\n"]  # 文件内容已变化
+        from tools.ai_handoff.parser import self_review_gate
+        reason = self_review_gate(package, current_manifest=current)
+        self.assertIsNotNone(reason)
+        self.assertIn("与当前实际文件不一致", reason)
+
+    def test_exact_real_manifest_passes_end_to_end(self):
+        package = self.parse(three_phase_text())
+        current = [f"{HASH_A}  src/example.py\n"]
+        from tools.ai_handoff.parser import self_review_gate
+        self.assertIsNone(self_review_gate(package, current_manifest=current))
+        with tempfile.TemporaryDirectory() as directory:
+            scheduler = DryRunScheduler(
+                "source.md", directory,
+                scope_hash_resolver=lambda p: ScopeHashResult(
+                    DEFAULT_SR_DIGEST, [f"{HASH_A}  src/example.py\n"], []
+                ),
+            )
+            result = scheduler.dispatch(package)
+        self.assertEqual("dry-run-candidate", result.outcome)
+        self.assertEqual("start_codex_review", result.action)
+
+    def test_legacy_id_declaring_v2_is_held_to_v2_rules(self):
+        # 历史 ID 一旦显式声明 v2，就不再享受 legacy 豁免
+        package = self.parse(three_phase_text(
+            wp_id="WP-20260714-003", protocol="v2", with_self_review=False,
+        ))
+        self.assertFalse(package.handoff_gate_ok)
+        self.assertEqual("v2-missing", package.self_review_state)
 
 
 if __name__ == "__main__":

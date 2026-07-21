@@ -89,7 +89,28 @@
         return;
       }
       const p=data.current, records=(p.records||[]).slice(-6).reverse();
-      const timeline = records.length ? `<ol class="timeline">${records.map(r => `<li><strong>${esc(r.kind==='implementation'?'Claude 实施交接':'Codex 审核结论')} · Round ${esc(r.round)}</strong><span class="detail">${esc(r.fields?.implementation_finished_at || r.fields?.reviewed_at || '时间未记录')}</span>${r.fields?.verdict ? `<div>${esc('Verdict: '+r.fields.verdict)}</div>`:''}</li>`).join('')}</ol>` : '<p class="empty">尚无实施/审核记录。</p>';
+      const phaseLabel = (k) => k==='self_review' ? 'Claude 交接前自审' : (k==='implementation' ? 'Claude 实施交接' : 'Codex 独立审核结论');
+      const phaseTime = (r) => r.fields?.self_review_finished_at || r.fields?.implementation_finished_at || r.fields?.reviewed_at || '时间未记录';
+      const phaseVerdict = (r) => r.kind==='self_review' ? (r.fields?.self_review_verdict ? '自审结论: '+r.fields.self_review_verdict : '') : (r.fields?.verdict ? 'Codex Verdict: '+r.fields.verdict : '');
+      const timeline = records.length ? `<ol class="timeline">${records.map(r => `<li><strong>${esc(phaseLabel(r.kind))} · Round ${esc(r.round)}</strong><span class="detail">${esc(phaseTime(r))}</span>${phaseVerdict(r) ? `<div>${esc(phaseVerdict(r))}</div>`:''}</li>`).join('')}</ol>` : '<p class="empty">尚无自审/实施/审核记录。</p>';
+      const srState = p.self_review_state || 'unknown';
+      const srLegacy = srState === 'legacy';
+      const srLabel = {
+        'legacy': '历史格式（无结构化自审）',
+        'v2-missing': 'v2 自审缺失',
+        'v2-invalid': 'v2 自审无效',
+        'v2-undeclared': '协议未声明（需 handoff_protocol: v2）',
+        'v2-ok': p.self_review_verdict || 'PASS',
+      }[srState] || (p.self_review_verdict || '未记录');
+      const srVerdict = srLabel;
+      const srDetail = (srState === 'v2-ok')
+        ? `${p.self_review_started_at || '?'} → ${p.self_review_finished_at || '?'}`
+        : (p.self_review_note || p.handoff_gate_reason || '');
+      const srClass = srLegacy ? 'warn' : (srState === 'v2-ok' ? 'good' : 'bad');
+      const srTests = srLegacy ? '历史记录未独立结构化' : (p.self_review_test_result || '未提取到自审测试计数（须来自结构化字段）');
+      const srHash = srLegacy ? '无自审哈希' : (p.self_review_scope_sha256 ? p.self_review_scope_sha256.slice(0,16)+'…' : '缺少 self_review_scope_sha256');
+      const gate = p.handoff_gate_ok ? '允许交接' : '拒绝交接';
+      const gateDetail = p.handoff_gate_reason || (p.protocol_is_v2 ? '自审 PASS 且哈希/测试证据齐全' : '历史格式工作包：门禁不强制');
       const diagnostics = [...(p.errors||[]), ...(p.warnings||[])];
       const hashEvidence = [p.scope_baseline_sha256,p.implementation_scope_sha256,p.review_started_sha256,p.review_finished_sha256];
       const hashCount = hashEvidence.filter(Boolean).length;
@@ -105,8 +126,11 @@
           ${card('当前处理权', p.current_handler, 'owner')}
           ${card('当前写入权', p.write_access)}
           ${card('状态最后更新', p.last_updated_at, '来自最近交接记录，不使用文件 mtime')}
-          ${card('最近完成内容', p.latest_implementation_summary, p.latest_implementation_at || '', 'wide')}
-          ${card('最近审核结论', p.latest_review_verdict || '尚无 verdict', p.latest_review_summary || p.latest_review_at || '', 'wide')}
+          ${card('① Claude 交接前自审', srVerdict, srDetail, srClass)}
+          ${card('① 自审测试与哈希', srTests, `self_review_scope_sha256: ${srHash}`, srLegacy ? 'warn' : '')}
+          ${card('交接门禁', gate, gateDetail, p.handoff_gate_ok ? 'good' : 'bad')}
+          ${card('② Claude 实施交接（原子状态转移）', p.latest_implementation_at || '尚未交接', p.latest_implementation_summary || '仅汇总产物并原子转移，不代替独立审核', 'wide')}
+          ${card('③ Codex 独立审核结论', p.latest_review_verdict || '尚无 verdict', p.latest_review_summary || p.latest_review_at || '交接完成后由 Codex 独立启动', 'wide')}
           ${card('最近测试', p.latest_test_result || '未提取到测试结果', p.latest_test_count ? `最大记录数 ${p.latest_test_count}` : '')}
           ${card('Scope SHA-256 核验', hashMatch ? '当前文件与交接证据一致' : '调度已停止或待核验', `独立证据 ${hashCount}/4 · ${hashDetail}`, hashMatch ? 'good' : 'bad')}
           ${card('Claude 事件入口', data.system?.claude_trigger === 'available-disabled' ? '隔离演练已通过，生产未启用' : (data.system?.claude_trigger === 'unavailable' ? '不可用' : (data.system?.claude_trigger || '未知')), data.system?.claude_trigger_reason || '生产安全门打开前不调用任何外部进程', data.system?.claude_trigger === 'unavailable' ? 'bad' : 'good')}

@@ -99,6 +99,44 @@ v1 对合法状态只记录“如果启用，将触发谁”：
 “需要用户处理”候选，不触发 Claude，不修改源状态。Codex 审核当前轮不增加轮次，
 所以 `READY_FOR_CODEX` 在 `round == max_rounds` 时仍允许完成审核。
 
+### 三阶段展示与交接门禁
+
+面板把每轮拆成三个互不冒充的阶段，分别独立显示：
+
+| 面板卡片 | 含义 |
+|---|---|
+| ① Claude 交接前自审 | `self_review_verdict`（PASS/BLOCKED）与自审起止时间 |
+| ① 自审测试与哈希 | 自审实跑测试真实计数 + `self_review_scope_sha256` |
+| 交接门禁 | 允许/拒绝交接，附具体拒绝原因 |
+| ② Claude 实施交接（原子状态转移） | `implementation_finished_at` 与产物汇总 |
+| ③ Codex 独立审核结论 | Codex `verdict` 与独立审核证据 |
+
+时间线按 `self_review` / `implementation` / `review` 三种记录类型分别标注，
+**不把 Claude 自审显示成 Codex 审核**，也不把交接后的 Codex 审核归到 Claude 名下。
+
+交接门禁在调度层强制，任一项不满足即返回 `rejected-self-review`，
+**不生成 Codex 审核候选**，并提示应保持 `CLAUDE_WORKING`：
+
+1. 自审段存在且标题带明确 `Round N`；2. `self_review_round == 当前 round`；
+3. 自审起止时间齐全，**整串完整匹配** `YYYY-MM-DD HH:MM[:SS][时区]`（禁止 substring，
+   前后缀垃圾拒绝）；时区仅接受 `Z`/`UTC`/`CST`/`±HH:MM`/`±HHMM`，未知时区拒绝；
+   **`CST` 项目约定为 Asia/Shanghai (+08:00)**，naive 时间戳同样按 +08:00 解释；
+   aware/naive 混用直接拒绝；折算 **UTC** 后比较，结束不得早于开始；
+4. `verdict == PASS`；
+5. 结构化字段「实际测试命令与结果」须同时含实际命令、**明确成功标记**（OK/PASS/通过）与真实计数；
+   出现 `FAILED`/`FAIL`/`ERROR`/`失败` 即拒绝（**等额计数不能覆盖失败标记**）；其他字段/正文中的计数无效；
+6. `self_review_manifest` 与 scope 证据**密码学绑定**：每项「64 位 SHA-256 + 两空格 + 路径」，
+   路径与 `scope` 精确一致**且顺序相同**；按声明顺序重建 `<sha256>  <path>\n` 的 SHA-256
+   必须等于 `self_review_scope_sha256`（伪造 SHA 亦被拒）；调度时再与当前实际文件重算 manifest 逐项比对；
+7. `是否满足交接条件` 明确为是/true；
+8. 自审哈希与实施交接 `scope_sha256` 均存在且相等；
+9. 实施交接 `Round` 等于当前轮次且位于自审之后。
+
+**协议生效边界**：legacy 仅由 `LEGACY_WORK_PACKAGE_IDS` 白名单（现存 WP-001～008）界定。
+其余工作包一律按 v2 处理，必须显式写 `handoff_protocol: v2`；**漏写直接拒绝，不自动降级**。
+面板状态：`legacy` / `v2-ok` / `v2-missing` / `v2-invalid` / `v2-undeclared`；
+显式 v2 却缺失或无效的自审显示「v2 自审缺失 / v2 自审无效」，**不显示为「历史格式」**。
+
 ### Scope 哈希的实际核验规则
 
 解析器不再把任意一个哈希当成“已一致”，而是分别保留：

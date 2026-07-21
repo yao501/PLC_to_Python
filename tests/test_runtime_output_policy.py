@@ -38,6 +38,7 @@ from src.runtime import (
     VarDecl,
     build_runtime_store,
 )
+from src.runtime.output_policy import SafeImageTicket
 from src.runtime.process_image import OutputPending
 
 
@@ -771,6 +772,182 @@ class TestRealEngineIntegration(unittest.TestCase):
         # 策略服务的通道集恰为引擎 OUT 通道集——完整 stage，不缺不多
         self.assertEqual(set(policy.channels()), {"DO0", "AO0"})
         engine.scan({"DI0": True})   # 不触发 OutputStagingError 即证明通道对齐
+
+
+# ---------------------------------------------------------------------------
+# WP-20260720-008 新公共 API：stage_safe_image / safety_state
+# （外层 scan/watchdog runner 消费的专用安全映像入口；反证测试，不放宽既有语义）
+# ---------------------------------------------------------------------------
+
+class TestSafeImageEntry(unittest.TestCase):
+
+    def _two_channel(self, a_type="INT", a_safe=7, b_type="REAL", b_safe=3.5):
+        store = Store()
+        store.declare("A", a_type, None)
+        store.declare("B", b_type, None)
+        io_map = [
+            IOMap("A", "CHA", "OUT", policy=OutputPolicy("A", a_type, a_safe)),
+            IOMap("B", "CHB", "OUT", policy=OutputPolicy("B", b_type, b_safe)),
+        ]
+        safety = SafetyStateService(SafetySnapshot.all_ok())
+        return store, io_map, safety, OutputPolicyService(store, io_map, safety)
+
+    def test_safety_state_property_returns_injected_service(self):
+        store, io_map, safety, svc = _single("INT", 0)
+        self.assertIs(svc.safety_state, safety)
+
+    def test_stage_safe_image_returns_ticket_without_advancing_history(self):
+        # 两阶段事务第一阶段：stage 只 staging + 签发一次性令牌，**绝不**前移历史。
+        store, io_map, _, svc = self._two_channel()
+        pending = OutputPending(store, io_map)
+        ticket = svc.stage_safe_image(pending)
+        self.assertIsInstance(ticket, SafeImageTicket)
+        self.assertEqual(ticket.image, {"CHA": 7, "CHB": 3.5})
+        self.assertEqual(pending.staged(), {"CHA": 7, "CHB": 3.5})
+        # staging 后 last_effective 仍为冷启动 None（未 confirm 不前移）
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_ticket_image_is_independent_copy(self):
+        # 令牌暴露的 image 是独立副本，外部改写不污染服务内部准备状态。
+        store, io_map, _, svc = self._two_channel()
+        ticket = svc.stage_safe_image(OutputPending(store, io_map))
+        got = ticket.image
+        got["CHA"] = 999
+        self.assertEqual(ticket.image, {"CHA": 7, "CHB": 3.5})
+
+    def test_confirm_safe_image_advances_history_after_commit(self):
+        # 第二阶段：confirm 凭同一令牌才把 last_effective 前移为真正提交的安全映像。
+        store, io_map, _, svc = self._two_channel()
+        pending = OutputPending(store, io_map)
+        ticket = svc.stage_safe_image(pending)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+        svc.confirm_safe_image(ticket)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": 7, "CHB": 3.5})
+
+    def test_confirm_safe_image_rejects_arbitrary_mapping(self):
+        # Codex Round 2 反证 2：任意 Mapping（含同键错误值）**不能**冒充已提交事务
+        # 污染 last_effective——confirm 只接受本服务签发的 SafeImageTicket。
+        store, io_map, _, svc = self._two_channel(b_type="USINT", b_safe=9)
+        svc.stage_safe_image(OutputPending(store, io_map))   # 先备一个真令牌
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image({"CHA": True, "CHB": 999})  # 同键错误值的裸字典
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_rejects_foreign_ticket(self):
+        # 他服务签发的令牌不得跨服务确认（签发者身份校验）。
+        store, io_map, _, svc = self._two_channel()
+        _, other_io, _, other_svc = self._two_channel()
+        foreign = other_svc.stage_safe_image(OutputPending(store, other_io))
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(foreign)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_rejects_reused_ticket(self):
+        # 一次性：同一令牌不得重复确认（第二次令牌已消费 → 拒绝）。
+        store, io_map, _, svc = self._two_channel()
+        ticket = svc.stage_safe_image(OutputPending(store, io_map))
+        svc.confirm_safe_image(ticket)
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(ticket)
+
+    def test_confirm_safe_image_rejects_superseded_ticket(self):
+        # 令牌一次性：再次 stage 会作废上一枚未消费令牌，旧令牌确认被拒。
+        store, io_map, _, svc = self._two_channel()
+        stale = svc.stage_safe_image(OutputPending(store, io_map))
+        svc.stage_safe_image(OutputPending(store, io_map))   # 签发新令牌
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(stale)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_rejects_tampered_value(self):
+        # 逐通道值校验：令牌映像被篡改为**同键错误值**（≠ 配置 safe_value）→ 拒绝。
+        store, io_map, _, svc = self._two_channel(a_type="USINT", a_safe=9)
+        ticket = svc.stage_safe_image(OutputPending(store, io_map))
+        object.__setattr__(ticket, "_image", {"CHA": 5, "CHB": 3.5})   # 5 ≠ 9
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(ticket)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_rejects_out_of_range_value(self):
+        # 逐通道值校验：令牌映像被篡改为**越界值**（IEC 数值域非法）→ 拒绝。
+        store, io_map, _, svc = self._two_channel(a_type="USINT", a_safe=9)
+        ticket = svc.stage_safe_image(OutputPending(store, io_map))
+        # 同时漂移配置与令牌映像到 999：绕过“值 == safe_value”，命中 IEC 域校验。
+        object.__setattr__(io_map[0].policy, "safe_value", 999)
+        object.__setattr__(ticket, "_image", {"CHA": 999, "CHB": 3.5})
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(ticket)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_rejects_non_finite_value(self):
+        # 逐通道值校验：REAL 通道令牌映像被篡改为非有限值 → 拒绝。
+        store, io_map, _, svc = self._two_channel()   # CHB 为 REAL/3.5
+        ticket = svc.stage_safe_image(OutputPending(store, io_map))
+        object.__setattr__(io_map[1].policy, "safe_value", float("inf"))
+        object.__setattr__(ticket, "_image", {"CHA": 7, "CHB": float("inf")})
+        with self.assertRaises(OutputPolicyError):
+            svc.confirm_safe_image(ticket)
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_stage_safe_image_ignores_business_request(self):
+        # 不读 request：即便 Store 中 request 非法/非有限，安全映像仍按 safe_value 落值
+        store, io_map, _, svc = _single("USINT", 9)
+        store.write("V", 999)                      # 非法 request
+        pending = OutputPending(store, io_map)
+        self.assertEqual(svc.stage_safe_image(pending).image, {"CH": 9})
+        self.assertEqual(pending.staged(), {"CH": 9})
+
+    def test_stage_safe_image_all_or_nothing_on_drifted_safe_value(self):
+        # 防御通道配置漂移：篡改第二通道 safe_value 为越界值（绕过 frozen 校验），
+        # 运行期同口径再校验须整体失败关闭——无部分 stage、无历史前移。
+        store, io_map, _, svc = self._two_channel(b_type="USINT", b_safe=9)
+        drifted = io_map[1].policy
+        object.__setattr__(drifted, "safe_value", 999)
+        pending = OutputPending(store, io_map)
+        with self.assertRaises(OutputPolicyError):
+            svc.stage_safe_image(pending)
+        self.assertEqual(pending.staged(), {})
+        self.assertEqual(svc.diagnostic_last_effective(), {"CHA": None, "CHB": None})
+
+    def test_confirm_safe_image_sets_boundary_for_recovery(self):
+        # 安全映像 confirm 后恢复正常拍：限速基准回到 safe_value（非故障前
+        # last_effective）——须经两阶段 stage + confirm 才生效。
+        store, io_map, _, svc = _single("INT", 80, rate_limit=5)
+        store.write("V", 20)
+        out = None
+        for _ in range(12):
+            out = _stage(svc, io_map, store)       # 冷启动 80 → 逐步降到 20
+        self.assertEqual(out, {"CH": 20})
+        pending = OutputPending(store, io_map)
+        ticket = svc.stage_safe_image(pending)     # 一步落 80（staging，不前移）
+        self.assertEqual(ticket.image, {"CH": 80})
+        self.assertEqual(svc.diagnostic_last_effective(), {"CH": 20})   # 未 confirm
+        svc.confirm_safe_image(ticket)             # 提交成功后 confirm
+        self.assertEqual(svc.diagnostic_last_effective(), {"CH": 80})
+        store.write("V", 20)
+        self.assertEqual(_stage(svc, io_map, store), {"CH": 75})       # 从 80 基准限速
+
+    def test_stage_safe_image_reentry_fails_closed(self):
+        store, io_map, _, svc = _single("INT", 0)
+
+        class _ReentrantSafePending:
+            def __init__(self):
+                self.inner_error = None
+                self.staged_vals = {}
+
+            def stage(self, channel, value):
+                if self.inner_error is None:
+                    try:
+                        svc.stage_safe_image(self)
+                    except OutputPolicyReentryError as exc:
+                        self.inner_error = exc
+                self.staged_vals[channel] = value
+
+        pending = _ReentrantSafePending()
+        svc.stage_safe_image(pending)
+        self.assertIsInstance(pending.inner_error, OutputPolicyReentryError)
+        # 外层落值成功、锁释放：下一次仍可执行
+        self.assertEqual(_stage(svc, io_map, store), {"CH": 0})
 
 
 # ---------------------------------------------------------------------------

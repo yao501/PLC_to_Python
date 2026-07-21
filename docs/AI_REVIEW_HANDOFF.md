@@ -67,6 +67,62 @@ CLOSED:             owner=user     handoff_to=user
 9. 自动接力前必须同时校验 `work_package_id + status + owner + handoff_to + round`;同一工作包同一轮已处理过则幂等退出,任一字段不匹配时不得写入。
 10. 实施方交接时记录 scope 文件的 `scope_sha256`;审核方在开始与结束时分别记录并比对同一 scope 的 SHA-256。任一文件漂移则本轮审核作废,转 `BLOCKED` 交用户处理。
 
+### 三阶段职责（自 2026-07-20 起适用于新工作包；历史记录只读兼容）
+
+每一轮必须拆成**三个互不冒充**的阶段，各自独立成段：
+
+1. **Claude 交接前自审**（`### Claude 交接前自审（Round N）`）
+   - 发生在 `CLAUDE_WORKING` 状态内、**原子交接之前**；
+   - 必须记录：`self_review_started_at` / `self_review_finished_at` /
+     `self_review_verdict: PASS | BLOCKED` / `self_review_scope_sha256` /
+     `self_review_manifest`（逐文件 SHA-256）/ 实际测试命令与真实计数 /
+     首次失败 / 失败根因 / 修复内容 / 修复后重跑结果 / 已知疑问 / 未验证边界 / 是否满足交接条件。
+2. **Claude 实施交接**（`### Claude 实施交接（Round N）`）
+   - **只**负责汇总产物并执行原子状态转移，**不得冒充独立审核**；
+   - 仅当自审 `PASS` 后，才可原子写 `READY_FOR_CODEX / owner=codex / handoff_to=codex`。
+3. **Codex 独立审核结论**（`### Codex 审核结论（Round N）`）
+   - **只在交接完成后**启动；Claude 不得审核自己的交接；
+   - 必须保持独立的 `review_started_sha256` / `review_finished_sha256`、独立测试与 `verdict`；
+   - 审核期间 Claude 对 scope 保持只读。
+
+**交接门禁（九项全满足才允许交接）**：
+
+1. 自审段存在，且标题带明确 `Round N`（缺失即拒绝）；
+2. `self_review_round == 当前 round`；
+3. `self_review_started_at` / `self_review_finished_at` 均存在，且**整串完整匹配**
+   `YYYY-MM-DD HH:MM[:SS][时区]`（禁止 substring 匹配，任何前后缀垃圾一律拒绝）。
+   时区标记只接受 `Z` / `UTC` / `CST` / `±HH:MM` / `±HHMM`；未知时区（如 `XYZ`）拒绝。
+   **项目约定：`CST` 在本项目明确解释为 Asia/Shanghai，即 UTC+08:00**（非美国中部时间）；
+   不带时区的 naive 时间戳按项目本地时区 UTC+08:00 解释。
+   非法日历日期/时刻（`2026-02-30`、`25:00`）拒绝。
+   两个时间戳**必须同为 aware 或同为 naive**，混用直接拒绝（不得静默忽略偏移量）；
+   比较时统一折算到 **UTC** 后判断，结束不得早于开始；
+4. `self_review_verdict == PASS`；
+5. 结构化字段「实际测试命令与结果」同时含**可识别的实际命令**、**明确成功标记**
+   （`OK` / `PASS` / `通过`）与**真实计数**；只要出现 `FAILED` / `FAIL` / `ERROR` / `失败`
+   即拒绝，**等额计数不能覆盖失败标记**；正文、已知疑问等其他字段里的 `Ran N tests` **一律不算**；
+6. `self_review_manifest` 与 scope 证据**密码学绑定**，而不只是检查外形：
+   每项须为「64 位十六进制 SHA-256 + 两空格 + 路径」；路径与工作包 `scope`
+   **精确一致且顺序相同**（顺序是规范 manifest 的一部分，不得缺失/重复/多余/错序）；
+   再按声明顺序重建规范文本 `<sha256>  <path>\n`，其 SHA-256 **必须等于**
+   `self_review_scope_sha256`——因此伪造但格式正确的 SHA 也会被拒绝。
+   调度时还会与当前实际文件重算的 manifest **逐项比对**，覆盖交接后的文件内容漂移；
+7. `是否满足交接条件` 明确为 是/true；
+8. `self_review_scope_sha256` 与实施交接 `scope_sha256` 均存在且**相等**；
+9. 本轮实施交接 `Round` 等于当前 `round`，且记录位置在自审**之后**（禁止先交接后补自审）。
+
+任一不满足 → **保持 `CLAUDE_WORKING`、拒绝交接、给出明确诊断，不得伪造 PASS**。
+
+**协议生效边界（不可歧义）**：legacy 只由明确 ID 白名单界定，当前为
+`WP-20260712-001` … `WP-20260720-008` 这 8 个现存工作包。**此外的所有工作包一律按 v2 处理**：
+必须在顶层写 `- handoff_protocol: v2`；**漏写即拒绝交接，不会自动降级为历史格式**。
+历史白名单包一旦显式声明 v2，也同样受上述九项门禁约束。
+
+面板状态区分 `legacy` / `v2-ok` / `v2-missing` / `v2-invalid` / `v2-undeclared`：
+显式 v2 但自审缺失或无效时，显示「v2 自审缺失 / v2 自审无效」，**不得显示为「历史格式」**。
+历史白名单包才显示「历史格式：自审证据未独立结构化」，且不把旧「实施交接」正文里的
+测试/哈希冒充成结构化自审证据。
+
 ### 记录格式
 
 每个工作包一节,字段:`title / status / owner / round / max_rounds / scope`;实施交接区(完成内容/修改文件/明确未修改/测试命令与实际结果/已知疑问/scope_sha256/handoff_to/implementation_finished_at);审核结论区(verdict/已验证事实/项目工程约定/待真机验证假设/必须返修/非阻塞建议/审核证据/review_started_sha256/review_finished_sha256/handoff_to/reviewed_at);Round N 逐轮追加。关闭时 `status` 只写精确状态值 `CLOSED`,关闭人、时间和基线引用另列字段,避免破坏自动解析。
@@ -913,3 +969,414 @@ CLOSED:             owner=user     handoff_to=user
 - review_finished_sha256: b31b3fd8b2f3184d580edcae8fc7ce7849042eedd5345a8f3c4074a82d090fa6
 - handoff_to: user
 - reviewed_at: 2026-07-17 12:09:25 CST
+
+---
+
+## WP-20260720-008
+
+- title: 阶段 1 外层安全扫描运行器与扫描/看门狗故障安全提交
+- status: CLOSED
+- owner: user
+- handoff_to: user
+- round: 3
+- max_rounds: 3
+- closure_note: 用户接受 Codex Round 3 `APPROVED` 结论，并授权关闭本包、更新项目状态、复跑最终测试及完成 Git/GitHub 发布收尾。Python 验证只证明当前实现行为，不构成与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据。
+- base_commit: 975085668c2fa1d698e275b4af31d52eb70aa3ca
+- created_by: user
+- created_at: 2026-07-20 15:24:25 CST
+- depends_on:
+  - WP-20260716-007 CLOSED
+- scope:
+  - src/runtime/scan_runner.py
+  - src/runtime/output_policy.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_scan_runner.py
+  - tests/test_runtime_output_policy.py
+- scope_baseline_sha256: cfcfa98f9932b6bde07ccddfd35dfe942c3e220d7684978f24a264cfc9f4b636
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/scan_runner.py`
+  - `746cdb2f537a8ca0065ece06ee59e7cf38c854ac1c5a7ed56247dfe0cd019756  src/runtime/output_policy.py`
+  - `83a49879fbc5ad1c957f84e7e78c121a883b551343cc50721bd3fc6e46d17700  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_scan_runner.py`
+  - `53fd22a3c706de963a7c8ed316bb7dab50f29a551b5d7ea7a8383580d17553a2  tests/test_runtime_output_policy.py`
+
+### 工作包创建行政证据（Claude 启动前）
+
+- 用户于 2026-07-20 明确确认：将 WP-007 关闭，授权 Codex 完成 Git/PR 收尾、恢复事件协调器并创建 WP-008；因此本节与 `docs/PROJECT_STATE.md` 更新属于创建工作包的行政动作，不属于 Claude 实施 scope，也不是 scope 漂移。
+- WP-007 已通过 PR #15 合并至 `main`，merge commit=`975085668c2fa1d698e275b4af31d52eb70aa3ca`；创建本包前工作区清洁，`main` 与 `origin/main` 同步。
+- 事件协调器已在本机恢复并核验：原生 kqueue、外部执行启用、`/healthz` 返回 `ok=true/read_only=true/dry_run=false`，项目内心跳投影为 live 且持续递增；旧 Claude/Codex 30 分钟主轮询仍必须保持暂停。
+- 启动前行政更新后的 `docs/PROJECT_STATE.md` SHA-256 = `bac44e367ade0a0b31a9932251cf5a55fe717184203ebad0065d6d78ab4d65fe`。Claude 不得修改该文件；Codex 审核/收尾时再按实质状态更新。
+
+### 目标与验收标准
+
+实现 `ENGINE_SCAN_SPEC §4.3` 所要求的**外层**安全扫描恢复入口，并为独立监控器将来注入的软件 watchdog 超时信号提供同一安全提交路径。正常拍仍由既有 `ScanEngine` 完成；故障拍不得伪造正常业务执行，也不得产生双重提交。
+
+1. **正常路径保持不变**
+   - 新的 outer runner 必须复用既有 `ScanEngine`、`OutputPolicyService` 与同一提交端口；正常拍仍严格执行一次业务扫描和一次提交，返回值、`cycle_id`、`prev` 前移及连续拍行为不得改变。
+   - runner 必须非重入；递归或并发进入失败关闭，不得并行操作同一 Store/pending/策略状态。
+
+2. **扫描异常后的安全提交**
+   - 仅当正常提交端口**尚未被尝试**，且输入锁存、IR 执行、业务输出生成或 OutputPolicy 正常 staging 发生异常时，outer runner 才把它归类为 `scan_fault`。
+   - runner 必须锁存/写入 `scan_ok=False` 的安全状态证据，随后绕过本拍可能已经损坏或非法的 request，按已验证通道配置原子生成**全通道** `safe_value` 映像，并调用正常路径使用的同一提交端口**恰好一次**。
+   - 安全映像必须通过 `OutputPolicyService` 的显式公共故障恢复入口生成；不得在 runner 中复制第二套类型表、限速表或通道策略。该入口专用于 scan/watchdog 外层恢复，不读取业务 request，不把非法 request 当作安全落值的前置条件；但必须保证所有配置的 `safe_value` 与最终映像仍符合已声明 IEC 类型，并以全有或全无方式 staging。
+   - 安全提交成功后，策略侧 `last_effective` 必须与真正提交的安全映像一致并标记下一正常拍需要重建边界；既有 `ScanEngine.prev` 不得因失败拍前移。
+   - 安全提交后仍要以结构化异常向上报告原始扫描失败，明确 `safe_commit_succeeded=True`；不得吞掉原始异常、假装本拍成功。
+
+3. **提交异常不得误分类为扫描异常**
+   - 如果正常提交端口已被调用且自身抛错，本包不得再发起第二次安全提交；这属于 `ENGINE_SCAN_SPEC §4.4` 的 `commit_fault` 后续工作，原异常必须原样或带阶段证据向上报告。
+   - 实现必须用可审计的阶段/提交尝试证据区分“提交前扫描失败”和“提交调用失败”，不能靠异常文本、异常类猜测或宽泛 `except` 后无条件再提交。
+   - 若外层安全提交自身失败，结构化异常必须同时保留原始扫描异常和安全提交异常，`safe_commit_succeeded=False`，本包内不得自动重试或冒充安全落值成功。
+
+4. **最小软件 watchdog 信号响应**
+   - 提供一个显式、可注入的 watchdog 超时事件入口；命中时必须跳过本拍业务 IR，锁存/写入 `watchdog_ok=False`，复用与 scan fault 完全相同的全通道安全 staging + 单次提交路径，并返回/抛出可审计的 watchdog 故障结果。
+   - 本包**不实现**真实时钟、`sleep`、后台线程、周期调度、抖动统计、超时测量或硬件 watchdog；事件何时产生由后续阶段 7 的独立 runner/monitor 决定。本包只实现确定性的信号消费和安全输出反应。
+   - 安全故障标志不得在下一拍被隐式自动清除；恢复必须依赖显式替换/确认安全状态，避免瞬时故障被悄悄掩盖。
+
+5. **资源与失败边界**
+   - 任意退出路径都要清空临时 pending、释放 runner/engine 锁；不得把上一拍半成品带到下一拍。
+   - 不得增加影子执行、真实驱动/HAL、`last_physical_committed`、可信反馈、`commit_fault`/`channel_fault` 重试或复位、通知系统、L2 adapter 注册表。
+   - 不得修改 specs、`docs/PROJECT_STATE.md`、本交接文件除实施交接段以外的历史正文、AI 协调器/自动化配置或 `.git`；Claude 不执行任何 Git 写操作。
+
+### 最低测试要求
+
+1. 正常一拍和连续两拍与直接 `ScanEngine.scan(...)` 等价，业务提交每拍一次，`prev` 只在成功后前移。
+2. 输入锁存、IR 执行与正常策略 staging 的代表性异常各能触发安全提交；全通道（含非零 `safe_value`）均写入，业务提交未发生，安全提交恰好一次。
+3. 以故障态非法/非有限 request 复现 WP-007 的已知边界：正常 OutputPolicy 会失败，但 outer runner 仍能经专用恢复入口提交安全映像；pending 为空、`prev` 不前移、策略历史与安全值一致。
+4. 正常提交端口抛错时总调用次数为一次，不追加安全提交，且不会被误报为 `scan_fault` 已安全落值。
+5. 安全提交端口抛错时保留原始异常 + fallback 异常，零重试，状态不得声称已安全提交。
+6. 显式 watchdog 事件跳过 IR/业务路径、全通道安全提交一次、`watchdog_ok=False` 保持锁存；无真实等待或线程。
+7. runner 并发/递归重入失败关闭，锁与 pending 在异常后可恢复使用。
+8. 新公共 API 的通道完整性、IEC safe value 校验、全有或全无 staging 和历史前移单独有反证测试；既有 OutputPolicy 66 项语义锁不得改写放宽。
+9. 至少运行并记录：
+   - `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy`
+   - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir`
+   - `python -m unittest discover -s tests -t .`
+   - `python -m unittest discover -s prototype_05 -t .`
+   - `python -m unittest discover -s . -t .`
+
+### 实施与交接要求
+
+- 开工前逐项核对五字段、`round <= max_rounds`、`base_commit`、baseline manifest/聚合哈希及 `docs/PROJECT_STATE.md` 行政哈希；任一不符立即幕等退出，不写 scope。
+- 只允许修改 scope 中五个文件。`src/runtime/scan_runner.py` 与 `tests/test_runtime_scan_runner.py` 创建前必须确认为不存在；若已存在即视为 baseline 漂移。
+- 实施结束后逐文件计算 SHA-256，并按 scope 声明顺序计算聚合 SHA-256；把实际修改、异常语义、首次失败/根因/修复后结果、五组测试实数、工程约定与待真机假设完整写入本工作包的“Claude 实施交接（Round 1）”。
+- 交接时原子更新顶层字段为 `status: READY_FOR_CODEX`、`owner: codex`、`handoff_to: codex`，`round` 保持 1；随后立即停笔，等待 Codex 独立审核。
+- 所有 Python 验证只证明当前实现行为，不构成与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据。
+
+### Claude Round 1 权限模式失败重试授权
+
+- retry_authorized_at: 2026-07-20 15:47:00 CST
+- retry_idempotency_key: `WP-20260720-008:1:start_claude_implementation:python-only-retry-1`
+- retry_reason: 首次事件触发已成功启动 Claude，但 adapter 的 `dontAsk` 白名单只允许 Python 命令；Claude 误用被禁止的 `git`/`shasum`/`ls` 做开工核验后按协议安全停止，退出码为 0，未修改任何 scope 文件，也未交接。当前 base commit、五文件 baseline 聚合哈希和 `docs/PROJECT_STATE.md` 行政哈希均由 Codex 复算保持与任务书一致。现仅授权以新幂等键重试一次，并明确要求 Claude 使用 Python 标准库完成 HEAD/文件存在性/SHA-256 核验及测试；不得放宽 Git/gh/rm/sudo 禁令，不得恢复旧 30 分钟轮询，不得绕过全局执行租约。
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: Claude 已在五文件 scope 内实现 `OuterScanRunner`、共享 `CommitPort`、显式 watchdog 事件入口、结构化安全提交信号以及 `OutputPolicyService.stage_safe_image()`；正常路径复用既有 `ScanEngine`，提交尝试证据能阻止正常提交端口抛错后再做第二次安全提交，watchdog 路径跳过业务 IR。接手五字段为 `WP-20260720-008 / READY_FOR_CODEX / codex / codex / round=1`，`1 <= max_rounds=3`；实施交接聚合 SHA-256 与 Codex 独立复算均为 `9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89`，逐文件清单一致，审核期间 scope 无漂移。
+- 项目工程约定: scan/watchdog 故障锁存、全通道安全映像、提交前后阶段证据、恢复边界与 `last_effective` 纪律均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。显式 watchdog 入口只消费确定性事件，不测量墙钟、不实现线程或硬件 watchdog，边界分层正确。
+- 待真机验证假设: 真实周期/抖动、硬件 watchdog、现场安全回路、可信反馈/HAL、真实驱动提交、`last_physical_committed`、`commit_fault`/`channel_fault` 锁存复位、shadow 与目标 SP16.1 行为仍未验证；当前 Python 测试不证明 PLC/真机一致性。
+- 必须返修: 1) **安全提交失败后策略历史错误前移。** `OutputPolicyService.stage_safe_image()` 在 runner 调用提交端口之前就把全部通道 `_state` 更新为 `safe_value + boundary_reset=True`；`OuterScanRunner._safe_commit_or_raise()` 对提交异常只包装信号、不撤销或延迟该状态。因此底层提交失败且 `safe_commit_succeeded=False` 时，`diagnostic_last_effective()` 仍报告未真正生效的安全映像。Codex 最小反证稳定得到：`commit_calls=1`、`safe_commit_succeeded=False`，但历史为 `{'DO0': False, 'AO0': 9}`。这违反任务书“策略历史与**真正提交**的安全映像一致”及“失败状态不得声称已安全提交”。请把安全映像的准备/staging 与“提交成功后确认策略历史”做成可审计的两阶段事务或等价方案；提交失败不得把 `last_effective`/边界基准冒充为已生效，且不得破坏既有正常 OutputPolicy 语义。新增成功确认与失败不前移的反证测试。2) **fallback staging 失败没有结构化保留双异常。** `_safe_commit_or_raise()` 只捕获 `_port.commit(...)`，`_latch_fault(...)` 或 `stage_safe_image(...)` 抛错会直接漏出普通异常，丢失 `ScanFaultSafeCommit` / `WatchdogSafeCommit` 的 `original_exception`、`commit_exception`（或等价 fallback 异常字段）与 `safe_commit_succeeded=False` 证据。Codex 通过构造装配后 safe-value 漂移复现：正常策略先因非法 request 失败，随后安全映像校验失败，最终只抛 `OutputPolicyError`、`is_structured_scan_signal=False`、提交 0 次。请让**安全恢复链的任一失败阶段**都产生结构化信号，同时保留原始扫描异常与具体 fallback 异常、明确未安全提交、零重试；watchdog 无原始业务异常时也须保留 fallback 异常。新增 scan_fault 与 watchdog 两条 staging-failure 反证，并断言临时 pending/锁可恢复。
+- 非阻塞建议: `OuterScanRunner` 通过读取 `engine._policy` / `engine._committer` 私有字段做装配身份核验较脆弱；后续可改为 ScanEngine 只读端口属性或集中工厂，但不阻塞本轮两项安全返修。公共 `stage_safe_image()` 的“全有或全无”目前依赖 runner 创建干净的真实 `OutputPending`；若未来允许任意 pending 实现，应显式收紧接口契约或提供回滚语义。
+- 审核证据: Codex 独立运行 `tests.test_runtime_scan_runner + tests.test_runtime_output_policy` = 95/95、engine/executor/store/ir = 166/166，`git diff --check` 通过；另运行两条最小手工反证，分别复现“安全提交失败但策略历史已前移”和“安全 staging 失败漏出非结构化异常”。审核开始/结束聚合 SHA-256 均为 `9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89`。
+- review_started_sha256: 9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89
+- review_finished_sha256: 9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89
+- handoff_to: claude
+- reviewed_at: 2026-07-20 16:43:07 CST
+
+### Claude 实施交接（Round 1）
+
+- 开工核验（全部用 Python 标准库，命中授权重试键 `WP-20260720-008:1:start_claude_implementation:python-only-retry-1`）：① `pathlib` 读 `.git/HEAD` = `ref: refs/heads/main`，按 symbolic ref 读松散 `.git/refs/heads/main` = `975085668c2fa1d698e275b4af31d52eb70aa3ca`，与 `base_commit` 一致；② `Path.is_file()` 确认 `src/runtime/scan_runner.py`、`tests/test_runtime_scan_runner.py` 开工前**不存在**（与 baseline manifest 的 `ABSENT` 一致），另三文件 `hashlib.sha256(read_bytes())` 逐文件哈希与 baseline manifest 一致；按 manifest 声明顺序聚合 SHA-256 = `cfcfa98f9932b6bde07ccddfd35dfe942c3e220d7684978f24a264cfc9f4b636`，与 `scope_baseline_sha256` 一致；③ `docs/PROJECT_STATE.md` 行政哈希 = `bac44e367ade0a0b31a9932251cf5a55fe717184203ebad0065d6d78ab4d65fe`，与任务书一致；④ 五字段 `status=CLAUDE_WORKING/owner=claude/handoff_to=claude/round=1/max_rounds=3` 与 scope 五文件核对一致，`round<=max_rounds`。全部证据相符，方进入实施。测试与时间戳分别用 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...` 与 `datetime.now().astimezone()`；未触碰 Git/gh/rm/sudo 等被禁命令。
+
+- 完成内容（对应验收标准 5 条 + 最低测试 9 条）：
+  1. **正常路径不变**：新增 `src/runtime/scan_runner.py::OuterScanRunner.scan_cycle(samples)` 正常拍**原样复用**注入的 `ScanEngine.scan`（一次业务扫描 + 一次提交），返回其 `ScanResult`；`CommitPort` 每拍进入前 `reset()`，业务提交每拍恰一次。运行器持自身非重入锁（非阻塞获取），`scan_cycle` 与 `trigger_watchdog` 共用，递归/并发**失败关闭**（`ScanRunnerReentryError`），锁在原拍返回后释放。
+  2. **扫描异常安全提交（§4.3）**：仅当 `CommitPort.attempts == 0`（提交尚未尝试）时捕获到的异常才归类 `scan_fault`——锁存 `scan_ok=False` → 新建 `OutputPending` 绕过引擎本拍可能已损坏的 pending → 经 `OutputPolicyService.stage_safe_image()`（本包新增公共入口）原子生成**全通道** `safe_value` 安全映像 → 经**同一** `CommitPort` 提交**恰一次** → `raise ScanFaultSafeCommit(safe_commit_succeeded=True)` 并 `raise ... from` 原始扫描异常，不吞异常。`stage_safe_image` 不读业务 request、不做限速、不看安全快照，复用同一 `_order/_policy/_iec_value_error` 口径（不复制第二套类型/限速/通道表）；全有或全无 staging，成功后每通道 `last_effective=safe_value` 且置 `boundary_reset`（恢复首拍从 safe 基准限速）。`ScanEngine.prev` 不因失败拍前移（安全提交路径不触碰 `engine.prev`/业务 Store）。
+  3. **提交异常不误分类（§4.4）**：`attempts >= 1`（提交端口已被调用并抛错）判为 `commit_fault`，原异常**原样上抛**、不追加第二次安全提交、不锁 `scan_ok`。分类**只依据可审计的提交尝试证据 `CommitPort.attempts`**（提交前 +1 再委托），绝不看异常文本/异常类，也不宽泛 `except` 后无条件再提交。外层安全提交**自身**失败时 `raise ScanFaultSafeCommit(safe_commit_succeeded=False)`，`original_exception` 与 `commit_exception` **同时保留**，零重试、不冒充成功。另对 `ScanReentryError`（引擎并发契约违约）原样上抛、绝不安全提交，避免与在途扫描竞争双提交。
+  4. **最小 watchdog 响应**：`trigger_watchdog()` 显式、可注入，跳过业务 IR（不调用 `engine.scan`，故 `engine.prev`/业务 Store 不前移），锁存 `watchdog_ok=False`，复用与 `scan_fault` 完全相同的全通道安全 staging + 单次提交，`raise WatchdogSafeCommit`。**不**测时钟、`sleep`、起线程、周期调度或抖动统计——事件由阶段 7 独立 monitor 产生。安全标志（`scan_ok`/`watchdog_ok=False`）**不在下一拍被隐式清除**，运行器只写入不复位。
+  5. **资源/失败边界**：安全提交用**本地新建** pending，退出即释放；引擎异常路径由其自身 finally 清 pending、释放锁；未引入 shadow、`last_physical_committed`、真实 HAL、`commit_fault/channel_fault` 重试与复位、通知系统或 L2 adapter。
+  - 装配期强约束：`OuterScanRunner` 只读校验 `engine._policy is policy` 与 `engine._committer is commit_port`（**不修改** `engine.py`），保证安全提交与正常门控走**同一策略状态、同一提交端口**；`CommitPort`/`OutputPolicyService`/`ScanEngine` 类型不符或未共享即 `ScanRunnerConfigError`。`src/runtime/__init__.py` 稳定导出 `CommitPort/OuterScanRunner/ScanRunnerError/ScanRunnerConfigError/ScanRunnerReentryError/SafeCommitSignal/ScanFaultSafeCommit/WatchdogSafeCommit`。
+
+- 失败语义（结构化、不吞异常）：`SafeCommitSignal` 基类携 `cause`（scan_fault/watchdog）、`safe_image`（安全映像独立副本）、`safe_commit_succeeded`、`original_exception`（watchdog 为 None）、`commit_exception`；子类 `ScanFaultSafeCommit`/`WatchdogSafeCommit`。正常拍成功返回 `ScanResult`，故障拍一律 `raise` 结构化信号；`commit_fault` 原样上抛底层异常（不是 `SafeCommitSignal`，不冒充已安全落值）。
+
+- 修改文件（scope 五文件，逐文件 SHA-256 见末尾）：
+  - `src/runtime/scan_runner.py`（新建）：`CommitPort` / `OuterScanRunner` / 异常与结构化信号类。
+  - `src/runtime/output_policy.py`（改）：新增 `OutputPolicyService.stage_safe_image()` 专用故障恢复入口与 `safety_state` 只读属性；更新模块顶部“明确不实现”诚实边界，注明本模块只提供安全映像入口、外层编排仍属 scan runner。既有 `OutputPolicy`/`SafetySnapshot`/`SafetyStateService`/`stage_outputs`/`_compute` 语义**未改动放宽**。
+  - `src/runtime/__init__.py`（改）：新增 runner 公共 API 导入与 `__all__` 导出，既有导出未回退。
+  - `tests/test_runtime_scan_runner.py`（新建）：23 项，覆盖最低测试 1–9。
+  - `tests/test_runtime_output_policy.py`（改）：**仅追加** `TestSafeImageEntry` 6 项（safety_state 属性、全通道 staging + 历史前移、不读 request、配置漂移全有或全无反证、恢复边界基准、`stage_safe_image` 重入失败关闭）；既有 66 项语义锁一字未改。
+
+- 明确未修改：`docs/PROJECT_STATE.md`（行政哈希保持 `bac44e3…`）、`docs/AI_REVIEW_HANDOFF.md` 除本实施交接段以外的历史正文、任何权威规格、`.cursor/rules/*`、协调器/自动化配置、`src/runtime/engine.py`（只读其注入引用做共享校验，未写）、`.git` 内部文件；未执行任何 Git 写操作。
+
+- 首次失败 / 根因 / 修复后重跑：首轮定向 `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy` 报 1 项 FAIL——`test_ir_execution_error_triggers_safe_commit` 断言 `original_exception` 为 `IECMathError`。根因：执行器把底层 `IECMathError('整数 DIV 除零')` **包装**为 `IRExecutionError` 再向上抛（`src/runtime/executor.py` 指令分派层），故外层捕获到的原始扫描异常是 `IRExecutionError`。修复：把测试断言改为 `IRExecutionError`（并改 import），仅调整测试期望、未改动被测语义。重跑同一命令 → Ran 95 tests, OK。
+
+- 五组测试实数（2026-07-20 本机实际运行，`PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy` → **Ran 95, OK**（新增 23 + 既有 66 + 追加 6）。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → **Ran 166, OK**。
+  3. `python -m unittest discover -s tests -t .` → **Ran 1035, OK**（较基线 1006 增 29）。
+  4. `python -m unittest discover -s prototype_05 -t .` → **Ran 68, OK**。
+  5. `python -m unittest discover -s . -t .` → **Ran 1103, OK**（较基线 1074 增 29）。
+  本机运行未出现受限沙箱下的面板端口 `PermissionError`；全部通过。
+
+- 工程约定 / 待真机验证边界（诚实分层）：外层安全提交、`safe_value` 基准/恢复、故障锁存不自动复位均为**项目工程约定、非 CODESYS 官方语义**。真实周期计时、后台线程、硬件 watchdog、shadow、`last_physical_committed`、真实驱动/HAL、`commit_fault`/`channel_fault` 重试与复位、可信设备反馈**不在本包**，属后续工作包。以上 Python 测试只证明当前实现行为，**不构成**与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据；watchdog 事件的产生时机仍待阶段 7 独立 monitor。
+
+- 已知疑问：① `OuterScanRunner` 为强制“正常提交与安全提交同一端口/同一策略”，在装配期**只读**校验 `engine._policy` / `engine._committer`（`ScanEngine` 私有注入引用），未修改 `engine.py`；若 Codex 认为跨作用域读取私有引用不妥，可评估后续给 `ScanEngine` 增设公共只读访问器（属 engine 范围，另开工作包）。② `commit_fault` 分类依据是共享 `CommitPort.attempts` 阶段证据；若未来正常提交端口自身实现为非本包 `CommitPort`，需保证仍经本 `CommitPort` 包装才能获得该证据（已在装配期强制 `commit_port` 为 `CommitPort` 且为引擎注入的同一实例）。
+
+- scope_sha256: 9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89
+  - `9b1c3942a330f90df97fdf6426060ce574b2389e66164d9794be0174e6339e86  src/runtime/scan_runner.py`
+  - `263bfcf5ddf2d509f099f4a96b6be12bb950adb968a8aca4a985babcf703749a  src/runtime/output_policy.py`
+  - `599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81  src/runtime/__init__.py`
+  - `cf0dea9c65b54d751e1f4ff64cad42b27f6b23d0481f3696bb996cc2fd9e67d5  tests/test_runtime_scan_runner.py`
+  - `0d51acbd5cbdf520ddf564846d16dd8b5a6f809adea068354a16a4308b19f63e  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-20T16:16:31+08:00
+
+### Claude 实施交接（Round 2）
+
+- 开工核验（全部用 Python 标准库 `pathlib`/`hashlib`，未触碰 git/gh/shasum/rm/sudo 等命令）：① 接手前五字段为 `WP-20260720-008 / CHANGES_REQUESTED / owner=claude / handoff_to=claude / round=1 / max_rounds=3`，符合 CHANGES_REQUESTED 映射，按协议 round+1 处理为 Round 2，`2 <= max_rounds=3`；② `.git/HEAD` = `ref: refs/heads/main` → 松散 ref `975085668c2fa1d698e275b4af31d52eb70aa3ca` 与 `base_commit` 一致；③ 逐文件 SHA-256 + 按 scope 声明顺序聚合 = `9552d4ac6b399852700875c9155b32186eefb5e2ebf5978e060129d76211cb89`，与 Round 1 `scope_sha256` 及 Codex `review_finished_sha256` 完全一致——审核结束后至本轮接手 scope **零漂移**；④ `docs/PROJECT_STATE.md` 行政哈希 = `bac44e367ade0a0b31a9932251cf5a55fe717184203ebad0065d6d78ab4d65fe`，与任务书一致。全部相符方进入返修。
+
+- Codex Round 1 两条“必须返修”逐条落地：
+
+  1. **安全提交失败后策略历史错误前移 → 改为可审计两阶段安全事务。** 根因：旧
+     `OutputPolicyService.stage_safe_image()` 在 staging 的同时就把全通道 `_state`
+     前移为 `safe_value + boundary_reset=True`，早于 runner 调用提交端口；提交失败
+     时 `_safe_commit_or_raise` 只包装异常、不撤销该状态，故
+     `diagnostic_last_effective()` 冒充未真正生效的安全映像。修复：把
+     `stage_safe_image()` 拆为**仅准备/staging、绝不前移策略历史**；新增
+     `confirm_safe_image(safe_image)` 只在**提交成功后**由 runner 调用，才统一前移
+     `last_effective`=已提交安全映像并置 `boundary_reset`（全有或全无，且校验映像
+     恰好覆盖装配通道集合）。`OuterScanRunner._safe_commit_or_raise()` 相应改为：
+     staging → 提交成功 → `confirm_safe_image`；**提交失败则不 confirm**，
+     `safe_commit_succeeded=False` 且策略历史保持故障前值，绝不冒充已安全落值。
+     既有正常 `stage_outputs` / `_compute` 语义未改动放宽。
+  2. **安全恢复链任一失败阶段都产生结构化信号并保留双异常。** 根因：旧
+     `_safe_commit_or_raise` 只 `try` 包住 `_port.commit(...)`，`_latch_fault(...)`
+     或 `stage_safe_image(...)` 抛错会漏出普通异常，丢失结构化信号与“未安全提交”
+     证据。修复：`SafeCommitSignal` 增加 `fallback_exception`（失败阶段的具体异常）
+     与 `failed_stage`（`"latch_fault"`/`"stage_safe_image"`/`"commit"`）字段，保留
+     `commit_exception` 为向后兼容只读属性（仅 commit 阶段返回）；
+     `_safe_commit_or_raise` 对锁存、staging、提交**三个阶段分别**捕获，任一失败均
+     `raise` 结构化 `ScanFaultSafeCommit`/`WatchdogSafeCommit`，**同时保留原始扫描
+     异常与该阶段 fallback 异常**、`safe_commit_succeeded=False`、零重试、不前移
+     策略历史；watchdog 无原始业务异常时 `original_exception=None` 但仍保留
+     `fallback_exception`。
+
+- 修改文件（scope 五文件中改动 4 个，逐文件 SHA-256 见末尾）：
+  - `src/runtime/output_policy.py`（改）：`stage_safe_image()` 改为仅 staging 不前移
+    历史；新增 `confirm_safe_image()` 提交成功后前移；更新方法与模块顶部“明确不
+    实现”docstring 为两阶段口径。既有 66 项语义锁对应实现未改动放宽。
+  - `src/runtime/scan_runner.py`（改）：`SafeCommitSignal` 增 `fallback_exception`/
+    `failed_stage` 并保留 `commit_exception` 兼容属性；`_safe_commit_or_raise` 改为
+    三阶段结构化捕获 + 提交成功后 `confirm_safe_image` 的两阶段事务；更新模块/方法
+    docstring。
+  - `tests/test_runtime_output_policy.py`（改）：`TestSafeImageEntry` 按两阶段收口
+    ——staging 不前移历史、`confirm_safe_image` 才前移、confirm 通道不匹配失败关闭、
+    恢复边界基准改由 stage+confirm 验证；既有 66 项语义锁一字未改。
+  - `tests/test_runtime_scan_runner.py`（改）：强化 `TestSafeCommitFailure`（断言
+    `failed_stage="commit"`、`fallback_exception`、**安全提交失败历史不前移**）并加
+    成功前移正例；新增 `TestSafeStagingFailure`（scan_fault 与 watchdog 两条 staging
+    阶段失败反证：保留原始+fallback、`failed_stage="stage_safe_image"`、提交 0 次、
+    历史不前移、锁/pending 可恢复）。
+
+- 明确未修改：`src/runtime/__init__.py`（无公共名增删，哈希保持
+  `599ac0dd…`）、`docs/PROJECT_STATE.md`（行政哈希保持 `bac44e3…`）、
+  `docs/AI_REVIEW_HANDOFF.md` 除本 Round 2 实施交接段与顶层五字段以外的历史正文、
+  任何权威规格、`.cursor/rules/*`、协调器/自动化配置、`src/runtime/engine.py`、
+  `.git` 内部文件；未执行任何 Git 写操作。Codex Round 1 的两条**非阻塞建议**
+  （运行器读取 `engine._policy`/`engine._committer` 私有字段较脆弱；公共
+  `stage_safe_image` 全有或全无依赖 runner 提供干净 pending）按其“不阻塞本轮”定位
+  留待后续工作包，本轮未改，避免顺手扩面。
+
+- 首次失败 / 根因 / 修复后重跑：首轮定向 `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy` 报 1 项 ERROR——新增
+  `test_watchdog_staging_failure_...` 用 `_build(av_type="USINT")` 但未传 `code`，
+  默认业务码 `StoreVar("AV","INT")` 与 USINT 声明类型不符，在 `build_runtime_store`
+  的装载校验期即 `IRValidationError`。根因：测试装配疏漏，非被测语义。修复：该测试
+  改传仅写 Motor(BOOL) 的业务码（watchdog 本就跳过业务 IR）。重跑同一命令 →
+  Ran 100 tests, OK；仅调整测试装配，未改被测语义。
+
+- 五组测试实数（2026-07-20 本机实际运行，`PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy` → **Ran 100, OK**（较 Round 1 的 95 增 5：scan_runner +3、output_policy safe-image 组 +2）。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → **Ran 166, OK**。
+  3. `python -m unittest discover -s tests -t .` → **Ran 1040, OK**（较 Round 1 的 1035 增 5）。
+  4. `python -m unittest discover -s prototype_05 -t .` → **Ran 68, OK**。
+  5. `python -m unittest discover -s . -t .` → **Ran 1108, OK**（较 Round 1 的 1103 增 5）。
+
+- 工程约定 / 待真机验证边界（诚实分层，与 Round 1 一致）：两阶段安全事务、
+  `safe_value` 基准/恢复、故障锁存不自动复位、提交尝试证据分类均为**项目工程
+  约定、非 CODESYS 官方语义**。真实周期计时、后台线程、硬件 watchdog、shadow、
+  `last_physical_committed`、真实驱动/HAL、`commit_fault`/`channel_fault` 重试与
+  复位、可信设备反馈**不在本包**。以上 Python 测试只证明当前实现行为，**不构成**
+  与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据。
+
+- 已知疑问：① 两条非阻塞建议（私有字段装配核验、`stage_safe_image` 全有或全无的
+  pending 契约）仍如 Round 1 记录，属后续工作包，本轮未动。② 两阶段事务的
+  `confirm_safe_image` 与提交端口成功之间无跨进程原子性（本包不实现真实驱动/事务
+  提交）；一旦引入真实 HAL/驱动，需在阶段 7 评估提交与策略历史确认的落地原子性。
+
+- scope_sha256: 6948266fd19fc948145874ec951fe5a5e0a8a28e30e4e677cacb6eb350713bda
+  - `876743c7aafc0864216b9c6a092838c54fa28d4fbcfffdf9e49d4a6f47d24fb5  src/runtime/scan_runner.py`
+  - `41fdb620906640cae37d81eea86d9dcd2112608fe024c030c5c1293e1d5d6670  src/runtime/output_policy.py`
+  - `599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81  src/runtime/__init__.py`
+  - `d424cf42eb7dfd1d19bde4378967d5da1c7601829c68f6701c2f9b23a1b0698f  tests/test_runtime_scan_runner.py`
+  - `a5371735b06efeb07c2b138caec3eb572c4b5f108dcdbe7b7ab0953c62d84254  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-20T16:55:09+08:00
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: Round 1 点名的两项缺陷主体已经返修：`src/runtime/output_policy.py:464-530` 将安全映像 staging 与策略历史确认拆成两阶段，提交失败时不再提前把 `last_effective` 冒充为已生效安全值；`src/runtime/scan_runner.py:300-339` 已把锁存、staging、commit 三个恢复阶段的异常包装为保留原始异常与 fallback 异常的结构化信号。新增测试覆盖了安全提交失败历史不前移、成功后前移，以及 scan/watchdog staging 失败的双异常、零提交和锁恢复路径。接手五字段为 `WP-20260720-008 / READY_FOR_CODEX / codex / codex / round=2`，`2 <= max_rounds=3`；审核期间状态为 `CODEX_REVIEWING / codex / codex`。
+- 项目工程约定: 外层 scan/watchdog 故障锁存、全通道安全映像、提交尝试证据分类和两阶段策略历史确认仍是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。显式 watchdog 入口只消费确定性事件，不实现墙钟测量、后台线程或硬件 watchdog；该边界分层保持正确。
+- 待真机验证假设: 真实周期/抖动、硬件 watchdog、现场安全回路、可信反馈/HAL、真实驱动提交、`last_physical_committed`、`commit_fault`/`channel_fault` 锁存复位、shadow 与目标 SP16.1 行为仍未验证；当前 Python 测试只证明现实现行为，不证明与 PLC/CODESYS、真实驱动或现场安全回路一致。
+- 必须返修: 1) **安全提交成功后的确认阶段仍可漏出普通异常，并留下“物理已安全提交、策略历史未前移”的失配状态。** `src/runtime/scan_runner.py:329-346` 只捕获提交端口异常；提交成功后第 344 行直接调用 `confirm_safe_image(...)`，该调用若因 `OutputPolicyReentryError` 或其他异常失败，会绕过 `SafeCommitSignal`。Codex 最小反证把确认入口替换为稳定抛错函数后得到：底层已收到 `{'DO0': False, 'AO0': 9}`，最终却只漏出普通 `RuntimeError('confirm boom')`，`isinstance(exc, ScanFaultSafeCommit)=False`，策略历史仍为 `{'DO0': None, 'AO0': None}`。这违反任务书“安全提交成功后策略历史必须与真正提交的安全映像一致”，也与模块宣称“安全恢复链任一阶段失败都结构化上报”的口径冲突。请把确认阶段纳入可审计事务闭环：保证端口提交成功后历史确认在受支持路径上不会失败，或提供等价事务设计；若仍存在确认失败路径，必须保留原始/fallback 异常和明确的提交成功证据，不能漏出普通异常或静默留下失配历史。新增一条“提交成功、确认阶段失败”的反证测试。
+- 必须返修: 2) **公开的 `confirm_safe_image()` 只校验通道集合，不校验映像值，任意同键映像可污染 `last_effective`。** `src/runtime/output_policy.py:523-529` 在集合相等后直接写 `_state`，没有核对每通道值是否等于当前已配置并已校验的 `safe_value`，也没有执行 `_iec_value_error(...)`。Codex 最小反证直接调用 `confirm_safe_image({'DO0': True, 'AO0': 999})`（AO0 声明为 USINT、配置安全值为 9），调用被接受，诊断历史变成 `{'DO0': True, 'AO0': 999}`。这使“两阶段确认”不能证明它确认的是同一次 `stage_safe_image()` 准备并提交的安全映像，也违反最低测试对新公共 API 的 IEC safe value 校验要求。请至少逐通道验证“值严格等于当前配置 safe_value 且 IEC 结构/数值域合法”，更稳妥的方案是让 stage 返回不可伪造/一次性的准备令牌并由 runner 用该令牌确认，避免任意 Mapping 冒充已提交事务；新增同键但错误值、越界/非有限值和成功令牌/映像的反证测试。
+- 非阻塞建议: `OuterScanRunner` 读取 `engine._policy` / `engine._committer` 私有字段，以及 `stage_safe_image()` 对任意 pending 的全有或全无仍依赖调用方契约，这两项维持 Round 1 的后续工作包建议，不要求在本轮两项安全返修之外扩 scope。
+- 审核证据: 实施交接 `scope_sha256=6948266fd19fc948145874ec951fe5a5e0a8a28e30e4e677cacb6eb350713bda` 与 Codex 独立复算一致；审核开始/结束逐文件清单均为 `src/runtime/scan_runner.py=876743c7aafc0864216b9c6a092838c54fa28d4fbcfffdf9e49d4a6f47d24fb5`、`src/runtime/output_policy.py=41fdb620906640cae37d81eea86d9dcd2112608fe024c030c5c1293e1d5d6670`、`src/runtime/__init__.py=599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81`、`tests/test_runtime_scan_runner.py=d424cf42eb7dfd1d19bde4378967d5da1c7601829c68f6701c2f9b23a1b0698f`、`tests/test_runtime_output_policy.py=a5371735b06efeb07c2b138caec3eb572c4b5f108dcdbe7b7ab0953c62d84254`，审核期间 scope 无漂移。`docs/PROJECT_STATE.md` 保持已登记行政哈希 `bac44e367ade0a0b31a9932251cf5a55fe717184203ebad0065d6d78ab4d65fe`；协调器心跳在接手与结束核验时均 live 且未过期。Codex 独立运行：scan runner + OutputPolicy = 100/100、engine/executor/store/ir = 166/166、排除 scope 外 `tests.test_ai_handoff` 后正式测试 = 956/956、原型 = 68/68，`git diff --check` 通过；完整正式 1040 项与全仓 1108 项各有同 9 个 dashboard 用例因当前沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1031/1031、1099/1099 通过。另执行上述两条最小手工反证。审核中仅读取 Git 状态/差异用于范围核验，未执行任何 Git 写操作。
+- review_started_sha256: 6948266fd19fc948145874ec951fe5a5e0a8a28e30e4e677cacb6eb350713bda
+- review_finished_sha256: 6948266fd19fc948145874ec951fe5a5e0a8a28e30e4e677cacb6eb350713bda
+- handoff_to: claude
+- reviewed_at: 2026-07-20 17:08:42 CST
+
+### Claude 实施交接（Round 3，返修）
+
+- 开工核验（全部用 Python 标准库 `pathlib`/`hashlib`，未触碰 git/gh/shasum/rm/sudo
+  等命令）：① 接手前五字段为 `WP-20260720-008 / CHANGES_REQUESTED / owner=claude /
+  handoff_to=claude / round=2 / max_rounds=3`，符合 CHANGES_REQUESTED 映射，按协议
+  round+1 处理为 Round 3，`3 <= max_rounds=3`（本包最后一轮，再有返修转
+  `BLOCKED`）；② `.git/HEAD` = `ref: refs/heads/main` → 松散 ref
+  `975085668c2fa1d698e275b4af31d52eb70aa3ca` 与 `base_commit` 一致；③ 逐文件
+  SHA-256 + 按 scope 声明顺序聚合 = `6948266fd19fc948145874ec951fe5a5e0a8a28e30e4e677cacb6eb350713bda`，与 Round 2
+  `scope_sha256` 及 Codex `review_finished_sha256` **完全一致**——审核结束后至本轮
+  接手 scope **零漂移**（逐文件：`scan_runner.py=876743c7…`、`output_policy.py=41fdb620…`、`__init__.py=599ac0dd…`、`test_runtime_scan_runner.py=d424cf42…`、`test_runtime_output_policy.py=a5371735…`）；④ `docs/PROJECT_STATE.md`
+  行政哈希 = `bac44e367ade0a0b31a9932251cf5a55fe717184203ebad0065d6d78ab4d65fe`，与任务书一致。全部相符方进入返修。
+
+- Codex Round 2 两条“必须返修”逐条落地：
+
+  1. **确认阶段仍可漏出普通异常、留下“物理已提交、历史未前移”失配 → 确认阶段纳入
+     结构化事务闭环 + 一次性令牌确认。** 根因：旧 `scan_runner._safe_commit_or_raise`
+     只 `try` 包住 `_port.commit(...)`，提交成功后**裸调用**
+     `confirm_safe_image(...)`；该调用若因 `OutputPolicyReentryError` 或其他异常失败，
+     会绕过 `SafeCommitSignal` 漏出普通异常，且策略历史静默不前移。修复：
+     ① `stage_safe_image()` 现返回**一次性、不可伪造**的 `SafeImageTicket`（见返修
+     2），runner 提交成功后**在 try 内**用同一令牌 `confirm_safe_image(ticket)`；
+     ② 确认阶段任一失败一律 `raise` 结构化 `ScanFaultSafeCommit`/`WatchdogSafeCommit`，
+     `failed_stage="confirm"`、**保留原始扫描异常 + 确认阶段 fallback 异常**、零重试；
+     ③ 关键分层：确认阶段失败时**物理安全提交已成功**，故 `safe_commit_succeeded=True`
+     作为确凿证据保留，而“历史未前移”属**可审计失配**，由 `failed_stage="confirm"` +
+     `fallback_exception` 显式暴露供上层对账，**绝不漏出普通异常、绝不静默**。同时，
+     happy path 上令牌合法、值合法、锁空闲，确认阶段不会失败（满足任务书“受支持路径
+     上确认不失败”），确认失败路径只在被注入/防御场景触发且已结构化。新增反证
+     `test_confirm_stage_failure_after_commit_is_structured`：将确认入口替换为稳定
+     抛错函数，断言得到结构化 `ScanFaultSafeCommit`、`failed_stage="confirm"`、
+     `safe_commit_succeeded=True`、`committer.received=[{DO0:False,AO0:9}]`（物理已提交）、
+     `attempts==1`（零重试）、原始 `OutputPolicyError` + fallback `RuntimeError('confirm boom')`
+     同时保留、`commit_exception is None`、历史仍为 `{DO0:None,AO0:None}`（失配被显式
+     暴露而非静默）。
+  2. **`confirm_safe_image()` 只校验通道集合、任意同键映像可污染 `last_effective`
+     → 一次性不可伪造令牌 + 逐通道值校验。** 根因：旧 `confirm_safe_image(safe_image:
+     dict)` 在通道集合相等后直接写 `_state`，不校验每通道值是否等于已配置并校验的
+     `safe_value`，也不跑 `_iec_value_error`，故 `confirm_safe_image({'DO0':True,
+     'AO0':999})` 被接受、污染诊断历史。修复：① 新增 `SafeImageTicket`（`__slots__`，
+     携签发者引用 + 一次性令牌 + 安全映像独立副本）；`stage_safe_image()` 改为**返回
+     令牌**并记录服务内 `_pending_ticket`；② `confirm_safe_image(ticket)` 三重校验后
+     才前移、并**消费令牌**（一次性）：(a) `isinstance` 且 `ticket._issuer is self`
+     （拒绝任意 Mapping / 他服务令牌）；(b) `ticket._token is self._pending_ticket`
+     （拒绝重复/被后续 stage 作废的过期令牌）；(c) 通道集合相等**且**逐通道
+     `_iec_value_error` 合法 + `type(value) is type(safe_value) and value ==
+     safe_value`（拒绝同键错误值 / 越界 / 非有限值污染）；任一不满足整体失败关闭、
+     不前移、不消费令牌。这样 confirm 确认的**一定是**同一次 stage 准备并提交的安全
+     映像。既有正常 `stage_outputs`/`_compute` 及 66 项语义锁未改动放宽。新增 7 项
+     output_policy 反证 + 强化既有 stage/confirm 用例（见下）。
+
+- 修改文件（scope 五文件中改动 4 个，逐文件 SHA-256 见末尾）：
+  - `src/runtime/output_policy.py`（改）：新增 `SafeImageTicket` 类；
+    `OutputPolicyService.__init__` 增 `_pending_ticket` 字段；`stage_safe_image()`
+    改为签发并返回 `SafeImageTicket`（staging 语义与全有或全无校验不变）；
+    `confirm_safe_image()` 由“仅通道集合校验的 dict 入参”改为“一次性令牌 + 逐通道
+    值/IEC 三重校验”。更新相关 docstring。既有语义锁未放宽。
+  - `src/runtime/scan_runner.py`（改）：`_safe_commit_or_raise` 中 stage 改取
+    `ticket`（`safe_image = ticket.image`）；提交成功后的 `confirm_safe_image(ticket)`
+    纳入 `try` 并在失败时 raise `failed_stage="confirm"`、`safe_commit_succeeded=True`、
+    保留原始 + fallback 的结构化信号。更新 `SafeCommitSignal` 与模块/方法 docstring
+    以纳入 `"confirm"` 阶段及其“物理已提交、历史未前移”可审计失配语义。
+  - `tests/test_runtime_output_policy.py`（改）：`TestSafeImageEntry` 按令牌口径收口
+    （stage 返回令牌、confirm 收令牌）；新增/替换反证：令牌 image 为独立副本、
+    **拒绝任意裸字典同键错误值**（Codex 反证 2 原例）、拒绝他服务令牌、拒绝重复令牌、
+    拒绝被后续 stage 作废的过期令牌、拒绝篡改后的同键错误值、拒绝越界值、拒绝非有限
+    值。既有 66 项语义锁一字未改。
+  - `tests/test_runtime_scan_runner.py`（改）：新增
+    `test_confirm_stage_failure_after_commit_is_structured`（Codex 反证 1）。
+  - **未改** `src/runtime/__init__.py`（无公共名增删，哈希保持 `599ac0dd…`）：
+    `SafeImageTicket` 属两阶段事务的握手对象，测试经 `src.runtime.output_policy`
+    子模块引用，未加入包级 `__all__`，避免扩大公共面。
+
+- 明确未修改：`src/runtime/__init__.py`（同上）、`docs/PROJECT_STATE.md`（行政哈希
+  保持 `bac44e3…`）、`docs/AI_REVIEW_HANDOFF.md` 除本 Round 3 实施交接段与顶层五字段
+  以外的历史正文、任何权威规格、`.cursor/rules/*`、协调器/自动化配置、
+  `src/runtime/engine.py`、`.git` 内部文件；未执行任何 Git 写操作。Codex 两轮的
+  **非阻塞建议**（运行器读取 `engine._policy`/`engine._committer` 私有字段；
+  `stage_safe_image` 对任意 pending 的全有或全无依赖调用方契约）仍按其“不阻塞本轮”
+  定位留待后续工作包，本轮未改，避免顺手扩面。
+
+- 首次失败 / 根因 / 修复后重跑：首轮定向
+  `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy`
+  即一次通过（Ran 108, OK），本轮无测试失败需修复。（返修前已通过阅读 Codex 两条
+  反证的最小复现路径定位根因，实现按上述两阶段令牌事务落地后首跑即绿。）
+
+- 五组测试实数（2026-07-21 本机实际运行，`PYTHONDONTWRITEBYTECODE=1`）：
+  1. `python -m unittest tests.test_runtime_scan_runner tests.test_runtime_output_policy` → **Ran 108, OK**（较 Round 2 的 100 增 8：scan_runner +1 confirm 阶段反证、output_policy +7 令牌反证）。
+  2. `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → **Ran 166, OK**。
+  3. `python -m unittest discover -s tests -t .` → **Ran 1108, OK**。
+  4. `python -m unittest discover -s prototype_05 -t .` → **Ran 68, OK**。
+  5. `python -m unittest discover -s . -t .` → **Ran 1176, OK**。
+  说明（口径诚实）：本机沙箱**允许**绑定本地 HTTP 端口，故 `tests/test_ai_handoff.py`
+  的面板用例全部通过（Codex Round 2 沙箱因端口 `PermissionError` 少计 9 项）。第 3/5 组
+  绝对数（1108/1176）高于 Round 2 记录（1040/1108），差额来自 **scope 外**、会话开始前
+  即存在于工作区的协调器工具改动（`tests/test_ai_handoff.py` 现 144 项，及
+  `tools/ai_handoff/*`、`docs/AI_HANDOFF_OPERATIONS.md` 等），**不属本工作包 scope，
+  本轮未触碰**；与 Round 2 一致的口径为“whole − tests = 68（prototype）”本轮仍成立
+  （1176 − 1108 = 68）。本工作包五个 scope 文件的行为证据以第 1/2 组为准。
+
+- 自查（以审核者姿态复读）：① 令牌路径杜绝任意 Mapping 污染——`confirm_safe_image`
+  对非 `SafeImageTicket`/他服务/过期/重复令牌与同键错误值/越界/非有限值均失败关闭且
+  不前移，反证齐备；② 确认阶段失败已结构化（`failed_stage="confirm"`），保留提交成功
+  证据 + 原始 + fallback，绝不漏出普通异常或静默失配，反证齐备；③ happy path 上确认
+  阶段令牌/值/锁均合法，不引入新失败；④ 既有 66 项 OutputPolicy 语义锁与正常路径
+  行为未改动放宽（第 1 组全绿含既有锁）；⑤ 未扩 scope、未执行 Git、未改状态/规格/
+  协调器配置。
+
+- 工程约定 / 待真机验证边界（诚实分层，与 Round 1/2 一致）：一次性令牌两阶段安全
+  事务、逐通道 safe_value 值校验、`safe_value` 基准/恢复、故障锁存不自动复位、提交
+  尝试证据分类均为**项目工程约定、非 CODESYS 官方语义**。真实周期计时、后台线程、
+  硬件 watchdog、shadow、`last_physical_committed`、真实驱动/HAL、`commit_fault`/
+  `channel_fault` 重试与复位、可信设备反馈**不在本包**。以上 Python 测试只证明当前
+  实现行为，**不构成**与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路
+  一致的证据；watchdog 事件产生时机仍待阶段 7 独立 monitor。
+
+- 已知疑问：① 确认阶段失败时采用 `safe_commit_succeeded=True` +
+  `failed_stage="confirm"` 表达“物理已提交、历史未前移”的失配（而非新增独立字段），
+  请 Codex 裁决该分层表达是否满足审计需求，或是否更宜引入显式 `history_confirmed`
+  字段；② 两条非阻塞建议（私有字段装配核验、`stage_safe_image` 全有或全无的 pending
+  契约）仍如 Round 1/2 记录，属后续工作包，本轮未动；③ 令牌 `confirm` 与提交端口成功
+  之间无跨进程原子性（本包不实现真实驱动/事务提交）；引入真实 HAL/驱动后需在阶段 7
+  评估提交与策略历史确认的落地原子性。
+
+- scope_sha256: dcbd645967997f531568c9cc217ea9a94b53acd342fd72d0e80bd6748ff32e69
+  - `517eb25d0b9912bb2adcd813b2d7556061068ed4733b6f693428c4e476c551c8  src/runtime/scan_runner.py`
+  - `7a2e8ea6d95cd0e4a0584d1a08507345b62d076310da345c111fe1e4dde3ace4  src/runtime/output_policy.py`
+  - `599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81  src/runtime/__init__.py`
+  - `892a734bad923989999c57952e6d1c8c6a6a093b99f8caa15328174bc9340fa4  tests/test_runtime_scan_runner.py`
+  - `d9d75af6e82f9b4910c8adf8712a80c1ee3bfdc5fa228de8ea968af6414cec4d  tests/test_runtime_output_policy.py`
+- handoff_to: codex
+- implementation_finished_at: 2026-07-21T16:57:02+08:00
+
+### Codex 审核结论（Round 3）
+
+- verdict: APPROVED
+- 已验证事实: Round 2 两项必须返修均已收口。`src/runtime/output_policy.py` 的 `stage_safe_image()` 现在只准备并签发一次性 `SafeImageTicket`，不提前前移策略历史；`confirm_safe_image(ticket)` 在同一服务、当前未消费令牌、完整通道集合、逐通道 IEC 合法且严格等于当前 `safe_value` 全部成立后才统一前移，并拒绝裸 Mapping、他服务、重复、过期、篡改、越界和非有限值。`src/runtime/scan_runner.py` 已把提交成功后的确认阶段纳入结构化事务闭环：确认失败时上报 `failed_stage="confirm"`，保留原始扫描异常与 fallback 异常，并以 `safe_commit_succeeded=True` 如实表示物理安全映像已经提交；普通异常不再漏出。正常路径、提交前扫描故障、正常提交故障、watchdog、staging/commit/confirm 失败分类及零重试边界均保持一致。
+- 项目工程约定: 一次性令牌两阶段安全事务、全通道 `safe_value` 恢复、`scan_ok`/`watchdog_ok` 故障锁存、提交尝试证据分类，以及确认失败时用 `safe_commit_succeeded=True + failed_stage="confirm"` 表达“物理已提交、策略历史未确认”的失配，均为当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。该表达已能同时保留物理提交事实与历史确认状态，不需要为本包批准额外扩充字段。
+- 待真机验证假设: 真实周期与抖动、事件产生时机、硬件 watchdog、现场安全回路、可信设备反馈/HAL、真实驱动提交、`last_physical_committed`、`commit_fault`/`channel_fault` 锁存复位、shadow 与目标 SP16.1 行为仍未验证；当前 Python 测试只证明本实现的确定性故障响应和审计边界，不证明 PLC/CODESYS、真实驱动或现场安全回路一致。
+- 必须返修: 无。
+- 非阻塞建议: 延续前两轮记录，后续工作包可用 `ScanEngine` 公共只读端口或集中装配工厂替代 `engine._policy` / `engine._committer` 私有引用；同时明确 `stage_safe_image()` 仅接受干净真实 `OutputPending` 的契约或增加回滚语义。进入多写者安全状态阶段前，还应评估 `_latch_fault()` 当前“read 后整包 replace”的复合操作是否需要原子字段更新或单写者约束，避免并发安全状态替换时丢失其他字段的新值；该并发扩展不阻塞本包当前确定性单 runner 范围。
+- 审核证据: 接手五字段为 `WP-20260720-008 / READY_FOR_CODEX / codex / codex / round=3`，且 `3 <= max_rounds=3`；审核期间原子置为 `CODEX_REVIEWING / codex / codex`，协调器心跳在开始与结束均 live 且未过期。该包属于协议明确 legacy 白名单，故标注“历史格式：自审证据未独立结构化”，未把实施交接正文冒充 v2 自审证据。实施交接 `scope_sha256=dcbd645967997f531568c9cc217ea9a94b53acd342fd72d0e80bd6748ff32e69` 与 Codex 开始/结束独立复算一致；逐文件清单两次均为 `src/runtime/scan_runner.py=517eb25d0b9912bb2adcd813b2d7556061068ed4733b6f693428c4e476c551c8`、`src/runtime/output_policy.py=7a2e8ea6d95cd0e4a0584d1a08507345b62d076310da345c111fe1e4dde3ace4`、`src/runtime/__init__.py=599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81`、`tests/test_runtime_scan_runner.py=892a734bad923989999c57952e6d1c8c6a6a093b99f8caa15328174bc9340fa4`、`tests/test_runtime_output_policy.py=d9d75af6e82f9b4910c8adf8712a80c1ee3bfdc5fa228de8ea968af6414cec4d`，审核期间 scope 无漂移。Codex 独立运行：scan runner + OutputPolicy = 108/108、engine/executor/store/ir = 166/166、排除 scope 外 `tests.test_ai_handoff` 后正式测试 = 964/964、原型 = 68/68，`git diff --check` 通过；完整正式 1108 项与全仓 1176 项各有同 9 个 scope 外 dashboard 用例因当前沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1099/1099、1167/1167 通过。未执行任何 Git 写操作。
+- review_started_sha256: dcbd645967997f531568c9cc217ea9a94b53acd342fd72d0e80bd6748ff32e69
+- review_finished_sha256: dcbd645967997f531568c9cc217ea9a94b53acd342fd72d0e80bd6748ff32e69
+- handoff_to: user
+- reviewed_at: 2026-07-21 17:09:55 +0800
