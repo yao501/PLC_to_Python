@@ -2,7 +2,7 @@
 
 > **用途**：跨会话记忆载体。每个 AI 会话开始时**先读本文件**（配合 `CODEX_GUIDE.md` 长期工作方针）。
 > **更新纪律**：仅当阶段、版本、完成项、阻塞项或下一步发生**实质变化**时更新，不做无意义编辑；只保留"当前状态 + 决策索引 + 下一步"，不写过程叙事；超过 150 行就该精简。
-> 最后更新：2026-07-22（**`WP-20260722-010` 与 `WP-20260722-011` 已由用户确认 `CLOSED`，提交监督器的诊断表示与恶意标量子类信任边界均已通过 Codex 独立审核**。实现在任何不可信值的值域/有限性/相等运算前先要求命令与回执均为 exact `bool/int/float/str` 且 exact 类型相同；子类以结构化 `PartialCommitError` 逐通道失败关闭。Claude 最终五组测试为 172/172、166/166、1172/1172、68/68、1240/1240；Codex 独立复跑 172/172、166/166、68/68，自有恶意 `int/float/str`、多通道隔离与两次失败锁存反证全部通过，`git diff --check` 通过；正式/全仓受限沙箱中除同 9 个既有 HTTP 端口绑定用例外其余 1163/1163、1231/1231 通过。scope 审核始终聚合 SHA-256 为 `e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea`，风险 `PLATFORM-DRIVER-RECEIPT-TYPE-1` 已转 resolved。**以上只证明当前 Python 契约，不证明 PLC/CODESYS、真实 HAL/驱动、硬件 watchdog 或现场安全回路一致**。用户已授权 Git/GitHub 发布收尾；旧主轮询继续暂停。）
+> 最后更新：2026-07-22（**`WP-20260722-010` 与 `WP-20260722-011` 已由用户确认 `CLOSED`，提交监督器的诊断表示与恶意标量子类信任边界均已通过 Codex 独立审核**。实现在任何不可信值的值域/有限性/相等运算前先要求命令与回执均为 exact `bool/int/float/str` 且 exact 类型相同；子类以结构化 `PartialCommitError` 逐通道失败关闭。Claude 最终五组测试为 172/172、166/166、1172/1172、68/68、1240/1240；Codex 独立复跑 172/172、166/166、68/68，自有恶意 `int/float/str`、多通道隔离与两次失败锁存反证全部通过，`git diff --check` 通过；正式/全仓受限沙箱中除同 9 个既有 HTTP 端口绑定用例外其余 1163/1163、1231/1231 通过。scope 审核始终聚合 SHA-256 为 `e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea`，风险 `PLATFORM-DRIVER-RECEIPT-TYPE-1` 已转 resolved。**以上只证明当前 Python 契约，不证明 PLC/CODESYS、真实 HAL/驱动、硬件 watchdog 或现场安全回路一致**。Git 功能载荷提交为 `532cc2a`，分支 `codex/wp-009-011-commit-supervisor` 已推送，GitHub 草稿 [PR #17](https://github.com/yao501/PLC_to_Python/pull/17) 已创建、目标 `main`；尚未合并。旧主轮询继续暂停。）
 
 ---
 
@@ -23,7 +23,7 @@
 - **提交监督恢复包已审核关闭**：`WP-20260721-009` Round 1～3 建立并逐步收敛驱动确认回执、`last_physical_committed`、逐通道 `commit_fault` / `channel_fault`、安全值重试、三条件显式复位、复位并发失败关闭与不可污染诊断快照；其 Round 4 中断历史保持 `BLOCKED`。后继 `WP-20260722-010` 已在 Round 2 收口普通异常 `__repr__` 与 fallback 类型名二次字符串化失败，Codex verdict=`APPROVED`、必须返修=无；未改变 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4` 语义，已由用户确认 `CLOSED`。
 - **驱动回执类型信任边界已加固关闭**：`WP-20260722-011` 已将 WP-010 独立审核中识别、当时明确 scope 外的恶意整数子类风险独立收口。不可信驱动回执子类不再能在监督器置故障前触发重载运算；故障通道形成 `PartialCommitError`、计数与锁存升级，健康通道仍独立成功，Store 对业务内部 IEC 值的现有工程映射未改。Codex Round 1 `APPROVED`，已由用户确认 `CLOSED`。
 - **0.5 可执行验证原型已完成并经两轮定向返修**（Fable5 实施，`prototype_05/`，一次性代码）：最小指令集 + TON 经描述符 + BOOL OutputPolicy + ST/CFC 双路径同指令列表跑 24 拍 + 5 个语义敏感案例。Codex 首轮 6 条（驱动异常提交隔离、绑定 actual 类型、OutputPolicy 校验、无 LPC 基准、纯整数 DIV/MOD、文档对齐）+ 二轮 2 条（Binding 表结构校验：重复 formal/非法 actual_kind/const 值类型；安全配置 NaN/Infinity/整数范围拒绝）均修复，每条有反证测试（`prototype_05/tests/test_review_rework.py`）。
-- **下一步（按序）**：① Codex 按用户授权完成 Git 提交、推送与 GitHub PR 收尾；② 发布收尾后按既定路线进入独立 shadow mode 工作包。L2 adapter registry、真实 monitor/HAL 与现场安全证明继续保持后续独立工作包。
+- **下一步（按序）**：① 审查并合并 GitHub 草稿 [PR #17](https://github.com/yao501/PLC_to_Python/pull/17)，合并后同步本地 `main` 与 `origin/main`；② 再按既定路线进入独立 shadow mode 工作包。L2 adapter registry、真实 monitor/HAL 与现场安全证明继续保持后续独立工作包。
 
 ## 3. 文档权威地图（谁说了算）
 
