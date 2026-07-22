@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from src.runtime import (
     BinOp,
     CommitPort,
+    CommitSupervisor,
     Executor,
     IOMap,
     IRExecutionError,
@@ -543,6 +544,25 @@ class TestRunnerConfig(unittest.TestCase):
         other_port = CommitPort(_RecordingCommitter())
         with self.assertRaises(ScanRunnerConfigError):
             OuterScanRunner(w.engine, w.policy, other_port)
+
+    def test_commit_port_exposes_inner(self):
+        inner = _RecordingCommitter()
+        self.assertIs(CommitPort(inner).inner, inner)
+
+    def test_plain_committer_inner_not_validated_as_supervisor(self):
+        # 非 CommitSupervisor 的底层端口保持既有 WP-007/008 装配不变（不触发新校验）
+        w = _build()
+        self.assertIsInstance(w.runner, OuterScanRunner)
+
+    def test_runner_accepts_supervisor_sharing_same_policy(self):
+        # CommitSupervisor 绑定引擎/运行器同一策略时装配通过（共享同一故障状态）
+        w = _build()
+        sup = CommitSupervisor(_RecordingCommitter(), w.policy)
+        port = CommitPort(sup)
+        engine = ScanEngine(w.task, w.layout, w.executor, w.policy, port)
+        runner = OuterScanRunner(engine, w.policy, port)
+        self.assertIs(port.inner, sup)
+        self.assertIsInstance(runner, OuterScanRunner)
 
 
 class TestPackageExports(unittest.TestCase):

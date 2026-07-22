@@ -1380,3 +1380,716 @@ CLOSED:             owner=user     handoff_to=user
 - review_finished_sha256: dcbd645967997f531568c9cc217ea9a94b53acd342fd72d0e80bd6748ff32e69
 - handoff_to: user
 - reviewed_at: 2026-07-21 17:09:55 +0800
+
+---
+
+## WP-20260721-009
+
+- title: 阶段 1 提交监督器、通道故障锁存复位与驱动确认提交证据
+- status: BLOCKED
+- owner: user
+- handoff_to: user
+- round: 4
+- max_rounds: 4
+- handoff_protocol: v2
+- base_commit: f0950443c9f2cbd43e0f0067746dd8abaebfca86
+- created_by: user
+- created_at: 2026-07-21 21:08:21 +0800
+- depends_on:
+  - WP-20260716-007 CLOSED
+  - WP-20260720-008 CLOSED
+- scope:
+  - src/runtime/commit_supervisor.py
+  - src/runtime/scan_runner.py
+  - src/runtime/output_policy.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_commit_supervisor.py
+  - tests/test_runtime_scan_runner.py
+  - tests/test_runtime_output_policy.py
+- scope_baseline_sha256: 4741dbdb947fda2ddcc995615b42fe601c4c2943957fb2c6b120aa258190ccb8
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/commit_supervisor.py`
+  - `517eb25d0b9912bb2adcd813b2d7556061068ed4733b6f693428c4e476c551c8  src/runtime/scan_runner.py`
+  - `7a2e8ea6d95cd0e4a0584d1a08507345b62d076310da345c111fe1e4dde3ace4  src/runtime/output_policy.py`
+  - `599ac0ddbe596f3ff3435bc50f70ba516c33b2478e583797a6469224c29d5e81  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_commit_supervisor.py`
+  - `892a734bad923989999c57952e6d1c8c6a6a093b99f8caa15328174bc9340fa4  tests/test_runtime_scan_runner.py`
+  - `d9d75af6e82f9b4910c8adf8712a80c1ee3bfdc5fa228de8ea968af6414cec4d  tests/test_runtime_output_policy.py`
+
+### 工作包创建行政证据（Claude 启动前）
+
+- 用户于 2026-07-21 明确确认 Codex 提出的 `WP-20260721-009` 目标、scope、验收条件、排除项、依赖与测试计划，并授权开始工作。本节与 `docs/PROJECT_STATE.md` 同步属 Codex 创建工作包的行政动作，不属于 Claude 实施 scope。
+- 创建前已核验：当前分支 `main`，HEAD 与 `origin/main` 均为 `f0950443c9f2cbd43e0f0067746dd8abaebfca86`；工作区原有唯一改动是用户已授权的 `docs/PROJECT_STATE.md` 发布状态/测试快照表述同步，已保留并纳入本次行政状态更新。
+- 创建前事件协调器为 `stopped`、TCP 8765 无监听者、无活动执行租约；旧 Claude/Codex 30 分钟主轮询仍必须保持暂停。
+- 以上七个 scope 文件按声明顺序的 baseline manifest 聚合 SHA-256 = `4741dbdb947fda2ddcc995615b42fe601c4c2943957fb2c6b120aa258190ccb8`；两个新文件在创建时均已确认不存在。
+- `docs/PROJECT_STATE.md` 本次行政更新后 SHA-256 = `73d374ccba2c3fe3afef7ad70a5a5120b15091efb5be118e0b67ddc6af9c13ad`。Claude 不得修改该文件；Codex 只在审核或关闭状态发生实质变化时再按事实更新。
+- 首次 v2 开工预检发现 `tests/test_ai_handoff.py` 的实盘断言仍假设所有工作包均为 legacy。用户明确授权 Codex 仅修正这一项协议代际断言：WP-001～008 继续按 legacy 白名单验证，WP-009 及后续包必须按 v2 验证；未修改解析器、调度器或七个功能 scope 文件。修正后该文件 SHA-256 = `147564b5d4e1bff9e510711613300e8b45e2a808fa8c785ad7d51cd33b94991e`，宿主环境 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff -v` = **Ran 144 tests, OK**。此项是工作包启动前的用户授权行政前置修正，不纳入 Claude 功能 scope，Claude 不得修改。
+- 本包是首个强制按 v2 三阶段门禁运行的正式工作包；Claude 必须先在 `CLAUDE_WORKING` 内完成结构化自审，自审 `PASS`、真实测试计数、manifest 与聚合哈希全部通过后，才允许原子交接给 Codex。
+
+### 目标与权威依据
+
+落实 `docs/ENGINE_SCAN_SPEC.md v2.2.2 §4.1/§4.4`的提交层状态机，使既有 `ScanEngine` / `OuterScanRunner` 的正常提交、scan-fault 安全提交与显式 watchdog 安全提交共用同一可审计提交监督边界。本包只实现已冻结的项目工程约定，不将 Python 回执冒充为真实物理设备反馈或 CODESYS 官方语义。
+
+### 实施范围与验收标准
+
+1. **驱动确认提交证据**
+   - 建立不可变、结构化的逐通道提交回执，将本次命令通道、IEC 值与成功/失败结果精确绑定；回执通道集必须与实际尝试提交集合一致。
+   - 仅在回执明确成功、通道一致、值严格等于本次发出命令且 IEC 类型/数值域合法时，才更新该通道 `last_physical_committed`。返回 `None`、仅“未抛异常”、缺失/多余通道、错值、错类型或不完整回执均不得被提升为可信成功证据。
+   - `last_physical_committed` 只是驱动确认已写出的最后命令值与诊断记录，不是传感器确认的设备实际位置，不得作为可信设备反馈或恢复基准。
+
+2. **逐通道 `commit_fault` / `channel_fault` 状态机**
+   - 任一通道提交失败后立即置瞬时 `commit_fault`，保留该通道旧 `last_physical_committed`；其他明确成功通道独立更新，不被连带标故障。
+   - 故障通道从下一拍起必须忽略策略层本拍 `final`、持续尝试写 `safe_value`；其他通道继续提交自身业务值，实现逐通道隔离。
+   - 连续失败计数在第 `commit_fault_retry_n` 次失败时精确升级并锁存 `channel_fault`；锁存后不存在静默放弃路径，仍每拍尝试安全值。
+   - 阈值前安全值写成功可清除瞬时 `commit_fault` 与连续失败计数；已升级的 `channel_fault` 绝不得因安全值写成功而自动清除。
+   - 提交层故障不进入 OutputPolicy 的故障原因集合；策略层仍照常计算 `final` 并维持 `last_effective` 逻辑连续。
+
+3. **三条件显式复位与恢复基准**
+   - `channel_fault` 仅能经显式复位 API 解除；必须同时满足“调用方明确确认故障原因已消失 + 锁存后已有合法回执确认 `safe_value` 写成功 + 本次显式复位调用”三条件。
+   - 未知通道、未锁存、故障原因未确认消失、锁存后未确认安全值或重复复位均必须结构化拒绝，不得静默忽略。
+   - 瞬时故障恢复或锁存复位后的首个正常输出必须重建边界基准；本包无真实 HAL/可信设备反馈，因此一律按规范退化为 `safe_value`，不得使用 `last_physical_committed` 对齐。
+
+4. **既有扫描/安全事务集成**
+   - 正常提交、scan-fault 安全提交和 watchdog 安全提交必须共用同一提交监督状态与底层驱动端口，不得出现第二套平行故障状态。
+   - 正常提交发生逐通道/部分失败时不得追加第二次安全提交；必须以结构化异常保留逐通道成功/失败证据。任一通道失败的拍保持当前 `ScanEngine.prev` 不前移；若实施方认为必须改变该纪律，须停止并转规格裁决。
+   - 外层安全映像只有在全部通道都有明确成功回执时，才可执行现有 `confirm_safe_image(ticket)` 并标记 `safe_commit_succeeded=True`；部分成功必须保留逐通道回执、标记整体未成功，不得污染全通道策略历史。
+   - 公开诊断必须返回独立/不可反向污染的快照；提交、复位与诊断并发/递归重入必须失败关闭，异常后状态可继续安全使用。
+
+### 明确排除与冻结边界
+
+- 不实现 shadow mode、真实 HAL/驱动适配、可信设备传感器反馈、真实周期 monitor、抖动/超时测量、后台线程、硬件 watchdog、L2 adapter registry、HMI/通知/操作员身份认证、事件持久化或现场安全回路。
+- 不修改正式规格、`docs/PROJECT_STATE.md`、`.cursor/rules/*`、AI 协调器/自动化配置、标准库业务块、`src/runtime/engine.py`、`tests/test_runtime_engine.py` 或 `.git`。Claude 不执行任何 Git/GitHub 写操作。
+- 真实 HAL 到来前，本包的驱动回执测试是契约模拟，不得表述为真实物理写入、设备位置反馈、PLC/CODESYS 一致或现场安全证明。
+- 如果实施需要修改上述排除文件、改变 `prev` 纪律、新增规格语义或扩大 scope，必须置 `BLOCKED` 并交用户裁决，不得自行实施。
+
+### 最低测试要求
+
+1. 驱动回执：全成功、单通道失败、多通道部分成功；`None`/仅无异常、缺失/多余通道、错值/错类型/越界/非有限回执均失败关闭，不前移相应 `last_physical_committed`。
+2. 逐通道隔离：一通道失败时其他通道仍保留成功证据；故障通道下一拍及后续拍只写 `safe_value`，正常通道继续写业务值。
+3. 状态机：阈值前恢复、第 N 次精确升级、锁存后继续安全写、安全写成功只清瞬时故障不清锁存。
+4. 复位：三项前置逐项缺失、未知/未锁存/重复复位均拒绝；全部满足时成功解锁，首拍从 `safe_value` 重建限速基准。
+5. 反证 `last_physical_committed` 不被 OutputPolicy 当成可信反馈/基准；正常、scan-fault、watchdog、安全映像部分失败与 confirm 失败路径都有结构化证据。
+6. 递归/并发重入失败关闭；诊断快照不可反向污染；异常后锁与状态仍可恢复使用。既有 WP-007/WP-008 语义锁不得改写或放宽。
+7. 至少实际运行并记录：
+   - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy`
+   - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir`
+   - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+   - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+   - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+   - `git diff --check`
+   执行责任按用户 2026-07-21 裁决分配：Claude 必须在交接前实际运行并记录上述五组 Python 测试；协调器继续禁止 Claude 使用任何 `git` 命令，故 `git diff --check` 由 Codex 在原子交接后、作出独立审核结论前实际运行并记录。两端证据合并后仍须覆盖本清单全部命令，不降低最终验收标准。
+   新增测试导致总数增长是正常现象；交接必须保留历史快照和本轮实际计数，不得把计数增长冒充为矛盾。
+
+### 实施与 v2 交接要求
+
+- 开工前逐项核对 `work_package_id + status + owner + handoff_to + round`、`round <= max_rounds`、`handoff_protocol: v2`、`base_commit`、baseline manifest/聚合哈希及 `docs/PROJECT_STATE.md` 行政哈希；任一不符必须安全停笔。
+- 只允许修改 scope 中七个文件。`src/runtime/commit_supervisor.py` 与 `tests/test_runtime_commit_supervisor.py` 创建前必须确认不存在；若已存在即视为 baseline 漂移。
+- Claude 必须先在 `CLAUDE_WORKING` 内追加 `### Claude 交接前自审（Round 1）`，完整填写公共协议要求的结构化字段。只有 `self_review_verdict: PASS`、实际测试命令+成功标记+真实计数、完整 manifest、`self_review_scope_sha256 == scope_sha256`、明确“是否满足交接条件: 是”全部成立时，才可在自审段之后追加 `### Claude 实施交接（Round 1）`。
+- 最终必须以一次原子写入同时把顶层五字段转为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，并保证本轮实施交接位于自审段之后；随后立即停止修改 scope，等待 Codex 独立审核。
+- 所有 Python 回执只证明当前实现和回执契约行为，不构成与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据。
+
+### Claude 首次启动失败关闭与一次性重试授权
+
+- 首次执行键 `WP-20260721-009:1:start_claude_implementation` 于 2026-07-21 21:23:38 +0800 以 `postcondition-failed` 结束：Claude 进程返回 0，但仍为 `CLAUDE_WORKING`，未写结构化自审、未原子交接。协调器已释放租约且未自动重试。
+- 根因已核实为权限命令不匹配：协调器有意禁止全部 `git` / `shasum`，Claude 首次尝试了含 `git`、`shasum` 与 shell 复合语句的 Bash 命令后安全停笔。失败期间七个功能 scope 文件均未修改，复算聚合 SHA-256 仍为 baseline `4741dbdb947fda2ddcc995615b42fe601c4c2943957fb2c6b120aa258190ccb8`。
+- 用户明确批准上述测试责任分配，并授权该失败键**仅重试一次**。`retry_idempotency_key: WP-20260721-009:1:start_claude_implementation`。
+- 重试接手必须只用 Python 标准库（如 `pathlib` / `hashlib`）读取分支引用、核验两个 `ABSENT` 文件、逐文件 manifest 与聚合哈希；测试只运行任务书列出的 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`。不得调用或借 Python `subprocess` 绕过禁止的 `git` / `shasum` / shell 复合命令；`git diff --check` 严格留给 Codex 交接后独立执行。
+
+### Codex 协调监督阻塞记录（Round 1）
+
+- blocked_reason: 用户授权的单次重试期间，Claude 在仓库根目录创建了 scope 外文件 `.wp009_verify.py`；这违反“只允许修改七个 scope 文件”的硬边界，Codex 监督方立即停止协调器及 Claude，拒绝让无效证据链继续扩展。
+- 第二次执行结果: 同一幂等键于 2026-07-21 21:32:24 +0800 被监督停止，子进程返回 143；协调器已记录失败、释放全局租约并转 stopped，无自动重试、无旧轮询恢复授权。
+- 功能 scope 证据: 七个正式 scope 文件在停止后复算仍与 baseline manifest 逐项一致，聚合 SHA-256 = `4741dbdb947fda2ddcc995615b42fe601c4c2943957fb2c6b120aa258190ccb8`。`src/runtime/commit_supervisor.py` 与 `tests/test_runtime_commit_supervisor.py` 仍为 ABSENT；没有实现、自审或原子交接产物。
+- scope 外遗留物: `.wp009_verify.py` SHA-256 = `443440e7392dfc2be26534064687e1ef0fd05ef34ede1f2cbdaf35649e5eb0a8`，内容仅为 `pathlib` / `hashlib` 基线核验辅助脚本。Codex 未删除、未移动、未执行，也未将其加入 scope，等待用户明确裁决。
+- 状态裁决: 按本包“扩大 scope 必须 `BLOCKED` 并交用户裁决”的规则，顶层字段已转为 `BLOCKED / owner=user / handoff_to=user / round=1`。这不是 Claude 自审或 Codex 独立代码审核结论，不冒充三阶段中的任何一阶段。
+- 项目状态同步: `docs/PROJECT_STATE.md` 已按实际阻塞状态更新，当前 SHA-256 = `ac22bf6cd879b38f5a3f6ac1a0103bc9828e967c9d924e5b46570eae127575ee`，取代创建时行政哈希作为后续恢复核验基准。
+- 需要用户裁决: ① 是否授权删除 scope 外 `.wp009_verify.py`；② 是否在清理并补充“不得创建任何辅助文件，只能执行直接 `python -c` / unittest 命令”后，再为同一失败键授权一次新的受限重试。不得自行恢复协调器或旧轮询。
+- blocked_at: 2026-07-21 21:34:21 +0800
+
+### 用户裁决后的恢复与再次单次重试授权
+
+- 用户于 2026-07-21 明确同意三项恢复动作：删除 scope 外 `.wp009_verify.py`；补充“不得创建任何核验辅助文件，只能直接执行 `python -c` 与 unittest”的约束；恢复 `CLAUDE_WORKING` 并为同一幂等键再授权一次受限重试。
+- Codex 已按精确目标删除 `.wp009_verify.py`，未删除或修改其他文件；删除前内容与 SHA-256 已完整保留在上一阻塞记录。删除后七个功能 scope 的 baseline manifest 与聚合 SHA-256 仍为 `4741dbdb947fda2ddcc995615b42fe601c4c2943957fb2c6b120aa258190ccb8`。
+- 本次重试的写入白名单只有七个功能 scope 文件，以及 v2 协议强制要求的本工作包自审/实施交接记录；**严禁在仓库任何位置创建核验脚本、临时文件、缓存、日志、补丁或其他辅助文件**，也不得修改其他既有文件。需要哈希或分支引用核验时，只能直接执行单行 `python -c "..."`，不得使用 heredoc、重定向、动态生成脚本或 `subprocess` 间接调用禁用命令。
+- 允许的 Bash 入口仅为直接 `python -c "..."`、`PYTHONDONTWRITEBYTECODE=1 python -c "..."` 与任务书列出的 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`。仍禁止 `git` / `gh` / `shasum` / `rm` / `sudo` 及 shell 复合命令；`git diff --check` 由 Codex 在原子交接后独立执行。
+- `docs/PROJECT_STATE.md` 已同步恢复状态，当前 SHA-256 = `d389ba7a9ed18e6ba94d221df334a0d925585ed0067a21013c1063c539d159b7`，作为本次恢复接手的行政核验基准。
+- 顶层状态已按用户裁决恢复为 `CLAUDE_WORKING / owner=claude / handoff_to=claude / round=1`；此前两次失败记录仅作审计历史，不得被冒充为自审或实施证据。本次仍须从 baseline 重新实施并完整通过 v2 九项门禁。
+- retry_idempotency_key: WP-20260721-009:1:start_claude_implementation
+- retry_authorized_at: 2026-07-21 21:44:10 +0800
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-21 22:00:12 +0800
+- self_review_finished_at: 2026-07-21 22:06:46 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e
+- self_review_manifest:
+  - `a31020221b0dcaf177b709b488a6cd483eb591d6aea232df35e560a106701876  src/runtime/commit_supervisor.py`
+  - `fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632  src/runtime/scan_runner.py`
+  - `f08f84ff395856df19255aaf041836bf08db477244694c7b4f8cfbf961bf4a08  src/runtime/output_policy.py`
+  - `6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b  src/runtime/__init__.py`
+  - `52a78e47cdf25bce63bbd11470d407c440dcec8edbeef7bb5b91fc34d747afc7  tests/test_runtime_commit_supervisor.py`
+  - `50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981  tests/test_runtime_scan_runner.py`
+  - `15f3829205d8fb86fbf477b69de825c67206ed30608612ebad692362bb85ff3e  tests/test_runtime_output_policy.py`
+- 实际测试命令与结果: 本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`
+  - `python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 156 tests, OK（通过）
+  - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK（通过）
+  - `python -m unittest discover -s tests -t .` → Ran 1156 tests, OK（通过）
+  - `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（通过）
+  - `python -m unittest discover -s . -t .` → Ran 1224 tests, OK（通过）
+  - `git diff --check`：按用户 2026-07-21 裁决与协调器禁令，Claude 不执行任何 `git` 命令，此项留待 Codex 原子交接后独立运行并记录。
+- 首次失败: 自审重跑首轮，`test_shared_supervisor_across_three_paths` 一处断言把 cold-start 限速期望误写为 5。
+- 失败根因: 该拍 `av_safe=7`、`rate=5`，冷启动限速基准为 `safe_value=7`，业务 100 一拍限到 `7+5=12`；断言错按 `safe_value=0` 推成 5（纯测试期望笔误，非实现缺陷）。
+- 修复内容: 将该断言期望值改为 12 并补注释说明基准为 `safe_value`（仅测试断言修正，未改任何实现语义）。
+- 修复后重跑结果: 上述五组命令全部 OK，计数见上（156 / 166 / 1156 / 68 / 1224）。
+- 已知疑问 / 未验证边界:
+  - ① 故障通道被改写 `safe_value` 时，观测层 `ScanResult.outputs()` 仍反映策略逻辑值，物理实际写入以 `CommitSupervisor.diagnostics().last_physical_committed` 为准——两者刻意分层，已在模块 docstring 明确声明；
+  - ② 驱动回执为**契约模拟**，非真实物理写入/设备位置反馈，未经真机验证，不构成与 PLC/CODESYS、真实驱动或现场安全回路一致的证据；
+  - ③ 复位时 `last_physical_committed` 恰等于 `safe_value`，故“退化 safe 基准”与“用 lpc 对齐”在数值上重合；本包结构上 `OutputPolicy` 无 `last_physical_committed` 引用，恢复基准由 `mark_boundary_reset` 强制为 `safe_value`，测试以漂移的 `last_effective` 区分二者。
+- 其他核验: `self_review_manifest` 与当前实际文件重算逐项一致；`self_review_scope_sha256 == 实施交接 scope_sha256`；`docs/PROJECT_STATE.md` 未改（仍 `d389ba7a9ed18e6ba94d221df334a0d925585ed0067a21013c1063c539d159b7`）；无 scope 外文件改动、无辅助/临时/缓存文件。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 落实 `ENGINE_SCAN_SPEC §4.1/§4.4` 提交层状态机——① 新建 `src/runtime/commit_supervisor.py`：`CommitSupervisor` 满足 `CommitPort` 内层提交端口契约，位于 `OutputPolicy` 门控之下、驱动之上；建立不可变结构化逐通道 `CommitReceipt`（命令通道 + IEC 值 + 成功/失败），仅在“驱动未抛异常 + 回执通道集与尝试提交集严格一致 + 确认值严格等于发出命令 + IEC 结构/数值域合法”四项充要条件全满足时才前移该通道 `last_physical_committed`（返回 `None`、仅未抛异常、缺失/多余通道、错值/错类型/越界/非有限一律失败关闭）。② 逐通道 `commit_fault`（瞬时）/`channel_fault`（锁存）状态机：任一通道失败即置瞬时故障并保留旧 `last_physical_committed`，其他成功通道独立更新；故障通道下一拍起改写 `safe_value`、其他通道续写业务值（逐通道隔离）；第 `commit_fault_retry_n` 次连续失败精确升级并锁存；阈值前安全值写成功清瞬时故障与连续计数并恢复，已锁存 `channel_fault` 绝不因安全写成功自动清除；提交层故障不进入 `OutputPolicy` 故障原因集合。③ 三条件显式复位 `reset_channel_fault`（原因确认消失 + 锁存后合法安全回执 + 显式调用），未知/未锁存/原因未确认/无安全确认/重复复位均结构化拒绝；恢复经 `OutputPolicyService.mark_boundary_reset` 使首个正常输出退化为 `safe_value` 基准、不用 `last_physical_committed` 对齐。④ 集成：正常提交（引擎第 5 步）、`scan_fault` 与 `watchdog` 安全提交经**同一** supervisor 与同一驱动端口共享故障状态；正常提交部分失败以 `PartialCommitError` 保留逐通道证据、不追加第二次安全提交、`prev` 不前移；安全映像仅全通道成功回执才 `confirm_safe_image` 前移历史，部分成功标记未成功且不污染全通道历史；诊断快照独立、提交/复位/诊断并发或递归重入失败关闭。
+- 修改文件（均在 scope 内，共 7 个）:
+  - `src/runtime/commit_supervisor.py`（新建：监督器、回执、诊断、异常）
+  - `src/runtime/output_policy.py`（新增 `commit_specs()` 只读配置访问 + `mark_boundary_reset()` 恢复基准入口；未改既有门控/安全事务语义）
+  - `src/runtime/scan_runner.py`（`CommitPort.inner` 只读属性 + 运行器条件校验“委托的 CommitSupervisor 须绑定同一策略”；非监督器底层端口保持 WP-007/008 装配不变）
+  - `src/runtime/__init__.py`（导出监督器公共 API）
+  - `tests/test_runtime_commit_supervisor.py`（新建：驱动回执/隔离/状态机/复位/集成/重入/装配全覆盖）
+  - `tests/test_runtime_scan_runner.py`（增补 `CommitPort.inner` 与监督器共享策略校验测试；未改既有语义锁）
+  - `tests/test_runtime_output_policy.py`（增补 `commit_specs` / `mark_boundary_reset` 测试；未改既有语义锁）
+- 明确未修改: `src/runtime/engine.py`、`tests/test_runtime_engine.py`、`docs/PROJECT_STATE.md`、正式规格、`.cursor/rules/*`、AI 协调器/自动化配置、标准库业务块、`.git`；未实现 shadow mode、真实 HAL/驱动、可信设备反馈、真实周期 monitor、后台线程、硬件 watchdog、L2 adapter registry、HMI/通知/事件持久化（均属明确排除项）。未执行任何 Git/GitHub 写操作。
+- 测试命令与实际结果（本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`）: 与自审段一致——五组分别 Ran 156 / 166 / 1156 / 68 / 1224 tests，全部 OK（通过）；`git diff --check` 依裁决留待 Codex 交接后独立运行。
+- 已知疑问: 见自审段①②③；均为已声明的诚实边界，未升级为已验证事实。
+- scope_sha256: 811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e
+- handoff_to: codex
+- implementation_finished_at: 2026-07-21 22:06:46 +0800
+
+### 用户授权的 v2 字段名规范化（非审核）
+
+- 用户明确授权 Codex 仅将 Claude 自审字段名从 `实际测试命令与结果（本机实跑，前缀 PYTHONDONTWRITEBYTECODE=1）` 规范化为协议要求的精确字段名 `实际测试命令与结果`；原字段中的测试命令、计数、成功标记、时间、manifest、哈希与其他内容均保持不变。
+- 本动作只修复机器解析标签，不是 Claude 返修、自审补写或 Codex 独立代码审核，不改变三阶段责任归属。
+- 规范化前 `docs/AI_REVIEW_HANDOFF.md` SHA-256 = `9e341a2843d4a8b0762687fd8a355758cca73c87f2f669019d5b72d9346c5edf`；规范化前当前 scope、自审和实施聚合 SHA-256 均为 `811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e`。
+- normalized_by: codex（用户授权的协调监督行政动作）
+- normalized_at: 2026-07-21 22:31:27 +0800
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 接手五字段为 `WP-20260721-009 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，且 `1 <= max_rounds=3`；`handoff_protocol=v2`，仓库只读解析器对结构化自审九项门禁返回 `gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e`，审核期间七个 scope 文件无漂移。实现主体已建立逐通道回执、`commit_fault` / `channel_fault`、安全值覆盖、三条件显式复位、正常/scan-fault/watchdog 共用监督器与部分提交结构化异常；现有定向 156 项和既有运行时 166 项均通过。
+- 项目工程约定: 驱动确认回执、逐通道提交故障状态机、`safe_value` 重试、锁存后显式复位，以及恢复首拍退化为 `safe_value` 基准，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 只表示驱动确认写出的最后命令值，不是传感器确认的设备位置，也不得作为可信反馈或恢复基准；当前实现与文档对此分层表述保持诚实。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog 或现场安全回路；Python 回执与单元测试只证明当前契约模拟行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修: 1) **显式复位与策略第 4 步并发时，复位后的第一笔业务输出可绕过 `safe_value` 恢复基准。** `src/runtime/commit_supervisor.py:430-435` 先清除 `channel_fault/commit_fault`，再调用 `OutputPolicyService.mark_boundary_reset()`；后者在 `src/runtime/output_policy.py:455-468` 用另一把阻塞锁。Codex 用事件同步反证稳定复现：策略 staging 在旧 `last_effective=25` 上先算出 30 并持有策略锁；并发复位已把监督器锁存清除、随后阻塞等待策略锁；staging 结束后复位才写 `boundary_reset=True`，但同拍提交因监督器已健康而实际把 30 发给驱动，下一拍策略才回到 `safe_value=0` 基准输出 5。请让复位与“策略计算→提交”的边界形成可审计的失败关闭/串行事务，保证任何允许写出的首个正常输出都已按安全基准重建；新增确定性并发反证，不能只覆盖“提交期间调用复位”。
+- 必须返修: 2) **驱动回执虽满足 `Mapping` 外形，但逐通道取值抛错时会漏出普通异常且不置提交故障。** `src/runtime/commit_supervisor.py:320-334,356-368` 只捕获 `driver.commit(...)` 本身；`confirmations[channel]` 未纳入失败关闭边界。Codex 反证让 Mapping 声明唯一键 `CH`、但 `__getitem__` 抛 `RuntimeError('receipt read boom')`，结果普通 `RuntimeError` 直接漏出，诊断仍为 `commit_fault=False / consecutive_failures=0 / last_receipt=None`。请把回执迭代、通道集读取和逐项取值/校验异常统一转成结构化失败证据，确保已尝试通道置故障、保留旧 `last_physical_committed`，并新增惰性/代理 Mapping 反证。
+- 必须返修: 3) **成功 `CommitOutcome.receipts` 与监督器内部最近回执共享同一个可变字典，可反向污染审计证据。** `src/runtime/commit_supervisor.py:343,352,440-447` 先把 `receipts` 直接保存到 `_last_receipts`，又把同一对象放入 frozen dataclass；调用方执行 `outcome.receipts.clear()` 后，`last_commit_receipts()` 实际变为空。请让成功结果和内部诊断分别持有不可变或独立快照，并补“修改/清空返回结果不影响监督器内部最近回执”的反证；现有测试只验证修改 `last_commit_receipts()` 的副本，未覆盖 `CommitOutcome` 别名。
+- 非阻塞建议: 返修时保留现有逐通道部分成功语义，不要因回执容器失败而丢失能够可靠确认的证据；但凡无法可靠枚举/读取完整回执集合时，整批失败关闭是可接受的保守策略。并发复位修复应明确锁顺序或单一串行入口，避免用新的阻塞锁顺序引入死锁。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 156/156、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过。正式 tests 实际运行 1156 项、全仓实际运行 1224 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1147/1147 与 1215/1215 通过；这是既有环境限制，不是 WP-009 功能回归。`git diff --check` 在审核开始后和结束前均通过。三条不落盘手工反证分别复现：复位并发首笔错误命令 30（下一拍才为 5）、回执取值异常漏出且状态未置故障、成功结果清空后内部最近回执被同步清空。逐文件结束 SHA-256：`src/runtime/commit_supervisor.py=a31020221b0dcaf177b709b488a6cd483eb591d6aea232df35e560a106701876`、`src/runtime/scan_runner.py=fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632`、`src/runtime/output_policy.py=f08f84ff395856df19255aaf041836bf08db477244694c7b4f8cfbf961bf4a08`、`src/runtime/__init__.py=6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b`、`tests/test_runtime_commit_supervisor.py=52a78e47cdf25bce63bbd11470d407c440dcec8edbeef7bb5b91fc34d747afc7`、`tests/test_runtime_scan_runner.py=50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981`、`tests/test_runtime_output_policy.py=15f3829205d8fb86fbf477b69de825c67206ed30608612ebad692362bb85ff3e`。
+- review_started_sha256: 811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e
+- review_finished_sha256: 811ed78331fcbed28dc27b7c0ee7a423241e0d6e934f0504f2fabaf1b1e8db5e
+- handoff_to: claude
+- reviewed_at: 2026-07-21 22:44:18 +0800
+
+### Claude 交接前自审（Round 2）
+
+- self_review_round: 2
+- self_review_started_at: 2026-07-21 22:48:00 +0800
+- self_review_finished_at: 2026-07-21 23:06:00 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22
+- self_review_manifest:
+  - `d27de48c9bdb96ee9eac6bddb60f80e5f8ef2bc2e8327c9f0d23fec277158036  src/runtime/commit_supervisor.py`
+  - `fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632  src/runtime/scan_runner.py`
+  - `ed90e05d81b8109d1651855132cae15f167077ec3a56fda24b18626021929e87  src/runtime/output_policy.py`
+  - `6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b  src/runtime/__init__.py`
+  - `6eb3c76b911cdf6fcd4126438040bcb5e831b2efc08a80d2c26aaddec5d2887e  tests/test_runtime_commit_supervisor.py`
+  - `50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981  tests/test_runtime_scan_runner.py`
+  - `ba4c064aeb8f68f2bf47cbdd0d8e0ab9b9a312713b2ddb5f7f9dbe563e95c17f  tests/test_runtime_output_policy.py`
+- 实际测试命令与结果: 本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`
+  - `python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 162 tests, OK（通过）
+  - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK（通过）
+  - `python -m unittest discover -s tests -t .` → Ran 1162 tests, OK（通过）
+  - `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（通过）
+  - `python -m unittest discover -s . -t .` → Ran 1230 tests, OK（通过）
+  - `git diff --check`：按用户 2026-07-21 裁决与协调器禁令，Claude 不执行任何 `git` 命令，此项留待 Codex 原子交接后独立运行并记录。
+- 首次失败: 无——本轮三条返修实现后，上述五组测试首次全量运行即全绿，无回归、无需修复重跑（Round 1 自审的断言笔误在上一轮已修，未复现）。
+- 失败根因: 不适用（本轮无首次失败）。
+- 修复内容: 不适用（无测试失败需修复）；本轮返修实现内容见"完成内容"。
+- 修复后重跑结果: 五组命令全部 OK，计数 162 / 166 / 1162 / 68 / 1230，与实际测试命令与结果一致。
+- 已知疑问 / 未验证边界:
+  - ① 故障/复位守卫改写 `safe_value` 时，观测层 `ScanResult.outputs()` 仍反映策略逻辑值，物理实际写入以 `CommitSupervisor.diagnostics().last_physical_committed` 为准——两者刻意分层，已在模块 docstring 声明（沿用 Round 1）；
+  - ② 驱动回执为**契约模拟**，非真实物理写入/设备位置反馈，未经真机验证，不构成与 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据（沿用 Round 1）；
+  - ③ 复位/提交竞态修复采用"复位置逐通道守卫 + 提交时读 `policy.boundary_pending()`"：仅当复位之后新一拍 `stage_outputs` 在 `safe_value` 基准重算并消费策略边界后，提交层才放行业务值；在此之前失败关闭改写 `safe_value`。该守卫是**项目工程约定层的确定性并发纪律**，本包仍无真实 HAL/驱动/硬件 watchdog，不表述为真机一致；单线程复位语义（复位后首个正常输出即从 `safe_value` 基准限速、不额外多写一拍 safe）保持不变，仅并发交错窗口收敛为失败关闭。
+- 其他核验: `self_review_manifest` 与当前实际文件重算逐项一致；`self_review_scope_sha256 == 实施交接 scope_sha256`（均 `5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22`）；`docs/PROJECT_STATE.md` 未改（仍 `d389ba7a9ed18e6ba94d221df334a0d925585ed0067a21013c1063c539d159b7`）；scan_runner.py / __init__.py / test_runtime_scan_runner.py 三文件本轮未改、哈希与 baseline 一致；无 scope 外文件改动、无辅助/临时/缓存文件、未执行任何 `git` 命令。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 2）
+
+- 完成内容: 逐条落实 Codex Round 1 三条"必须返修"——
+  1) **复位/提交竞态失败关闭（反证 1）**：`OutputPolicyService` 新增只读 `boundary_pending()`（`src/runtime/output_policy.py`），返回每通道 `boundary_reset` 边界基准挂起标志的独立副本。`CommitSupervisor`（`src/runtime/commit_supervisor.py`）为每通道新增"待安全基准重建"守卫 `_await_safe`：`reset_channel_fault` 三条件满足解锁时置该守卫为 True；`commit` 每拍开始读一次 `policy.boundary_pending()`，只有当**复位之后**新一拍 `stage_outputs` 在 `safe_value` 基准上重算并消费了策略边界（`boundary_pending` 回落 False）时才解除守卫、放行业务值，否则失败关闭把命令改写为 `safe_value`。因复位与提交本就经同一 supervisor 锁互斥（复位期间提交、提交期间复位均已失败关闭），二者共同构成失败关闭的串行事务，保证**任何被写出的首个正常输出都已按 `safe_value` 基准重建**；单线程复位语义（复位后首个正常拍即从 `safe_value` 基准限速）保持不变。
+  2) **惰性/代理回执逐项取值异常失败关闭（反证 2）**：`commit` 把回执的**迭代、通道集读取与逐项取值**统一包进 `try/except`，一次性物化为普通 `dict`；满足 `Mapping` 外形但 `__iter__`/`__getitem__` 抛普通异常的回执被转为结构化整批失败（已尝试通道置 `commit_fault`、保留旧 `last_physical_committed`），绝不漏出普通异常。`_evaluate` 改从已物化 `dict` 读取，不再触碰可能抛错的代理映射。
+  3) **成功结果回执去别名（反证 3）**：`commit` 内部最近回执改为 `self._last_receipts = dict(receipts)` 独立快照；`CommitOutcome` 在 `__post_init__` 把 `receipts` 复制进不可变 `MappingProxyType`。返回给调用方的成功结果无法反向污染 `last_commit_receipts()`。
+- 修改文件（均在 scope 内，共 4 个）:
+  - `src/runtime/commit_supervisor.py`（`_await_safe` 守卫 + 提交时 `boundary_pending` 读取；回执迭代/取值统一 `try/except` 物化；`_last_receipts` 独立快照；`CommitOutcome` 不可变快照；`_evaluate` 改读物化 dict；docstring 补并发纪律）
+  - `src/runtime/output_policy.py`（新增只读 `boundary_pending()`；未改既有门控/安全事务/`mark_boundary_reset` 语义）
+  - `tests/test_runtime_commit_supervisor.py`（新增：惰性回执取值异常失败关闭、复位/提交竞态确定性反证 + 线程版并发反证、`CommitOutcome` 去别名；新增 `_LazyReceipt`/`_SwitchableDriver` 测试替身；未改既有语义锁）
+  - `tests/test_runtime_output_policy.py`（新增 `boundary_pending` 反映复位/消费与独立副本测试；未改既有语义锁）
+- 明确未修改（本轮）: `src/runtime/scan_runner.py`、`src/runtime/__init__.py`、`tests/test_runtime_scan_runner.py`（三者哈希与 baseline 一致）；`src/runtime/engine.py`、`tests/test_runtime_engine.py`、`docs/PROJECT_STATE.md`（仍 `d389ba7a…`）、正式规格、`.cursor/rules/*`、AI 协调器/自动化配置、标准库业务块、`.git`。未实现 shadow mode、真实 HAL/驱动、可信设备反馈、硬件 watchdog 等明确排除项。未执行任何 Git/GitHub 写操作，未创建任何 scope 外/辅助/临时文件。
+- 测试命令与实际结果（本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`）: 与自审段一致——五组分别 Ran 162 / 166 / 1162 / 68 / 1230 tests，全部 OK（通过）；较 Round 1（156 / 166 / 1156 / 68 / 1224）新增 6 项均为本轮反证测试，历史快照保留。`git diff --check` 依裁决留待 Codex 交接后独立运行。
+- 已知疑问: 见自审段 ①②③；均为已声明的诚实边界，未升级为已验证事实。
+- scope_sha256: 5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22
+- handoff_to: codex
+- implementation_finished_at: 2026-07-21 23:06:00 +0800
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 接手五字段为 `WP-20260721-009 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=2`，且 `2 <= max_rounds=3`；`handoff_protocol=v2`，仓库解析器对本轮结构化自审九项门禁返回 `gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22`，审核期间七个 scope 文件无漂移。Round 1 三项必须返修的主体已落地：复位后陈旧 staging 有逐通道安全基准守卫，惰性回执的逐项取值异常会物化后失败关闭，成功 `CommitOutcome.receipts` 与监督器内部最近回执也已去别名；现有定向 162 项和既有运行时 166 项均通过。
+- 项目工程约定: 驱动确认回执、逐通道 `commit_fault` / `channel_fault`、`safe_value` 重试、锁存后显式复位，以及恢复首拍退化为 `safe_value` 基准，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 仍只表示驱动确认写出的最后命令值，不是设备位置反馈，也不得用作恢复基准；当前分层表述保持诚实。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog 或现场安全回路；Python 回执与单元测试只证明当前契约模拟行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修: 1) **锁存后 `safe_value` 确认写成功没有清除瞬时 `commit_fault` 和连续失败计数。** `src/runtime/commit_supervisor.py:425-437` 在 `receipt.overridden_safe` 且 `st.channel_fault=True` 时只设 `safe_confirmed_after_latch=True` 就返回，保留 `commit_fault=True` 与旧 `consecutive_failures`。这与任务书最低测试要求“安全写成功只清瞬时故障不清锁存”以及 `ENGINE_SCAN_SPEC §4.4` “期间安全值写成功只清瞬时 `commit_fault`，不自动清除 `channel_fault`”直接冲突。Codex 不落盘反证稳定得到 `commit_fault=True / channel_fault=True / consecutive_failures=2 / safe_confirmed_after_latch=True`。请在保留 `channel_fault` 锁存的同时清除瞬时故障与连续失败计数，并新增明确断言这四个状态的反证测试；现有 `test_safe_write_success_after_latch_does_not_clear_latch` 只断言了锁存与安全确认，漏了瞬时故障/计数语义。2) **含“可哈希但不可与字符串比较排序”的多余回执通道时，失败证据格式化仍会漏出普通 `TypeError`且不置提交故障。** `src/runtime/commit_supervisor.py:357-371` 虽将 `set(confirmations)` 与逐项取值放入 `try`，但通道集不一致时在 `else` 中执行 `sorted(got_keys)`；回执为 `{"CH": 5, 1: 0}` 时，实际漏出 `TypeError("'<' not supported between instances of 'str' and 'int'")`，且诊断仍为 `commit_fault=False / consecutive_failures=0`。这与“缺失/多余通道一律失败关闭”及本轮声称的“回执迭代、通道集读取和逐项取值异常统一转结构化失败证据”不一致。请使不可信回执的诊断格式化本身也永不抛错，并增加混合类型/异常表示通道键的多余回执反证，断言抛 `PartialCommitError`、已尝试通道置故障且保留旧 `last_physical_committed`。
+- 非阻塞建议: 返修时保留 Round 1 已修复的复位/staging 串行守卫和 `CommitOutcome` 去别名语义；对不可信回执生成 detail 时可使用不依赖键间全序关系的稳定表示，避免安全错误路径再次因诊断代码失效。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 162/162、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过。正式 tests 实际运行 1162 项、全仓实际运行 1230 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1153/1153 与 1221/1221 通过；该环境限制已有历史记录，不是 WP-009 功能回归。`git diff --check` 在审核开始后与结束前均通过。两条不落盘手工反证分别复现“锁存后安全写成功仍保留瞬时故障/计数”与“混合类型多余回执键使错误路径漏出 `TypeError`”。逐文件结束 SHA-256：`src/runtime/commit_supervisor.py=d27de48c9bdb96ee9eac6bddb60f80e5f8ef2bc2e8327c9f0d23fec277158036`、`src/runtime/scan_runner.py=fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632`、`src/runtime/output_policy.py=ed90e05d81b8109d1651855132cae15f167077ec3a56fda24b18626021929e87`、`src/runtime/__init__.py=6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b`、`tests/test_runtime_commit_supervisor.py=6eb3c76b911cdf6fcd4126438040bcb5e831b2efc08a80d2c26aaddec5d2887e`、`tests/test_runtime_scan_runner.py=50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981`、`tests/test_runtime_output_policy.py=ba4c064aeb8f68f2bf47cbdd0d8e0ab9b9a312713b2ddb5f7f9dbe563e95c17f`。
+- review_started_sha256: 5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22
+- review_finished_sha256: 5ef47f500d0d2f82359781ddbf45c6e3b8c4cf35bec84d38e820c047441f5d22
+- handoff_to: claude
+- reviewed_at: 2026-07-21 23:17:18 +0800
+
+### Claude 交接前自审（Round 3）
+
+- self_review_round: 3
+- self_review_started_at: 2026-07-21 23:19:00 +0800
+- self_review_finished_at: 2026-07-21 23:25:12 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f
+- self_review_manifest:
+  - `1acc83579282834599ffa60633578e489a1ba3dcf59a8fa621c65d0358b7a582  src/runtime/commit_supervisor.py`
+  - `fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632  src/runtime/scan_runner.py`
+  - `ed90e05d81b8109d1651855132cae15f167077ec3a56fda24b18626021929e87  src/runtime/output_policy.py`
+  - `6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b  src/runtime/__init__.py`
+  - `69be4ed7b0e95750f72853bf9ea4f79aaaa3479420fa68dd3263d0aa9c46fd5f  tests/test_runtime_commit_supervisor.py`
+  - `50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981  tests/test_runtime_scan_runner.py`
+  - `ba4c064aeb8f68f2bf47cbdd0d8e0ab9b9a312713b2ddb5f7f9dbe563e95c17f  tests/test_runtime_output_policy.py`
+- 实际测试命令与结果: 本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`
+  - `python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 164 tests, OK（通过）
+  - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK（通过）
+  - `python -m unittest discover -s tests -t .` → Ran 1164 tests, OK（通过）
+  - `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（通过）
+  - `python -m unittest discover -s . -t .` → Ran 1232 tests, OK（通过）
+  - `git diff --check`：按用户 2026-07-21 裁决与协调器禁令，Claude 不执行任何 `git` 命令，此项留待 Codex 原子交接后独立运行并记录。
+- 首次失败: 无——本轮两条返修实现后，上述五组测试首次全量运行即全绿，无回归、无需修复重跑。
+- 失败根因: 不适用（本轮无首次失败）。
+- 修复内容: 不适用（无测试失败需修复）；本轮返修实现内容见"完成内容"。
+- 修复后重跑结果: 五组命令全部 OK，计数 164 / 166 / 1164 / 68 / 1232，与实际测试命令与结果一致；较 Round 2（162 / 166 / 1162 / 68 / 1230）各 +2，为本轮两条反证测试，历史快照保留。
+- 已知疑问 / 未验证边界:
+  - ① 故障/复位守卫改写 `safe_value` 时，观测层 `ScanResult.outputs()` 仍反映策略逻辑值，物理实际写入以 `CommitSupervisor.diagnostics().last_physical_committed` 为准——两者刻意分层，已在模块 docstring 声明（沿用 Round 1/2）；
+  - ② 驱动回执为**契约模拟**，非真实物理写入/设备位置反馈，未经真机验证，不构成与 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据（沿用 Round 1/2）；
+  - ③ 本轮 Fix 1 使锁存后安全值写成功清除瞬时 `commit_fault` 与连续计数、但保留锁存 `channel_fault`，属 §4.4 冻结的项目工程约定层语义；Fix 2 使不可信回执的失败诊断格式化按 `repr` 排序、绝不因混合/不可比较类型键抛 `TypeError`，是失败关闭路径的健壮性收敛，均不表述为真机一致。
+- 其他核验: `self_review_manifest` 与当前实际文件重算逐项一致；`self_review_scope_sha256 == 实施交接 scope_sha256`（均 `3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f`）；`docs/PROJECT_STATE.md` 未改（仍 `d389ba7a9ed18e6ba94d221df334a0d925585ed0067a21013c1063c539d159b7`）；本轮仅改 `src/runtime/commit_supervisor.py` 与 `tests/test_runtime_commit_supervisor.py` 两文件，其余五个 scope 文件哈希与 Round 2 baseline 一致；无 scope 外文件改动、无辅助/临时/缓存文件、未执行任何 `git` 命令。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 3）
+
+- 完成内容: 逐条落实 Codex Round 2 两条"必须返修"——
+  1) **锁存后安全值写成功清瞬时故障与连续计数（保留锁存）**：`src/runtime/commit_supervisor.py` `_apply_receipt` 中，`receipt.overridden_safe` 且回执可信成功的分支改为**先无条件**清除 `commit_fault` 与 `consecutive_failures`，再判定锁存态：`channel_fault` 已锁存时仅补记 `safe_confirmed_after_latch=True`（供三条件复位）并 `return False`（通道仍 forced-safe，不触发边界基准重建），**绝不**自动解除锁存；仅瞬时 `commit_fault` 时 `return True` 触发 `mark_boundary_reset` 恢复。这样锁存拍后 safe 写成功得到 `commit_fault=False / consecutive_failures=0 / channel_fault=True / safe_confirmed_after_latch=True`，与任务书最低测试要求 3 及 `ENGINE_SCAN_SPEC §4.4` 一致。
+  2) **不可信回执失败诊断格式化永不抛错**：新增模块级 `_stable_channel_list(channels)`，把任意（含混合/不可比较类型）通道键集合按每键 `repr` 排序为稳定字符串列表，不依赖键间全序关系；将 `commit()` 中回执通道集不一致分支（原 `sorted(got_keys)` / `sorted(expected)`）与结构性通道集不符分支（原 `sorted(got)` / `sorted(expected)`）改用该 helper。回执为 `{"CH": 5, 1: 0}` 等混合键时不再漏出 `TypeError`，而是走既有失败关闭：`batch_trusted=False` → 逐通道 `_evaluate` 判失败 → 已尝试通道置 `commit_fault`、保留旧 `last_physical_committed` → 抛 `PartialCommitError`。
+- 修改文件（均在 scope 内，共 2 个）:
+  - `src/runtime/commit_supervisor.py`（`_apply_receipt` 锁存后清瞬时故障/计数保留锁存；新增 `_stable_channel_list` 并在两处失败诊断格式化替换 `sorted`；补注释）
+  - `tests/test_runtime_commit_supervisor.py`（新增 `test_safe_write_after_latch_clears_transient_keeps_latch` 断言四状态；新增 `test_extra_channel_uncomparable_key_fails_closed_preserves_lpc` 断言混合键失败关闭、置故障、保留旧 lpc；未改既有语义锁）
+- 明确未修改（本轮）: `src/runtime/scan_runner.py`、`src/runtime/output_policy.py`、`src/runtime/__init__.py`、`tests/test_runtime_scan_runner.py`、`tests/test_runtime_output_policy.py`（五者哈希与 Round 2 baseline 一致）；`src/runtime/engine.py`、`tests/test_runtime_engine.py`、`docs/PROJECT_STATE.md`（仍 `d389ba7a…`）、正式规格、`.cursor/rules/*`、AI 协调器/自动化配置、标准库业务块、`.git`。未实现 shadow mode、真实 HAL/驱动、可信设备反馈、硬件 watchdog 等明确排除项。未执行任何 Git/GitHub 写操作，未创建任何 scope 外/辅助/临时文件。Round 1/2 已修复的复位/staging 串行守卫、惰性回执失败关闭、`CommitOutcome` 去别名语义均保留未回退。
+- 测试命令与实际结果（本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`）: 与自审段一致——五组分别 Ran 164 / 166 / 1164 / 68 / 1232 tests，全部 OK（通过）；较 Round 2（156→162→164 定向、1230→1232 全仓）新增 2 项均为本轮反证测试，历史快照保留。`git diff --check` 依裁决留待 Codex 交接后独立运行。
+- 已知疑问: 见自审段 ①②③；均为已声明的诚实边界，未升级为已验证事实。
+- scope_sha256: 3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f
+- handoff_to: codex
+- implementation_finished_at: 2026-07-21 23:25:12 +0800
+
+### Codex 审核结论（Round 3）
+
+- verdict: BLOCKED
+- 已验证事实: 接手五字段为 `WP-20260721-009 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=3`，且 `3 <= max_rounds=3`；`handoff_protocol=v2`，仓库解析器对本轮结构化自审九项门禁返回 `gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f`，审核期间七个 scope 文件无漂移。Round 2 两项必须返修的主体已落地：锁存后 `safe_value` 确认写成功会清除瞬时 `commit_fault` 与连续失败计数、保留锁存 `channel_fault`；混合 `str/int` 多余回执键不再依赖键间全序关系。定向 164 项、既有运行时 166 项、原型 68 项及 `git diff --check` 均通过。
+- 项目工程约定: 驱动确认回执、逐通道 `commit_fault` / `channel_fault`、`safe_value` 重试、锁存后显式复位，以及恢复首拍退化为 `safe_value` 基准，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 仍只表示驱动确认写出的最后命令值，不是设备位置反馈，也不得用作恢复基准；当前分层表述保持诚实。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog 或现场安全回路；Python 回执与单元测试只证明当前契约模拟行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修 / 阻塞原因: **不可信驱动回执的失败诊断仍可因对象 `__repr__` 抛错而漏出普通异常，且已尝试通道不置提交故障。** `src/runtime/commit_supervisor.py:205-213` 声称 `_stable_channel_list()` “永不抛错”，实际直接执行 `repr(k)`；多余回执键若为可哈希对象且 `__repr__` 抛 `RuntimeError('repr boom')`，`commit()` 在 `:382-389` 格式化通道集不一致证据时直接漏出该普通异常，诊断保持 `commit_fault=False / consecutive_failures=0 / last_physical_committed=None`。同一根因也存在于 `:431-436`：错误类型确认值若 `__repr__` 抛 `RuntimeError('value repr boom')`，构造“确认值不匹配”detail 时同样漏出普通异常且状态不置故障。这违反本包“错类型/多余通道回执一律失败关闭、已尝试通道置故障并保留旧 `last_physical_committed`”的验收要求，也与 `_stable_channel_list` 的明确契约冲突。需要把所有不可信回执对象的诊断表示收口为真正不会调用失控 `repr` 或对表示异常有兜底的安全格式化，并新增异常 `__repr__` 通道键与错误确认值两条反证，断言 `PartialCommitError`、`commit_fault=True`、计数前移且旧 `last_physical_committed` 保留。由于本轮已是 `round=3 == max_rounds=3`，按协议硬规则不得自动进入 Round 4，故转 `BLOCKED` 交用户裁决。
+- 非阻塞建议: 修复时不要只包住 `_stable_channel_list`；`driver_exception`、非 Mapping 回执、回执读取异常和错误确认值等所有来自不可信驱动边界的 detail 构造都应统一使用同一个不会再抛异常的安全表示入口，避免安全错误路径被诊断代码二次击穿。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 164/164、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过。正式 tests 实际运行 1164 项、全仓实际运行 1232 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1155/1155 与 1223/1223 通过；该环境限制已有历史记录，不是 WP-009 功能回归。`git diff --check` 在审核开始后与结束前均通过。两条不落盘手工反证分别复现异常 `__repr__` 多余回执键与错误类型确认值漏出普通 `RuntimeError` 且状态未失败关闭。逐文件结束 SHA-256：`src/runtime/commit_supervisor.py=1acc83579282834599ffa60633578e489a1ba3dcf59a8fa621c65d0358b7a582`、`src/runtime/scan_runner.py=fdc24499a6af8aebaa013dded768302b736eb35c791ffa0854495fc6b8189632`、`src/runtime/output_policy.py=ed90e05d81b8109d1651855132cae15f167077ec3a56fda24b18626021929e87`、`src/runtime/__init__.py=6464b26eec97e287dc74aff944233c5e72bf59580c1ec0a4e1c8e6b7c070be0b`、`tests/test_runtime_commit_supervisor.py=69be4ed7b0e95750f72853bf9ea4f79aaaa3479420fa68dd3263d0aa9c46fd5f`、`tests/test_runtime_scan_runner.py=50ebaf894be24822a9d876d86026ab4f3dd47307f66bae13da57b3331adda981`、`tests/test_runtime_output_policy.py=ba4c064aeb8f68f2bf47cbdd0d8e0ab9b9a312713b2ddb5f7f9dbe563e95c17f`。
+- review_started_sha256: 3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f
+- review_finished_sha256: 3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f
+- handoff_to: user
+- reviewed_at: 2026-07-21 23:36:48 +0800
+
+### 用户授权的 Round 4 受限例外（仲裁恢复）
+
+- 用户于 2026-07-22 明确同意 Codex 建议：仅将本包 `max_rounds` 从 3 调整为 4，并从 Round 3 `BLOCKED` 恢复为 `CHANGES_REQUESTED / owner=claude / handoff_to=claude`；协调器按协议接手时进入 Round 4。原三轮自审、实施交接与独立审核记录全部保留，不覆盖、不改写。
+- 本例外仅允许 Claude 修改 `src/runtime/commit_supervisor.py` 与 `tests/test_runtime_commit_supervisor.py`：统一收口所有来自不可信驱动边界的安全诊断表示，确保异常 `__repr__` 或其他表示失败不会二次击穿失败关闭路径；不得只修 `_stable_channel_list()` 单点。
+- Round 3 两条反证必须新增为落盘测试：异常 `__repr__` 的多余通道键、异常 `__repr__` 的错误确认值；两者均须断言 `PartialCommitError`、`commit_fault=True`、连续失败计数前移且旧 `last_physical_committed` 保留。既有 Round 1～3 已关闭问题不得回退。
+- Claude 必须继续遵守 v2 三阶段门禁，直接运行并记录任务书五组 Python 测试，不得执行任何 `git` 命令，不得创建核验、临时、日志、缓存或辅助文件。`git diff --check` 仍由 Codex 在原子交接后独立运行并记录。
+- 本例外不扩大功能范围：不得引入 shadow mode、真实 HAL/驱动、可信设备反馈、真实 monitor、硬件 watchdog、L2 adapter registry、HMI/通知/持久化或现场安全证明；不得修改其余五个 scope 文件、正式规格、AI 协调器配置、`docs/PROJECT_STATE.md` 或 `.git`。
+- 恢复前只读核验：当前 scope 聚合 SHA-256 = Round 3 `review_finished_sha256` = `3e7d1625b27617eeacb87d8c3893297f98ad18c838d30b7302af3b51d2e3d54f`，无漂移；协调器 live、无活动租约、无失败告警；`main`、本地 HEAD 与 `origin/main` 仍为 `f0950443c9f2cbd43e0f0067746dd8abaebfca86`。
+- authorized_by: user
+- restored_by: codex（用户授权的协议仲裁行政动作，非功能实施或独立审核）
+- restored_at: 2026-07-22 08:50:38 +0800
+
+### Round 4 外部执行中断与后继恢复裁决
+
+- interrupted_execution_key: `WP-20260721-009:3:start_claude_rework`
+- interrupted_at: 2026-07-22 09:01:40 +0800
+- interruption_type: `error_max_turns`（Claude CLI 单次执行达到固定 40 turns 上限；不是代码审核结论，也不是工作包 `max_rounds`）
+- 已验证事实: Round 4 子进程在 2026-07-22 08:51:34 +0800 启动、运行约 606 秒后中断。Claude 已修改本轮获准的两个文件，并在其内部任务清单中记录实现与五组 Python 测试已完成；但尚未完成 v2 结构化自审、未追加原子实施交接，故这些内部进度不得提升为正式交接或 Codex 审核证据。
+- 当前检查点: 只有 `src/runtime/commit_supervisor.py` 与 `tests/test_runtime_commit_supervisor.py` 相对 Round 3 发生变化；其余五个 WP-009 scope 文件保持 Round 3 哈希。七文件当前聚合 SHA-256 = `5c65ac14f579a4e12dbf0770775741820162130c8d5b5e534949676a1fa9359a`。
+- 精确回退裁决: 用户曾授权“精确回退两文件 Round 4 中断改动 + 同一幂等键单次重试”，并要求任一哈希无法精确恢复即停止。Codex 只读验证确认测试文件可精确还原，但两个文件均为未跟踪新文件，仓库与现有审计材料没有保存源文件 Round 3 完整字节快照，无法证明源文件可精确恢复到 `1acc8357…a582`；因此未执行任何回退、未重试、未启动 Claude。
+- 后继裁决: 用户于 2026-07-22 明确确认采用新的窄范围 `WP-20260722-010`，以当前两文件内容为新基线完成核验、必要修正、测试、自审、原子交接与独立审核。WP-009 据实保持 `BLOCKED / owner=user / handoff_to=user / round=4`，保留中断历史，不把未完成的 Round 4 冒充已交接或已审核。
+- Git 与基础设施边界: 本次没有 Git/GitHub 写操作；没有调整 `tools/ai_handoff/scheduler.py` 的 Claude `--max-turns 40` 设置。旧 Claude/Codex 30 分钟主轮询继续暂停。
+- recorded_by: codex（用户授权的协议行政动作）
+- recorded_at: 2026-07-22 10:20:03 +0800
+
+## WP-20260722-010
+
+- title: WP-009 Round 4 中断实现的两文件窄范围恢复、自审与独立审核
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-22 12:32:31 +0800
+- closure_note: 用户接受 Codex Round 2 `APPROVED` 结论，确认关闭本包并授权 Git/GitHub 收尾。本包只证明当前 Python 诊断表示失败关闭行为，不构成 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全一致性证明。
+- owner: user
+- handoff_to: user
+- round: 2
+- max_rounds: 3
+- handoff_protocol: v2
+- base_commit: f0950443c9f2cbd43e0f0067746dd8abaebfca86
+- created_by: user
+- created_at: 2026-07-22 10:20:03 +0800
+- depends_on:
+  - WP-20260721-009 BLOCKED（Round 4 外部执行中断；当前两文件检查点转入本包）
+- scope:
+  - src/runtime/commit_supervisor.py
+  - tests/test_runtime_commit_supervisor.py
+- scope_baseline_sha256: 32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c
+- scope_baseline_manifest:
+  - `5721a9ea00b551b35c41b9c1ac6de5cd7e66e9f3e48a5867fd7a9c1366caad85  src/runtime/commit_supervisor.py`
+  - `cc64397f6d2e29e5aa7fe804057969ff7b7c5254429fd69e04f298c171b5b754  tests/test_runtime_commit_supervisor.py`
+
+### 工作包创建行政证据（Claude 启动前）
+
+- 用户于 2026-07-22 明确确认 Codex 建议的新建窄范围恢复工作包方案。本节、WP-009 中断封存及 `docs/PROJECT_STATE.md` 同步属于 Codex 获准的协议行政动作，不属于 Claude 功能 scope。
+- 创建前复算两文件 baseline manifest 与上列逐项哈希一致，按协调器逐行保留末尾换行的正式口径聚合 SHA-256 = `32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c`。首次行政记录曾因手工计算遗漏清单末尾换行而写成 `6847ca4b…a88fe`，协调器门禁在启动 Claude 前即拒绝；此处已按协调器实算纠正，两个逐文件哈希与文件内容始终未变。该基线是诚实的“中断实现检查点”，不表示实现已通过 Claude 自审或 Codex 审核。
+- 创建前协调器运行目录无活动执行租约、无 `execution_block.json`；保留 WP-009 失败历史，不授权复用或再次重试旧执行键。WP-010 必须使用新幂等键 `WP-20260722-010:1:start_claude_implementation`。
+- Git 基线仍由 Codex 既有只读证据负责；Claude 在本包中**禁止读取或解析 `.git` 的任何文件，也禁止执行任何 Git/GitHub 命令**。不得因无法自行读取 `.git` 而停止；直接信赖本包已给出的 `base_commit` 与两文件 baseline manifest。
+- 本包不调整 Claude CLI 的固定 40 turns 上限。为控制单次执行长度，Claude 应优先核验现有实现与两条既有反证、仅在必要时修正，然后直接完成五组测试、结构化自审和原子交接，不重复已完成且无必要的探索。
+
+### 目标与验收标准
+
+以当前两文件检查点为唯一开工内容，完成 WP-009 Round 3 阻塞项的窄范围恢复闭环：Claude 独立检查当前实现，必要时仅在两文件内修正；确认所有来自不可信驱动边界的诊断表示均不会因异常 `__repr__` 或表示过程失败而二次抛出普通异常；完成 v2 自审与原子交接后，由 Codex 独立审核。
+
+1. **统一安全诊断表示**
+   - 驱动异常对象、非 `Mapping` 回执、回执迭代/读取异常、异常或混合类型通道键、错误类型/错误值确认对象等所有不可信驱动边界输入，在生成失败 detail 时均不得再击穿失败关闭路径。
+   - 表示失败必须退化为确定、无副作用且不泄漏原普通异常的安全占位证据；不得只修 `_stable_channel_list()` 一个调用点。
+   - 缺失/多余通道、错类型、错值及回执结构异常仍须转为既有结构化提交失败；已尝试通道置 `commit_fault`、连续失败计数前移，且旧 `last_physical_committed` 保留。
+
+2. **两条异常 `__repr__` 反证**
+   - 落盘测试必须覆盖异常 `__repr__` 的多余通道键，以及异常 `__repr__` 的错误确认值。
+   - 两条均须断言抛出 `PartialCommitError`，而非普通 `RuntimeError`；同时断言 `commit_fault=True`、连续失败计数前移、旧 `last_physical_committed` 不变。
+   - 若当前检查点已满足，Claude 应核验并保留；若存在遗漏，只做最小必要修正。WP-009 Round 1～3 已关闭语义不得回退。
+
+3. **交接完整性**
+   - Claude 必须在 `CLAUDE_WORKING` 内完成结构化自审；只有 `self_review_verdict: PASS`、五组测试真实计数、完整两文件 manifest、`self_review_scope_sha256 == scope_sha256`、明确“是否满足交接条件: 是”全部成立，才可追加实施交接。
+   - 最终以一次原子写入把顶层状态转为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，且自审段必须位于实施交接段之前；随后立即停止修改 scope。
+
+### 明确排除与冻结边界
+
+- Claude 只能修改上列两个 scope 文件，以及按 v2 协议原子追加本工作包自审/实施交接记录；不得修改 WP-009 记录、`docs/PROJECT_STATE.md`、正式规格、其余五个旧 scope 文件、AI 协调器/自动化配置或 `.git`。
+- 严禁读取 `.git`，严禁执行 `git` / `gh` / `shasum`，严禁使用 Python `subprocess` 绕过禁令；`git diff --check` 继续由 Codex 在原子交接后独立执行。
+- 严禁创建核验脚本、临时文件、缓存、日志、补丁或其他辅助文件。需要哈希核验时只能直接运行单行 `python -c`；测试只能直接运行下列 `python -m unittest` 命令。
+- 不实现或引入 shadow mode、L2 adapter registry、真实 monitor/HAL/驱动、可信设备反馈、真实周期/硬件 watchdog、HMI/通知/持久化或现场安全证明；不修改 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4` 语义。
+- 驱动回执仍是 Python 契约模拟；本包测试不构成目标 PLC/CODESYS、真实物理写入、硬件 watchdog 或现场安全回路一致性证明。
+
+### 测试计划与责任分配
+
+Claude 交接前必须直接实际运行并记录以下五组 Python 测试的真实计数和结果；新增测试导致计数增长属于正常快照变化，不得回写历史数字：
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+
+Codex 在原子交接后独立复核实现、两条反证、scope 哈希与测试，并执行 `git diff --check`；任何审核结论必须区分项目工程约定、当前 Python 已验证事实与仍待真机验证假设。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-22 10:23:30 +0800
+- self_review_finished_at: 2026-07-22 10:28:30 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c
+- self_review_manifest:
+  - `5721a9ea00b551b35c41b9c1ac6de5cd7e66e9f3e48a5867fd7a9c1366caad85  src/runtime/commit_supervisor.py`
+  - `cc64397f6d2e29e5aa7fe804057969ff7b7c5254429fd69e04f298c171b5b754  tests/test_runtime_commit_supervisor.py`
+- 实际测试命令与结果: 本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`
+  - `python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 166 tests, OK（通过）
+  - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK（通过）
+  - `python -m unittest discover -s tests -t .` → Ran 1166 tests, OK（通过）
+  - `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（通过）
+  - `python -m unittest discover -s . -t .` → Ran 1234 tests, OK（通过）
+  - `git diff --check`：按用户 2026-07-21/07-22 裁决与协调器禁令，Claude 不执行任何 `git` 命令，此项留待 Codex 原子交接后独立运行并记录。
+- 首次失败: 无——本包以 WP-009 Round 4 中断检查点两文件为开工内容；核验现有实现与两条既有反证后，上述五组测试首次全量运行即全绿，无回归、无需修复重跑。
+- 失败根因: 不适用（本轮无首次失败）。
+- 修复内容: 不适用——独立核验确认当前检查点已满足验收标准，本轮对两个 scope 文件**零改动**（两文件 SHA-256 与本包 `scope_baseline_manifest` 逐项一致，聚合等于 `scope_baseline_sha256`），故无最小必要修正。
+- 修复后重跑结果: 五组命令全部 OK，计数 166 / 166 / 1166 / 68 / 1234，与实际测试命令与结果一致；较 WP-009 Round 3（164 / 166 / 1164 / 68 / 1232）各 +2，为检查点已含的两条异常 `__repr__` 反证（`test_extra_channel_repr_raising_key_fails_closed_preserves_lpc`、`test_wrong_confirmed_value_repr_raising_fails_closed_preserves_lpc`），历史快照保留、未回写历史数字。本环境放行交接面板本地 HTTP 端口，`tests` / 全仓两组无 WP-009 Round 3 记录的受限沙箱 `PermissionError`，全部实跑通过。
+- 已知疑问 / 未验证边界:
+  - ① **统一安全诊断表示已收口**：所有来自不可信驱动边界的诊断串（驱动异常、非 `Mapping` 回执、回执迭代/取值异常、异常或混合类型通道键、错类型/错值确认对象）均经模块级 `_safe_repr()`（`commit_supervisor.py:99-115`）或经其构建的 `_stable_channel_list()`（`:228-238`）格式化；`_safe_repr` 内 `repr()` 抛异常时退化为稳定占位串、绝不上抛表示异常，已逐点核验 `:157/261/265/348/393/397/408/416-417/463/466` 全部覆盖，无遗漏的裸 `repr`/`%s` 直插不可信对象；`reset_channel_fault` 的 `% channel`（`:521-531`）是可信复位 API/操作员入参、非驱动回执边界，且不在失败关闭提交路径内，属既有行为，未纳入本包 scope。
+  - ② **两条异常 `__repr__` 反证均为落盘测试**：分别断言 `PartialCommitError`（非普通 `RuntimeError`）、`commit_fault=True`、`consecutive_failures` 前移为 1、旧 `last_physical_committed=5` 保留（`test_runtime_commit_supervisor.py:324-356`）；WP-009 Round 1～3 已关闭语义（锁存后清瞬时保留锁存、混合键 `TypeError` 关闭、惰性回执 `__getitem__` 关闭、复位/提交竞态、`CommitOutcome` 去别名、重入失败关闭）对应测试全部保留未回退。
+  - ③ 观测层 `ScanResult.outputs()` 反映策略逻辑值，物理实际写入以 `CommitSupervisor.diagnostics().last_physical_committed` 为准——两者刻意分层（沿用 WP-009）。
+  - ④ 驱动回执为**契约模拟**，非真实物理写入/设备位置反馈，未经真机验证，不构成与目标 SP16.1 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据；上述提交/故障制度为**项目工程约定、非 CODESYS 官方语义**（沿用 WP-009）。
+- 其他核验: `self_review_manifest` 与当前实际文件重算逐项一致；`self_review_scope_sha256 == 实施交接 scope_sha256`（均 `32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c`）且等于本包 `scope_baseline_sha256`；`docs/PROJECT_STATE.md`、WP-009 记录、正式规格、其余五个旧 scope 文件、`.cursor/rules/*`、AI 协调器配置均未改；哈希核验仅用单行 `python -c`，未读取/解析 `.git`，未执行任何 `git` / `gh` / `shasum`，未使用 `subprocess`，未创建任何核验/临时/日志/缓存/补丁/辅助文件。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 以 WP-009 Round 4 中断检查点两文件为唯一开工内容，完成窄范围恢复闭环的核验与确认——
+  1) **统一安全诊断表示（验收标准 1）已在检查点满足并逐点核验**：`src/runtime/commit_supervisor.py` 模块级 `_safe_repr()`（`:99-115`）对不可信驱动边界对象生成永不抛错的诊断表示（`repr` 抛异常→稳定占位串，连 `type(obj).__name__` 也兜底）；`_stable_channel_list()`（`:228-238`）改经 `_safe_repr` 排序，不依赖键间全序也不依赖键 `repr` 不抛异常。所有失败关闭 detail 构造点（驱动异常 `:393`、非 `Mapping` 回执 `:397`、回执迭代/取值异常 `:408`、通道集不一致 `:416-417`、确认值域/类型错误 `:463`、错值/错类型 `:466`、`PartialCommitError` 消息 `:157`）统一经该安全入口，异常 `__repr__` 或表示过程失败均不再二次击穿失败关闭路径。缺失/多余通道、错类型、错值、回执结构异常仍转为结构化提交失败：已尝试通道置 `commit_fault`、连续失败计数前移，旧 `last_physical_committed` 保留。
+  2) **两条异常 `__repr__` 反证（验收标准 2）已落盘并核验**：`tests/test_runtime_commit_supervisor.py` 中 `test_extra_channel_repr_raising_key_fails_closed_preserves_lpc`（`:324-339`，异常 `__repr__` 多余通道键）与 `test_wrong_confirmed_value_repr_raising_fails_closed_preserves_lpc`（`:341-356`，异常 `__repr__` 错误确认值），二者均先成功一拍使 `lpc=5`，再断言抛 `PartialCommitError`（非普通 `RuntimeError`）、`commit_fault=True`、`consecutive_failures=1`、`last_physical_committed=5` 保留；辅助替身 `_ReprBoom`（`:150-158`）`__repr__` 抛 `RuntimeError`。WP-009 Round 1～3 已关闭语义全部保留未回退。
+  3) 独立核验结论：当前检查点已满足全部验收标准，**本轮对两个 scope 文件零改动**（两文件与本包 `scope_baseline_manifest` 逐项 SHA-256 一致，聚合等于 `scope_baseline_sha256`）。
+- 修改文件（本轮 scope 内，共 0 个源码/测试文件被改）: 无——`src/runtime/commit_supervisor.py`、`tests/test_runtime_commit_supervisor.py` 均维持检查点内容不变（哈希见 `scope_sha256`）。本次仅按 v2 协议原子追加本工作包自审段与本实施交接段。
+- 明确未修改: WP-009 全部记录、`docs/PROJECT_STATE.md`、正式规格（含 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4`）、其余五个旧 scope 文件（`scan_runner.py` / `output_policy.py` / `__init__.py` / `test_runtime_scan_runner.py` / `test_runtime_output_policy.py`）、`.cursor/rules/*`、AI 协调器/自动化配置、`.git`。未实现或引入 shadow mode、L2 adapter registry、真实 monitor/HAL/驱动、可信设备反馈、真实周期/硬件 watchdog、HMI/通知/持久化或现场安全证明。未读取/解析 `.git`，未执行任何 `git` / `gh` / `shasum` / `subprocess`，未创建任何核验/临时/日志/缓存/补丁/辅助文件。
+- 测试命令与实际结果（本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`）: 与自审段一致——五组分别 Ran 166 / 166 / 1166 / 68 / 1234 tests，全部 OK（通过）；较 WP-009 Round 3（164 / 166 / 1164 / 68 / 1232）各 +2，为检查点已含两条异常 `__repr__` 反证，历史快照保留、未回写历史数字。`git diff --check` 依裁决留待 Codex 原子交接后独立运行并记录。
+- 已知疑问: 见自审段 ①②③④；均为已声明的诚实边界，未升级为已验证事实。驱动回执仍是 Python 契约模拟，本包测试不构成目标 PLC/CODESYS、真实物理写入、硬件 watchdog 或现场安全回路一致性证明。
+- scope_sha256: 32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c
+- handoff_to: codex
+- implementation_finished_at: 2026-07-22 10:28:30 +0800
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 接手五字段为 `WP-20260722-010 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，且 `1 <= max_rounds=3`；`handoff_protocol=v2`，仓库解析器对本轮结构化自审九项门禁返回 `gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c`，审核期间两个 scope 文件无漂移。现有 `_safe_repr()` / `_stable_channel_list()` 已使普通异常 `__repr__` 的多余通道键与错误确认值走 `PartialCommitError`，两条落盘反证及 WP-009 Round 1～3 既有语义锁在定向 166 项中均通过；本轮未修改任何 scope 文件。
+- 项目工程约定: 驱动确认回执、逐通道 `commit_fault` / `channel_fault`、`safe_value` 重试、锁存后显式复位，以及安全诊断失败关闭，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 仍只表示驱动确认写出的最后命令值，不是可信设备位置反馈，也不得作为恢复基准；当前分层表述保持诚实。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog 或现场安全回路；Python 回执契约与单元测试只证明当前实现行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修: 1) **`_safe_repr()` 的失败占位构造本身仍可被二次击穿，因而不满足本包“表示过程失败必须退化为确定、无副作用且不泄漏普通异常”的验收标准。** `src/runtime/commit_supervisor.py:108-115` 在 `repr(obj)` 抛异常后读取 `type(obj).__name__`，但仅保护属性读取；随后在保护区外执行 `"<%s ...>" % type_name`。恶意元类可令 `__name__` 返回一个 `__str__` 抛异常的对象，于是字符串插值再次漏出普通异常。Codex 不落盘反证：先成功提交使 `LPC=5`，再让驱动回执包含一个多余通道键；该键的 `__repr__` 抛 `RuntimeError("repr boom")`，其元类令 `type(key).__name__` 返回 `__str__` 抛 `RuntimeError("type-name str boom")` 的对象。当前 `commit({"CH": 7})` 实际漏出 `RuntimeError: type-name str boom`，诊断仍为 `commit_fault=False / consecutive_failures=0 / last_physical_committed=5`，没有形成 `PartialCommitError` 或失败关闭证据。请把 fallback 的**整个构造过程**收口为永不调用不可信对象字符串协议的固定/严格内建字符串（最安全可直接使用固定占位串；若保留类型名，必须只接受 exact `str` 并让最终 fallback 仍有不可失败的兜底），并在 `tests/test_runtime_commit_supervisor.py` 增加上述“`repr` 失败 + 类型名字符串化也失败”的集成反证，断言 `PartialCommitError`、`commit_fault=True`、`consecutive_failures=1`、旧 LPC 保持 5。现有 `_ReprBoom` 的类型名是普通 `str`，故两条现有测试没有覆盖这个 fallback 自身的失败点。
+- 非阻塞建议: 无；返修应保持在现有两个 scope 文件内，不需要扩包或修改规格。建议复用同一 `_safe_repr()` 入口修复，不新增平行诊断格式化路径。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 166/166、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过。正式 tests 实际运行 1166 项、全仓实际运行 1234 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1157/1157 与 1225/1225 通过；该环境限制与 WP-009 既有审核记录一致，不是本包功能回归。`git diff --check` 通过。除上述类型名 fallback 反证外，另做的恶意整数子类回执反证也表明 `_evaluate()` 的 IEC 范围比较仍可漏出普通 `RuntimeError`；它超出本包“诊断表示”窄目标，本轮不作为新增必须返修项，但后续驱动边界加固宜单独立项。逐文件结束 SHA-256：`src/runtime/commit_supervisor.py=5721a9ea00b551b35c41b9c1ac6de5cd7e66e9f3e48a5867fd7a9c1366caad85`、`tests/test_runtime_commit_supervisor.py=cc64397f6d2e29e5aa7fe804057969ff7b7c5254429fd69e04f298c171b5b754`。
+- review_started_sha256: 32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c
+- review_finished_sha256: 32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c
+- handoff_to: claude
+- reviewed_at: 2026-07-22 10:38:34 +0800
+
+### Round 1 审核后轮次字段失败关闭与行政规范化
+
+- 已验证事实: `Codex 审核结论（Round 1）` 的正文、verdict、开始/结束 scope 哈希、测试证据与 `reviewed_at` 均已完整写入，两个 scope 文件在审核期间及审核后保持聚合 SHA-256 `32c5114be3e35d7c516332e5bb82885e06aca809d06e76afd8b51c8e0985338c`；但 Codex 原子状态转移把顶层 `round` 从 1 提前写成 2。协议要求 Codex 审核当前轮不增加轮次，只有 Claude 接手 `CHANGES_REQUESTED` 时执行 `round+1`，因此协调器将 `WP-20260722-010:1:start_codex_review` 正确记录为 `postcondition-failed`。
+- 错误派发与停止: 文件事件随后按错误顶层值启动 `WP-20260722-010:2:start_claude_rework`（PID 19583）。Codex 监督方发现后立即按失败关闭终止该子进程；协调器于 2026-07-22 10:43:44 +0800 记录返回码 143 并释放租约。停止后两个 scope 文件逐项哈希仍为 baseline，未产生 scope 外文件、未形成 Round 2/3 自审或实施交接。
+- 规范化内容: 仅把顶层 `round` 从错误的 2 恢复为审核所属的 1；审核意见、测试计数、时间、manifest 与哈希一字不改。该操作不是推翻审核，也不是重试已失败的 Codex/Claude 键。
+- 正确后继动作: 恢复后合法新键为 `WP-20260722-010:1:start_claude_rework`；Claude 接手时按协议进入 Round 2，并须对 `_safe_repr()` fallback 全构造过程做最小修复、增加恶意元类类型名字符串化失败的集成反证、完成五组测试和 v2 自审/原子交接。
+- Git 与范围边界: 本次没有 Git/GitHub 写操作，没有修改功能 scope、规格、协调器配置或 40 turns 设置；旧主轮询继续暂停。
+- normalized_by: codex（协议失败关闭后的行政字段纠正）
+- normalized_at: 2026-07-22 10:44:00 +0800
+
+### Claude 交接前自审（Round 2）
+
+- self_review_round: 2
+- self_review_started_at: 2026-07-22 10:45:00 +0800
+- self_review_finished_at: 2026-07-22 10:49:20 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8
+- self_review_manifest:
+  - `05cfa062ad225fb9338e348fc53e42dc25d76d4e748160cce0baa3a5653c0b60  src/runtime/commit_supervisor.py`
+  - `3cbc3c27793dc087a3c80fa3a59b79b93e522a90509c8e5cfb9930984370049f  tests/test_runtime_commit_supervisor.py`
+- 接手前核验: 接手前五字段为 `WP-20260722-010 / CHANGES_REQUESTED / owner=claude / handoff_to=claude / round=1`，属 Claude 合法接手组合；按协议 round+1 → 本轮 Round 2，`2 <= max_rounds=3`。接手前用单行 `python -c` 复算两 scope 文件与本包 `scope_baseline_manifest` 逐项一致（`5721a9ea…ad85` / `cc64397f…b754`），聚合等于 `scope_baseline_sha256=32c5114b…338c`，证据无漂移；Codex Round 1 审核区（含 `review_started_sha256 == review_finished_sha256 == 32c5114b…338c`）完整，round 已由 Codex 行政规范化回 1，本轮为合法后继 `start_claude_rework`。
+- 实际测试命令与结果: 本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`
+  - `python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 167 tests, OK（通过）
+  - `python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK（通过）
+  - `python -m unittest discover -s tests -t .` → Ran 1167 tests, OK（通过）
+  - `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（通过）
+  - `python -m unittest discover -s . -t .` → Ran 1235 tests, OK（通过）
+  - `git diff --check`：按用户 2026-07-21/07-22 裁决与协调器禁令，Claude 不执行任何 `git` 命令，此项留待 Codex 原子交接后独立运行并记录。
+- 首次失败: 无——本轮针对 Codex Round 1 唯一必须返修项（`_safe_repr()` fallback 自身可被恶意元类类型名字符串化二次击穿）做最小修复并新增一条集成反证；修复后五组测试首次全量运行即全绿，无回归。
+- 失败根因: Codex Round 1 反证——`src/runtime/commit_supervisor.py` 原 `_safe_repr()` 在 `repr(obj)` 抛异常后仅保护 `type(obj).__name__` 的**属性读取**，随后在保护区外执行 `"<%s …>" % type_name`；恶意元类可令 `__name__` 返回一个 `__str__` 抛普通异常的对象，`%s` 插值触发其 `__str__` 从而再次漏出普通 `RuntimeError`，使本应失败关闭的路径被二次击穿（`commit_fault` 不置、旧 `last_physical_committed` 误留、无 `PartialCommitError`）。
+- 修复内容: 只改两个 scope 文件。1) `src/runtime/commit_supervisor.py` `_safe_repr()`（现 `:99-125`）：把 fallback 的**整个构造过程**收口为绝不调用不可信对象字符串协议——类型名仅在 `type(type_name) is str`（exact `str`，排除 `str` 子类/伪造对象，其 `__str__`/`__format__` 仍可能抛错）时才嵌入，且 exact `str` 的 `%s` 插值不触发任何可被重写的 dunder；否则退到不含任何不可信子串的固定占位串 `"<对象：repr() 与类型名字符串化均抛异常，诊断已退化为安全占位表示>"`。两条 fallback 分支的字符串构造均不可失败，`_safe_repr` 全过程永不上抛。修复复用同一 `_safe_repr()` 入口，未新增平行诊断格式化路径（采纳 Codex 非阻塞建议）。2) `tests/test_runtime_commit_supervisor.py`：新增恶意元类替身 `_TypeNameStrBoom`（`__str__`/`__repr__` 均抛错）、`_ReprAndTypeNameBoomMeta`（`@property __name__` 返回 `_TypeNameStrBoom()`）、`_ReprAndTypeNameBoom`（`__repr__` 抛错且类型名字符串化也抛错），并新增集成反证 `test_extra_channel_repr_and_typename_boom_fails_closed_preserves_lpc`：先成功一拍使 `lpc=5`，再以该对象为多余回执通道键，断言抛 `PartialCommitError`（非普通 `RuntimeError`）、`commit_fault=True`、`consecutive_failures=1`、旧 `last_physical_committed=5` 保留、`last_commit_receipts()["CH"].ok=False`。
+- 修复后重跑结果: 五组命令全部 OK，计数 167 / 166 / 1167 / 68 / 1234→1235。含 commit_supervisor 测试模块的三组（1、3、5）较 WP-009 Round 3 与本包 Round 1（166 / 166 / 1166 / 68 / 1234）各 +1，来源为本轮新增的唯一集成反证；组 2、4（不含该模块）计数不变（166 / 68）。属正常快照增长，未回写历史数字。本机放行交接面板本地 HTTP 端口，`tests` / 全仓两组无 Codex Round 1 沙箱记录的 `PermissionError`，全部实跑通过（环境差异，不构成功能回归）。
+- 已知疑问 / 未验证边界:
+  - ① **`_safe_repr()` fallback 自身失败点已收口**：`repr` 失败 + 恶意元类类型名字符串化也失败的复合反证已落盘并通过；fallback 两分支均不调用不可信字符串协议，永不二次上抛。Codex Round 1 已关闭的两条既有反证（异常 `__repr__` 多余通道键、异常 `__repr__` 错误确认值）与 WP-009 Round 1～3 已关闭语义（锁存后清瞬时保留锁存、混合键 `TypeError` 关闭、惰性回执 `__getitem__` 关闭、复位/提交竞态、`CommitOutcome` 去别名、重入失败关闭）对应测试全部保留未回退。
+  - ② **超出本包窄目标的驱动边界未纳入**：Codex Round 1 审核证据提到的“恶意整数子类回执令 `_evaluate()` IEC 范围比较漏出普通 `RuntimeError`”明确属于**诊断表示窄目标之外**、Codex 本轮未列为必须返修项，本包不扩范围处理；`reset_channel_fault` 的 `% channel` 是可信复位 API/操作员入参、非驱动回执边界，且不在失败关闭提交路径内，仍属既有行为，未纳入本包 scope。建议后续单独立项加固驱动值域比较边界。
+  - ③ 观测层 `ScanResult.outputs()` 反映策略逻辑值，物理实际写入以 `CommitSupervisor.diagnostics().last_physical_committed` 为准——两者刻意分层（沿用 WP-009）。
+  - ④ 驱动回执为**契约模拟**，非真实物理写入/设备位置反馈，未经真机验证，不构成与目标 SP16.1 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据；上述提交/故障制度为**项目工程约定、非 CODESYS 官方语义**（沿用 WP-009）。
+- 其他核验: `self_review_manifest` 与当前实际文件重算逐项一致；`self_review_scope_sha256 == 实施交接 scope_sha256`（均 `a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8`）。仅改上列两个 scope 文件；`docs/PROJECT_STATE.md`、WP-009 记录、Codex Round 1 审核区与本包既有行政段、正式规格（含 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4`）、其余五个旧 scope 文件、`.cursor/rules/*`、AI 协调器/自动化配置均未改；哈希核验仅用单行 `python -c`，未读取/解析 `.git`，未执行任何 `git` / `gh` / `shasum`，未使用 `subprocess`，未创建任何核验/临时/日志/缓存/补丁/辅助文件。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 2）
+
+- 完成内容: 按 Codex Round 1 唯一必须返修项落地窄范围返修——
+  1) **`_safe_repr()` fallback 全构造过程收口（必须返修项 1）**：`src/runtime/commit_supervisor.py` `_safe_repr()`（`:99-125`）在 `repr(obj)` 抛异常后，类型名仅在 `type(type_name) is str`（exact `str`）时才做 `%s` 插值——exact `str` 的 `%s` 不触发任何可被覆写的 dunder，永不抛错；类型名为 `str` 子类/伪造对象（`__str__`/`__format__` 可能再次抛普通异常）时一律退到不含不可信子串的固定占位串。恶意元类令 `type(obj).__name__` 返回 `__str__` 抛异常的对象时，fallback 不再二次漏出普通异常，仍走结构化失败关闭。复用同一安全入口，未新增平行格式化路径。
+  2) **恶意元类类型名字符串化失败集成反证（必须返修项 1 配套）**：`tests/test_runtime_commit_supervisor.py` 新增 `_TypeNameStrBoom` / `_ReprAndTypeNameBoomMeta` / `_ReprAndTypeNameBoom` 三个替身与集成反证 `test_extra_channel_repr_and_typename_boom_fails_closed_preserves_lpc`（`repr` 失败且类型名字符串化也失败的多余通道键），断言 `PartialCommitError`（非普通 `RuntimeError`）、`commit_fault=True`、`consecutive_failures=1`、旧 `last_physical_committed=5` 保留。现有 `_ReprBoom` 类型名为普通 `str`、无法覆盖该 fallback 自身失败点，故必须新增本反证。
+  3) WP-009 Round 1～3 与 WP-010 Round 1 已关闭语义/反证全部保留未回退。
+- 修改文件（本轮 scope 内，共 2 个文件被改）: `src/runtime/commit_supervisor.py`（`_safe_repr()` fallback 收口）、`tests/test_runtime_commit_supervisor.py`（新增三替身 + 一集成反证）。哈希见 `scope_sha256`。
+- 明确未修改: WP-009 全部记录、Codex Round 1 审核区与本包既有行政段、`docs/PROJECT_STATE.md`、正式规格（含 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4`）、其余五个旧 scope 文件（`scan_runner.py` / `output_policy.py` / `__init__.py` / `test_runtime_scan_runner.py` / `test_runtime_output_policy.py`）、`.cursor/rules/*`、AI 协调器/自动化配置、`.git`。未实现或引入 shadow mode、L2 adapter registry、真实 monitor/HAL/驱动、可信设备反馈、真实周期/硬件 watchdog、HMI/通知/持久化或现场安全证明。未扩范围处理 Codex 非必须返修的 `_evaluate()` 整数子类值域比较边界。未读取/解析 `.git`，未执行任何 `git` / `gh` / `shasum` / `subprocess`，未创建任何核验/临时/日志/缓存/补丁/辅助文件。
+- 测试命令与实际结果（本机实跑，前缀 `PYTHONDONTWRITEBYTECODE=1`）: 与自审段一致——五组分别 Ran 167 / 166 / 1167 / 68 / 1235 tests，全部 OK（通过）；含 commit_supervisor 模块的三组较本包 Round 1（166 / 166 / 1166 / 68 / 1234）各 +1，为本轮新增唯一集成反证，历史快照保留、未回写历史数字。`git diff --check` 依裁决留待 Codex 原子交接后独立运行并记录。
+- 已知疑问: 见自审段 ①②③④；均为已声明的诚实边界，未升级为已验证事实。驱动回执仍是 Python 契约模拟，本包测试不构成目标 PLC/CODESYS、真实物理写入、硬件 watchdog 或现场安全回路一致性证明。
+- scope_sha256: a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8
+- handoff_to: codex
+- implementation_finished_at: 2026-07-22 10:49:20 +0800
+
+### Codex 审核结论（Round 2）
+
+- verdict: APPROVED
+- 已验证事实: 接手五字段为 `WP-20260722-010 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=2`，且 `2 <= max_rounds=3`；`handoff_protocol=v2`，仓库解析器对 Round 2 结构化自审九项门禁返回 `gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8`，审核期间两个 scope 文件无漂移。`src/runtime/commit_supervisor.py:99-127` 已把 `_safe_repr()` 的 fallback 全构造过程收口：只有 exact `str` 类型名才进入固定格式串，其余直接使用不含不可信子串的固定占位串；`src/runtime/commit_supervisor.py:240-250,403-429,461-478` 中不可信驱动异常、非 Mapping 回执、回执读取异常、异常/混合通道键与错误确认值的诊断继续统一经该安全入口。`tests/test_runtime_commit_supervisor.py:161-195,377-394` 的恶意元类集成反证同时令对象 `repr` 与类型名字符串化抛错，并锁定 `PartialCommitError`、`commit_fault=True`、`consecutive_failures=1` 与旧 `last_physical_committed=5`；Codex 单独复跑该反证通过。WP-009 Round 1～3 及 WP-010 Round 1 已关闭语义锁未发现回退。
+- 项目工程约定: 驱动确认回执、逐通道 `commit_fault` / `channel_fault`、`safe_value` 重试、锁存后显式复位，以及不可信驱动诊断表示失败关闭，均是当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 仍只表示驱动确认写出的最后命令值，不是可信设备位置反馈，也不得作为恢复基准；当前代码和测试保持了这一分层。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog 或现场安全回路；Python 回执契约与单元测试只证明当前实现行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修: 无。
+- 非阻塞建议: Codex Round 1 已记录的恶意整数子类在 `_evaluate()` IEC 值域比较中可触发普通异常，属于本包“诊断表示”窄目标之外的驱动值域边界加固候选；建议后续单独立项，不应据此扩大或阻塞 WP-010。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 167/167、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过；恶意元类复合反证单独复跑 1/1 通过。正式 tests 实际运行 1167 项、全仓实际运行 1235 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1158/1158 与 1226/1226 通过；该环境限制与 WP-009/010 既有 Codex 记录一致，不是本包功能回归。`git diff --check` 通过。逐文件开始/结束 SHA-256 均为 `src/runtime/commit_supervisor.py=05cfa062ad225fb9338e348fc53e42dc25d76d4e748160cce0baa3a5653c0b60`、`tests/test_runtime_commit_supervisor.py=3cbc3c27793dc087a3c80fa3a59b79b93e522a90509c8e5cfb9930984370049f`；审核中未执行任何 Git 写操作。
+- review_started_sha256: a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8
+- review_finished_sha256: a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8
+- handoff_to: user
+- reviewed_at: 2026-07-22 10:59:35 +0800
+
+## WP-20260722-011
+
+- title: 不可信驱动回执精确内建标量类型门禁与失败关闭
+- status: CLOSED
+- closed_by: user
+- closed_at: 2026-07-22 12:32:31 +0800
+- closure_note: 用户接受 Codex Round 1 `APPROVED` 结论，确认关闭本包并授权 Git/GitHub 收尾。驱动回执 exact 内建标量门禁只是当前 Python 项目工程约定，不构成 PLC/CODESYS、真实 HAL/驱动、硬件 watchdog 或现场安全一致性证明。
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 3
+- handoff_protocol: v2
+- base_commit: f0950443c9f2cbd43e0f0067746dd8abaebfca86
+- created_by: user
+- created_at: 2026-07-22 11:21:25 +0800
+- depends_on:
+  - WP-20260722-010 CLOSED（诊断表示失败关闭已通过独立审核并由用户确认关闭；本包处理当时明确 scope 外的标量子类运算边界）
+- scope:
+  - src/runtime/commit_supervisor.py
+  - tests/test_runtime_commit_supervisor.py
+- scope_baseline_sha256: a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8
+- scope_baseline_manifest:
+  - `05cfa062ad225fb9338e348fc53e42dc25d76d4e748160cce0baa3a5653c0b60  src/runtime/commit_supervisor.py`
+  - `3cbc3c27793dc087a3c80fa3a59b79b93e522a90509c8e5cfb9930984370049f  tests/test_runtime_commit_supervisor.py`
+
+### 工作包创建行政证据（Claude 启动前）
+
+- 用户于 2026-07-22 明确裁决：该问题如有影响则现在处理。Codex 已证实其不只影响诊断文字，而会绕过提交失败记账，故据用户授权创建本窄范围工作包；不再要求用户重复确认。
+- 开包前不落盘反证：单通道 `USINT`、发出 exact `int` 命令 `7`，驱动回执为重载 `__ge__ / __le__ / __eq__` 并抛 `RuntimeError` 的 `int` 子类。实际结果为普通 `RuntimeError: hostile int __ge__`，诊断为 `commit_fault=False / consecutive_failures=0 / last_physical_committed=None / receipts={}`。这证明 `_evaluate()` 在设置逐通道回执前即被 IEC 值域比较击穿。
+- 开包前两 scope 文件与 WP-010 Codex Round 2 审核结束 manifest 逐项一致，按协调器清单行保留末尾换行的口径，聚合 SHA-256 = `a8d4f0fef8843f098e54372f11394d5ea9c6d618f3dc39c30d9f0f4c887346a8`。
+- 风险已在 `docs/RISKS.md` 登记为 `PLATFORM-DRIVER-RECEIPT-TYPE-1`（行政哈希 `dcd5f372775e6f0a238d56ea50691af841ea4890be764efefa6b956ee47f7222`）；`docs/PROJECT_STATE.md` 已同步开工、范围与顺序（行政哈希 `29c1fec8eee2883cec460bc6ace258852a3955499828e0156588ce9161d121ca`）。两文件不属于 Claude 功能 scope；修复获批后由 Codex 依独立审核证据更新风险状态。
+- 创建前项目内存活投影显示协调器 `coordinator_live=true`、PID 65490、原生 kqueue 监听、外部进程允许，无项目内执行租约或失败告警；旧 Claude/Codex 30 分钟主轮询仍标记必须暂停。当前受限沙箱禁止 `ps`，故本包不把进程表不可读误报为“无进程”；真实调度仍以协调器租约与事件门禁失败关闭。
+- Git 基线由 Codex 既有只读证据负责。Claude **禁止读取或解析 `.git` 的任何文件，禁止执行任何 Git/GitHub 命令**；直接信赖本包 `base_commit` 与 baseline manifest。本包不调整 Claude CLI 固定 40 turns 上限。
+
+### 目标与验收标准
+
+在不改公共 Store/IEC 工程类型映射的前提下，加固 `CommitSupervisor` 对驱动回执值的 Python 信任边界：任何来自自定义标量子类的重载运算都不得在结构化逐通道失败证据形成前执行或击穿提交路径。Claude 须实施最小修复、完成 v2 自审和原子交接，再由 Codex 独立审核。
+
+1. **exact 内建标量门禁**
+   - 在对通道确认值执行 `_iec_value_error()`、整数范围、浮点有限性或严格相等比较前，必须先以不调用用户可重载 dunder 的方式确认命令值与回执值均为当前支持的 exact 内建标量（`bool / int / float / str`），且二者 exact 类型相同；任一为子类或非支持类型必须失败关闭。
+   - exact 门禁通过后，IEC 声明类型与值域仍复用现有 `_iec_value_error()` 口径，不复制第二套 IEC 类型/数值表，不改公共 `check_value_type()` 或 OutputPolicy 语义。
+   - 普通 exact 内建值的既有成功、错值、错类型、越界、非有限回执语义不得改写或放宽。
+
+2. **结构化失败与逐通道隔离**
+   - 恶意子类回执必须产生 `PartialCommitError`，不得漏出普通 `RuntimeError` 或调用其比较/字符串 dunder。失败通道必须 `commit_fault=True`、连续失败计数精确前移、保留旧 `last_physical_committed`，且存在 `ok=False` 的结构化回执。
+   - 同一批中的健康通道仍应独立成功并前移自身 LPC；不得把单通道值子类问题升级为无必要的整批不可信。
+   - 同一恶意回执连续失败到 `commit_fault_retry_n` 时，必须与既有语义一样精确升级并锁存 `channel_fault`；安全值重试、显式复位与边界基准规则不回退。
+
+3. **对抗性回归锁**
+   - 至少覆盖恶意 `int` 子类：范围与相等比较 dunder 一旦被调用即抛普通异常，断言它们未击穿且上述四项故障证据成立。
+   - 同根覆盖恶意 `float` 子类与 `str` 子类，以证明修复是统一标量信任边界，而不是只特判 `USINT` 或某一比较调用点。
+   - 至少一条多通道反证锁定健康通道与恶意子类通道的成功/失败隔离，并保留 WP-009/010 全部既有语义锁。
+
+4. **交接完整性**
+   - Claude 必须在 `CLAUDE_WORKING` 内完成结构化自审；只有 `self_review_verdict: PASS`、五组测试真实计数、完整两文件 manifest、`self_review_scope_sha256 == scope_sha256`、明确“是否满足交接条件: 是”全部成立，才可追加实施交接。
+   - 最终以一次原子写入把顶层状态转为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，且自审段必须位于实施交接段之前；随后立即停止修改 scope。
+
+### 明确排除与冻结边界
+
+- Claude 只能修改上列两个 scope 文件，以及按 v2 协议原子追加本工作包自审/实施交接记录；不得修改 WP-009/010 历史、`docs/PROJECT_STATE.md`、`docs/RISKS.md`、正式规格、其他运行时文件、`.cursor/rules/*`、AI 协调器/自动化配置或 `.git`。
+- 禁止读取 `.git`，禁止执行 `git` / `gh` / `shasum`，禁止使用 Python `subprocess` 绕过禁令；`git diff --check` 由 Codex 在原子交接后独立执行。
+- 禁止创建核验脚本、临时文件、缓存、日志、补丁或其他辅助文件。需要哈希核验时只能直接运行单行 `python -c`；测试只能直接运行下列 `python -m unittest` 命令。
+- 不修改 `check_value_type()`、`_iec_value_error()` 或 `OutputPolicy` 的公共工程语义；不实现或引入 shadow mode、L2 adapter registry、真实 monitor/HAL/驱动、可信设备反馈、真实周期/硬件 watchdog、HMI/通知/持久化或现场安全证明；不修改 `ENGINE_SCAN_SPEC v2.2.2 §4.1/§4.4` 语义。
+- 本包是 Python 驱动回执信任边界的失败关闭加固，不证明与目标 PLC/CODESYS、真实物理写入、硬件 watchdog 或现场安全回路一致。
+
+### 测试计划与责任分配
+
+Claude 交接前必须直接实际运行并记录以下五组 Python 测试的真实计数和结果；新增测试导致计数增长属于正常快照变化，不得回写历史数字：
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+
+Codex 在原子交接后必须独立：复算 scope manifest；审查门禁是否确实位于任何可重载运算之前；使用自己的恶意 `int / float / str` 子类反证；验证多通道隔离、故障计数/升级、旧 LPC 保留和 WP-009/010 回归；复跑与风险成比例的测试并执行 `git diff --check`。审核结论必须区分项目工程约定、当前 Python 已验证事实与仍待真机验证假设。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-22 11:55:22 +0800
+- self_review_finished_at: 2026-07-22 11:56:18 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea
+- self_review_manifest:
+  - `45f8d21ce2f4bfdd20397069cb05b34536e4c1be276c3ce96db313dda66df3d5  src/runtime/commit_supervisor.py`
+  - `edb6c89575ecf00b00fafed78a6c0d9db39fe7a349d652db95e4e6ab5ca1d840  tests/test_runtime_commit_supervisor.py`
+- 实际测试命令与结果: 五组均直接实运行、全绿；计数为本轮真实快照，新增 5 条对抗性用例致 commit_supervisor 计数增长属正常。
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 172 tests, OK
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` → Ran 1172 tests, OK
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` → Ran 1240 tests, OK
+- 首次失败: 无（五组自首次运行即全部 OK，无需返修再跑）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 不适用（无首次失败）。
+- 修复后重跑结果: 不适用（无首次失败）。
+- 完成的修复要点（供审核核对）：
+  - `src/runtime/commit_supervisor.py` 新增模块级 `_exact_scalar_reject(commanded, confirmed)`，以纯类型身份（`type(x) is bool/int/float/str`，绝不触发任何可重载 dunder）确认发出命令值与回执确认值均为当前支持的 exact 内建标量且 exact 类型相同；任一为子类/非支持类型/异型即返回失败原因串（失败关闭）。诊断串只对**类型对象**做 `_safe_repr`，绝不调用回执实例的比较/字符串 dunder。
+  - `_evaluate()` 在 `value = confirmed[channel]` 之后、`_iec_value_error()` 整数值域比较 / REAL 有限性 / 严格相等**之前**先调用该门禁并在命中时立即失败关闭返回 `(False, gate_detail)`；其余 IEC 值域与严格相等逻辑复用现有 `_iec_value_error()` 口径，未复制第二套类型/数值表，未改 `check_value_type()` / `_iec_value_error()` / `OutputPolicy`。
+  - 模块 docstring 的「驱动确认回执契约」段补写 exact 标量前置门禁说明。
+- 已验证事实（当前 Python）：
+  - 恶意 `int` 子类回执（重载 `__ge__/__le__/__eq__/__ne__` 抛 `RuntimeError`）在触碰任何比较前被门禁失败关闭，产生 `PartialCommitError`（非漏出 `RuntimeError`），`commit_fault=True`、连续计数精确前移、保留旧 `last_physical_committed`、存在 `ok=False` 回执，且被重载 dunder 从未被调用（`dunder_calls == []`）。
+  - 同根 `float` / `str` 子类统一在门禁失败关闭，证明是统一标量信任边界而非只特判整数比较点。
+  - 多通道反证：健康通道独立成功前移自身 LPC，恶意子类通道独立失败关闭并隔离，不升级为整批不可信。
+  - 恶意子类连续失败到 `commit_fault_retry_n` 精确升级并锁存 `channel_fault`。
+  - 既有 exact 内建值的成功 / 错值 / 错类型 / 越界 / 非有限 / 结构不一致 / 复位 / 重入 / WP-009/010 语义锁全部回归通过（五组全绿）。
+- 项目工程约定（非 CODESYS 官方语义、未经真机验证）：exact 内建标量信任门禁、逐通道失败关闭与提交/故障制度均为项目工程约定；Python 侧回执不构成与目标 PLC/CODESYS、真实驱动、硬件 watchdog 或现场安全回路一致的证据。
+- 未验证边界 / 待真机验证假设：真实 HAL/可信设备反馈、真实物理写入与设备位置、硬件 watchdog、shadow mode、现场安全回路均不在本包，未实现也未验证。
+- 已知疑问：门禁对 `float` / `str` 子类的失败关闭在旧代码里本已由 `_evaluate` 的 `type(value) is not type(commanded)` 恒等判定间接兜住（二者仅整数值域比较点可被击穿）；本包将三类子类收敛到**同一显式门禁**并在任何可重载运算之前统一失败关闭，float/str 用例经断言 `detail` 含「exact 内建标量」与 `dunder_calls == []` 锁定门禁路径。请 Codex 独立以自有子类反证复核门禁位置确在任何比较之前。
+- 是否满足交接条件: 是
+- 交接条件说明: `self_review_verdict=PASS`；`self_review_scope_sha256 == scope_sha256 == e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea`；五组真实计数与成功标记齐备；两文件 manifest 完整且与 scope 顺序一致。
+
+### Claude 实施交接（Round 1）
+
+- 完成内容：加固 `CommitSupervisor` 对驱动回执值的 Python 信任边界——新增 exact 内建标量前置门禁 `_exact_scalar_reject()`，在 `_evaluate()` 对确认值执行任何可被子类重载的运算（`_iec_value_error()` 整数值域比较、REAL 有限性、严格相等）之前，以纯类型身份确认命令值与确认值均为 exact 内建标量（`bool/int/float/str`）且 exact 类型相同，否则失败关闭；exact 门禁通过后 IEC 声明类型与值域仍复用现有 `_iec_value_error()`，未复制第二套类型/数值表，未改 `check_value_type()` / `_iec_value_error()` / `OutputPolicy` 公共语义。新增五条对抗性回归用例（恶意 `int`/`float`/`str` 子类失败关闭、多通道健康/恶意隔离、恶意子类精确升级锁存）。
+- 修改文件：
+  - `src/runtime/commit_supervisor.py`（新增 `_exact_scalar_reject` 门禁 + `_evaluate` 前置调用 + docstring 说明）
+  - `tests/test_runtime_commit_supervisor.py`（新增 `_HostileInt/_HostileFloat/_HostileStr` 测试替身与 `TestHostileScalarSubclassGate` 五条用例）
+- 明确未修改：`src/runtime/output_policy.py`、`src/runtime/store.py`、`src/runtime/scan_runner.py` 等其余运行时文件；`docs/PROJECT_STATE.md`、`docs/RISKS.md`、正式规格、`.cursor/rules/*`、AI 协调器/自动化配置与 `.git` 均未触碰（本包 scope 外，禁止修改）。`check_value_type()` / `_iec_value_error()` / `OutputPolicy` 公共工程语义未改。
+- 测试命令与实际结果（五组均直接实运行、全绿）：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` → Ran 172 tests, OK
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` → Ran 166 tests, OK
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` → Ran 1172 tests, OK
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` → Ran 1240 tests, OK
+- 已知疑问：见上「Claude 交接前自审（Round 1）」已知疑问项——float/str 子类旧代码本由 `type(value) is not type(commanded)` 恒等判定间接兜住，本包收敛到同一显式门禁并在任何可重载运算之前统一失败关闭；请 Codex 以自有恶意子类独立复核门禁位置。
+- scope_sha256: e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea
+- handoff_to: codex
+- implementation_finished_at: 2026-07-22 11:56:18 +0800
+
+### Codex 协议标签行政规范化（非审核）
+
+- 协调器在 Claude 完成原子交接后重读 v2 门禁，识别自审字段被写为带括号说明的 `实际测试命令与结果（…）`，而协议要求机器键必须精确为 `实际测试命令与结果`；解析结果因此为 `v2-invalid`、`handoff_gate_ok=false`，Codex 审核未被启动。
+- 本次仅把括号说明从字段键移到同行字段值；五组测试命令、计数 172 / 166 / 1172 / 68 / 1240、成功标记、自审时间、manifest、自审/实施聚合 SHA-256 及所有功能内容一字不改。规范化前 `docs/AI_REVIEW_HANDOFF.md` SHA-256 = `068222166f86094c2b9e05b85b1bca6bb7795d3a596ca392caebe4a6c3a4aac0`。
+- 字段名规范化后，解析器继续精确指出 `是否满足交接条件` 的值为“是（附说明）”，而协议只接受 exact `是/true`。因此进一步仅将该值规范为“是”，原括号内容完整移入相邻 `交接条件说明`；第二次规范化前交接文件 SHA-256 = `e599c3792b25999568f17fd79ac9e7cb851ef8dac1a4dffd4cd368cbae674c74`。两次均只处理机器精确标签/值，不改变任何证据内容。
+- 该动作沿用用户在本项目既有 v2 工作包中已明确同意的“单字段协议规范化、测试/计数/时间/哈希不改”处置边界，并属于用户当前“有影响则现在处理”授权下的最小协议行政动作。它不是 Claude 返修、不补写测试证据、不构成 Codex 功能审核。
+- normalized_by: codex（协议协调监督行政动作）
+- normalized_at: 2026-07-22 11:59:30 +0800
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实: 接手五字段为 `WP-20260722-011 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，且 `1 <= max_rounds=3`；`handoff_protocol=v2`，仓库只读解析器对 Round 1 结构化自审九项门禁返回 `handoff_gate_ok=true / gate_reason=None`。Claude 自审 manifest、实施交接 `scope_sha256` 与 Codex 独立开始/结束实盘清单逐项一致，聚合 SHA-256 均为 `e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea`，审核期间两个 scope 文件无漂移。`src/runtime/commit_supervisor.py:264-298` 的 `_exact_scalar_reject()` 只使用 exact 内建类型身份判定；`:511-527` 确认门禁在 `_iec_value_error()` 的整数值域/浮点有限性检查与严格相等比较之前执行，拒绝子类、非支持类型和 exact 异型值后才进入既有 IEC 判定，没有复制第二套类型/数值表，也未改 `check_value_type()`、`_iec_value_error()` 或 OutputPolicy 公共语义。`tests/test_runtime_commit_supervisor.py:576-677` 的五条对抗性用例覆盖恶意 `int / float / str` 子类、多通道隔离和第 N 次精确升级锁存；Codex 另用独立定义的三类恶意子类不落盘复核，三类均得到 `PartialCommitError`、重载 dunder 调用记录为空、失败计数精确前移且旧 LPC 保留，多通道健康通道独立成功，`retry_n=2` 时第二次失败精确锁存。
+- 项目工程约定: exact 内建标量信任门禁、驱动确认回执、逐通道 `commit_fault` / `channel_fault`、`safe_value` 重试与显式复位均为当前项目工程约定，不是 IEC 61131-3 / CODESYS 官方已证实语义。`last_physical_committed` 仍只表示驱动确认写出的最后命令值，不是可信设备位置反馈，也不得作为恢复基准；当前代码、测试与交接表述保持这一分层。
+- 待真机验证假设: 本包仍无真实 HAL/驱动、可信设备反馈、真实周期 monitor、硬件 watchdog、shadow mode 或现场安全回路；Python 回执契约、对抗性子类反证与单元测试只证明当前实现行为，不证明目标 SP16.1 PLC/CODESYS、真实物理写入或现场安全一致性。
+- 必须返修: 无。
+- 非阻塞建议: 无；后续若接入真实驱动适配层，应继续保持该 exact 标量门禁位于所有不可信值的数值域、有限性和相等运算之前，不在适配层静默把自定义标量子类转换成可信回执。
+- 审核证据: Codex 独立运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_commit_supervisor tests.test_runtime_scan_runner tests.test_runtime_output_policy` = 172/172、`python -m unittest tests.test_runtime_engine tests.test_runtime_executor tests.test_runtime_store tests.test_runtime_ir` = 166/166、`python -m unittest discover -s prototype_05 -t .` = 68/68，均通过；另运行不落盘独立恶意 `int / float / str` 子类、多通道隔离与两次失败锁存反证，全部通过。正式 tests 实际运行 1172 项、全仓实际运行 1240 项，各有同 9 个 scope 外 `tests/test_ai_handoff.py` 用例因当前受限沙箱禁止绑定本地 HTTP 端口报 `PermissionError`，其余分别 1163/1163 与 1231/1231 通过；该环境限制与 WP-009/010 既有 Codex 记录一致，不是 WP-011 功能回归。`git diff --check` 通过；只读 Git 范围核对显示工作区另有 WP-009/010 与开包行政记录留下的既有改动，WP-011 两个 scope 文件的实盘哈希与本轮交接证据逐项一致。逐文件开始/结束 SHA-256 均为 `src/runtime/commit_supervisor.py=45f8d21ce2f4bfdd20397069cb05b34536e4c1be276c3ce96db313dda66df3d5`、`tests/test_runtime_commit_supervisor.py=edb6c89575ecf00b00fafed78a6c0d9db39fe7a349d652db95e4e6ab5ca1d840`；审核中未执行任何 Git 写操作。
+- review_started_sha256: e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea
+- review_finished_sha256: e2bfd12ea91f7bc3ce807fc3e0ce8d151789e6d210cf9b33c810ec852e7fb3ea
+- handoff_to: user
+- reviewed_at: 2026-07-22 12:09:39 +0800

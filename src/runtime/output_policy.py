@@ -444,6 +444,45 @@ class OutputPolicyService:
         """每通道 ``last_effective`` 的独立诊断副本（值均为不可变标量）。"""
         return {ch: self._state[ch][0] for ch in self._order}
 
+    def commit_specs(self) -> dict:
+        """每通道提交监督所需配置的独立副本：``channel -> (iec_type, safe_value,
+        commit_fault_retry_n)``（供 ``CommitSupervisor`` 读取，**不复制第二套通道
+        策略表**——``safe_value`` / ``commit_fault_retry_n`` 仍以本策略配置为唯一
+        源）。返回值为不可变标量元组，外部持有不污染服务内部状态。"""
+        return {ch: (self._policy[ch].iec_type, self._policy[ch].safe_value,
+                     self._policy[ch].commit_fault_retry_n) for ch in self._order}
+
+    def boundary_pending(self) -> dict:
+        """每通道 ``boundary_reset`` 边界基准挂起标志的独立副本
+        （``channel -> bool``）：``True`` 表示"下一次正常路径须以 ``safe_value`` 为
+        限速基准重建、且**尚未被新一拍 ``stage_outputs`` 消费**"。
+
+        提交监督器在提交时读取本快照，用于判定"显式复位后输出基准是否已在
+        ``safe_value`` 上真正重建"：复位经 ``mark_boundary_reset`` 置本标志为
+        ``True``，只有当**复位之后**的一拍 ``stage_outputs`` 在 safe 基准上重算并
+        把该通道 final 前移（消费边界、标志回落 ``False``）时，监督器才放行业务值；
+        否则（标志仍挂起）说明待提交的是**复位前 staging 的陈旧业务值**，须失败关闭
+        改写 ``safe_value``（见 ``CommitSupervisor.commit``）。返回值为不可变标量，
+        外部持有不污染服务内部状态。与 ``stage_outputs`` 共用同一锁保证读到的一定
+        是某一次完整状态、不撕裂。"""
+        with self._lock:
+            return {ch: self._state[ch][1] for ch in self._order}
+
+    def mark_boundary_reset(self, channel: str) -> None:
+        """把某通道的 ``boundary_reset`` 置真：**下一次正常路径**限速基准回到
+        ``safe_value``（§4.1“恢复后首拍从安全基准限速”）。
+
+        提交监督器在**瞬时故障恢复**或**锁存 channel_fault 显式复位**后调用本入口，
+        使故障期间照常前移的 ``last_effective`` 不再冒充恢复基准——本包无真实
+        HAL/可信设备反馈，故恢复首拍一律退化为 ``safe_value`` 基准，**不用
+        ``last_physical_committed`` 对齐**。只改独立的边界标记，不动 ``last_effective``
+        逻辑值本身。与 ``stage_outputs`` 共用同一锁保证与门控拍串行、不撕裂。"""
+        with self._lock:
+            if channel not in self._state:
+                raise OutputPolicyConfigError(
+                    "mark_boundary_reset 未知通道 '%s'" % channel)
+            self._state[channel][1] = True
+
     # ---- ScanEngine 第 4 步端口 ----
 
     def stage_outputs(self, pending: Any, store: Any, inputs: Any,
