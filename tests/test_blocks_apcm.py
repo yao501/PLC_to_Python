@@ -373,19 +373,36 @@ class TestZLOUT(unittest.TestCase):
         step_apcm(p, ref=ref)
         self.assertEqual(ref.value, 20.0)
 
-    def test_zlen_false_does_not_call_rtrig02_or_change_zlout(self):
+    def test_zlen_false_drives_rtrig02_false_and_does_not_change_zlout(self):
         p = make_block()
-        p.ZLEN = False
+        p.ZLEN = True
         p.AV = 100.0
         p.AV_R = 2.0
         p.AV_P_TEMP = 3.0
         ref = RealRef(10.0)
 
         step_apcm(p, ref=ref)
+        self.assertEqual(ref.value, 15.0)
+        self.assertIs(p.R_TRIG02.Q, True)
 
-        self.assertEqual(ref.value, 10.0)
+        # 即使限位仍为 True，关闭 ZLEN 也必须推进 R_TRIG02(CLK=False)，
+        # 不能把上一拍 Q=True 悬挂成持续整理/跟踪状态。
+        p.AV = 100.0
+        step_apcm(p, ref=ref, ZLEN=False, TP=-77.0)
+
+        self.assertEqual(ref.value, 15.0)
+        self.assertIs(p.ZL_EVENT, False)
         self.assertIs(p.R_TRIG02.Q, False)
         self.assertIs(p.R_TRIG02._CLK_prev, False)
+
+        # 限位条件没有离开时重新打开 ZLEN，也必须形成一次确定的新事件。
+        p.AV = 100.0
+        p.AV_P_TEMP = 4.0
+        p.AV_R = 1.0
+        step_apcm(p, ref=ref, ZLEN=True, TP=-77.0)
+        self.assertEqual(ref.value, 20.0)
+        self.assertIs(p.ZL_EVENT, True)
+        self.assertIs(p.R_TRIG02.Q, True)
 
     def test_zlout_uses_old_av_before_this_scan_total_output(self):
         p = make_block()
@@ -402,6 +419,415 @@ class TestZLOUT(unittest.TestCase):
         step_apcm(p, ref=ref, RM=3, TP=100.0)
         self.assertEqual(ref.value, 5.0)
 
+    def test_cleanup_atomic_matrix_preserves_combination_and_blocks_all_rsf_bands(self):
+        """上下限/四档/正反方向/两种 OutM 均不得在整理拍重触发 RSF。"""
+
+        band_error = {1: 0.75, 2: 1.5, 3: 3.0, 4: 5.0}
+        for out_m in (0, 1):
+            for limit in (-100.0, 100.0):
+                for band, magnitude in band_error.items():
+                    for direction in (-1.0, 1.0):
+                        with self.subTest(OutM=out_m, limit=limit, band=band, direction=direction):
+                            p = make_block()
+                            p.MD = -100.0
+                            p.MU = 100.0
+                            p.OUTB = -100.0
+                            p.OUTT = 100.0
+                            p.ZLEN = True
+                            p.RSFEN = True
+                            p.OutM = out_m
+                            p.TL = 1.0
+                            p.E1, p.E2, p.E3, p.E4 = 0.5, 1.0, 2.0, 4.0
+                            p.AO1, p.AO2, p.AO3, p.AO4 = 3.0, 6.0, 9.0, 12.0
+
+                            # 整理前 PID+RSF 的内部组合值恰为当前物理限位。
+                            rsf_before = direction * (band + 2.0)
+                            p.AV = limit
+                            p.AV_R = rsf_before
+                            p.AV_P_TEMP = limit - rsf_before
+                            p.AV_P = p.AV_P_TEMP
+                            setattr(p, f"CT_{band}", 1.0)  # 下一计数本可达到 2*TL
+                            p.EK_R_1 = direction * magnitude
+                            p.FLAG = 0.0
+                            ref = RealRef(0.0)
+
+                            step_apcm(
+                                p,
+                                ref=ref,
+                                SP=50.0,
+                                PV=50.0 + direction * magnitude,
+                                TP=-limit,  # 故意与整理快照相反，证明事件拍不读取旧 TP
+                            )
+
+                            self.assertIs(p.ZL_EVENT, True)
+                            self.assertAlmostEqual(p.ZL_PID_BASE, limit)
+                            self.assertAlmostEqual(ref.value, limit)
+                            self.assertAlmostEqual(p.AV_P_TEMP, limit)
+                            self.assertAlmostEqual(p.AV_P, limit)
+                            self.assertAlmostEqual(p.AV_R, 0.0)
+                            self.assertAlmostEqual(p.AV, limit)
+                            self.assertEqual(p.FLAG, 0.0)
+                            self.assertEqual(getattr(p, f"CT_{band}"), 0.0)
+                            for trig in (p.R_TRIG_R1, p.R_TRIG_R2, p.R_TRIG_R3, p.R_TRIG_R4, p.R_TRIG_R5):
+                                self.assertIs(trig.Q, False)
+                                self.assertIs(trig._CLK_prev, False)
+
+    def test_cleanup_next_scan_requires_a_fresh_full_debounce(self):
+        """整理后的最大档持续偏差也必须重新经过完整 2*TL 防抖。"""
+
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.RSFEN = True
+        p.TL = 1.0
+        p.E1, p.E2, p.E3, p.E4 = 0.5, 1.0, 2.0, 4.0
+        p.AO4 = 12.0
+        p.AV = -100.0
+        p.AV_P_TEMP = -90.0
+        p.AV_R = -10.0
+        p.CT_4 = 1.0
+        p.EK_R_1 = -5.0
+        ref = RealRef(0.0)
+
+        step_apcm(p, ref=ref, SP=50.0, PV=45.0, TP=99.0)
+        self.assertEqual((p.CT_4, p.AV_R, p.FLAG), (0.0, 0.0, 0.0))
+
+        # 第一个后续拍仅建立 EK_R_1，不累计；第二拍累计 1；第三拍累计 2 后才触发。
+        p.AV = -100.0
+        step_apcm(p, ref=ref, SP=50.0, PV=45.0, TP=99.0)
+        self.assertEqual((p.CT_4, p.AV_R, p.FLAG), (0.0, 0.0, 0.0))
+        p.AV = -100.0
+        step_apcm(p, ref=ref, SP=50.0, PV=45.0, TP=99.0)
+        self.assertEqual((p.CT_4, p.AV_R, p.FLAG), (1.0, 0.0, 0.0))
+        p.AV = -100.0
+        step_apcm(p, ref=ref, SP=50.0, PV=45.0, TP=99.0)
+        self.assertEqual(p.CT_4, 2.0)
+        self.assertEqual(p.FLAG, 4.0)
+        self.assertAlmostEqual(p.AV_R, 12.0)
+
+    def test_cleanup_rebase_subtracts_oc_once_and_next_auto_scan_is_bumpless(self):
+        """现场 OC 前馈不得在整理基准中丢失或于下一自动拍重复叠加。"""
+
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.RSFEN = True
+        p.OutM = 0
+        p.AV = 100.0
+        p.AV_P_TEMP = 90.0
+        p.AV_R = 10.0
+        ref = RealRef(0.0)
+
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=20.0, TP=-75.0)
+
+        self.assertEqual(p.ZL_PID_BASE, 100.0)
+        self.assertEqual(p.AV_P_TEMP, 100.0)
+        self.assertEqual(p.AV_R, 0.0)
+        self.assertEqual(p.UK_1, 80.0)  # 组合基准100 - OC20
+        self.assertEqual(p.AV, 100.0)
+
+        # 下一拍退出限位条件，PID 自动分支 DU=0：UK80 + OC20 仍为100。
+        p.AV = 99.0
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=20.0, TP=-75.0)
+        self.assertIs(p.ZL_EVENT, False)
+        self.assertEqual(p.UK_1, 80.0)
+        self.assertEqual(p.AV_P_TEMP, 100.0)
+        self.assertEqual(p.AV, 100.0)
+
+    def test_cleanup_event_freezes_cd_exit_to_preserve_total_output(self):
+        """整理与 CD 退出同拍碰撞时，CD 必须冻结而不是丢失回补。"""
+
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.OutM = 0
+        p.AV = 100.0
+        p.AV_P_TEMP = 80.0
+        p.AV_R = 10.0
+        p.AV_C_TEMP = 10.0
+        p.AV_C = 10.0
+        p.CDEN = False
+        p.F_TRIG2._CLK_prev = True  # 若本拍运行 CD，本可形成切除下降沿
+        ref = RealRef(0.0)
+
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-75.0)
+
+        self.assertIs(p.ZL_EVENT, True)
+        self.assertEqual(p.ZL_PID_BASE, 90.0)
+        self.assertEqual(p.AV_P_TEMP, 90.0)
+        self.assertEqual(p.AV_R, 0.0)
+        self.assertEqual(p.AV_C, 10.0)
+        self.assertEqual(p.AV_C_TEMP, 10.0)
+        self.assertIs(p.F_TRIG2._CLK_prev, True)  # 事件拍没有推进 CD 状态
+        self.assertEqual(p.AV, 100.0)
+
+    def test_cleanup_position_rebase_does_not_clamp_pid_before_cd_combination(self):
+        """反向 CD 抵消 PID+RSF 时，整理基准不得先被 PID 限幅破坏总量。"""
+
+        for limit, pid_rsf, cd in ((100.0, 110.0, -10.0), (-100.0, -110.0, 10.0)):
+            with self.subTest(limit=limit, pid_rsf=pid_rsf, cd=cd):
+                p = make_block()
+                p.MD = -100.0
+                p.MU = 100.0
+                p.OUTB = -100.0
+                p.OUTT = 100.0
+                p.ZLEN = True
+                p.OutM = 0
+                p.AV = limit
+                p.AV_P_TEMP = pid_rsf
+                p.AV_R = 0.0
+                p.AV_C_TEMP = cd
+                p.AV_C = cd
+                ref = RealRef(0.0)
+
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-limit)
+
+                self.assertIs(p.ZL_EVENT, True)
+                self.assertEqual(p.ZL_PID_BASE, pid_rsf)
+                self.assertEqual(p.AV_P_TEMP, pid_rsf)
+                self.assertEqual(p.AV_C, cd)
+                self.assertEqual(p.AV_TEMP, limit)
+                self.assertEqual(p.AV, limit)
+                self.assertEqual(ref.value, pid_rsf)
+
+                # 限位条件持续时不会重复整理。下一拍若 CD 已关闭，可以按原逻辑
+                # 将 AV_C 回补进 PID，但组合总量和物理输出必须保持，ZLOUT 不重加。
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-limit)
+                self.assertIs(p.ZL_EVENT, False)
+                self.assertEqual(p.AV_P_TEMP + p.AV_R + p.AV_C, limit)
+                self.assertEqual(p.AV_TEMP, limit)
+                self.assertEqual(p.AV, limit)
+                self.assertEqual(ref.value, pid_rsf)
+
+    def test_cleanup_observer_modes_preserve_gc_offset_contract(self):
+        """PCMMS=1/2 且 AV_GC 非零时，整理基准及内部 PID 状态各只扣一次补偿。"""
+
+        for pcmms, expected_state in ((1, 80.0), (2, 90.0)):
+            for out_m in (0, 1):
+                with self.subTest(PCMMS=pcmms, OutM=out_m):
+                    p = make_block()
+                    p.AD = False
+                    p.MD = -100.0
+                    p.MU = 100.0
+                    p.OUTB = -100.0
+                    p.OUTT = 100.0
+                    p.ZLEN = True
+                    p.RSFEN = True
+                    p.PCMMS = pcmms
+                    p.GCEN = True
+                    p.GC1 = 1.0
+                    p.GC2 = 0.0
+                    p.OutM = out_m
+                    p.AV = 100.0
+                    p.AV_1 = 100.0
+                    p.AV_P_TEMP = 90.0
+                    p.AV_R = 10.0
+                    p.CT_4 = 1.0
+                    p.EK_R_1 = -5.0
+                    p.F_TRIG2.step(False)  # 排除冷启动 CD 下降沿干扰
+                    ref = RealRef(0.0)
+
+                    step_apcm(p, ref=ref, SP=50.0, PV=40.0, OC=20.0, TP=-77.0)
+
+                    self.assertIs(p.ZL_EVENT, True)
+                    self.assertEqual(p.AV_GC, -10.0)
+                    self.assertEqual(p.ZL_PID_BASE, 100.0)
+                    self.assertEqual(p.AV_P_TEMP, 100.0)
+                    self.assertEqual(p.AV_R, 0.0)
+                    self.assertEqual(p.AV, 100.0)
+                    self.assertEqual(p.CT_4, 0.0)
+                    self.assertEqual(ref.value, 100.0)
+                    if out_m == 0:
+                        self.assertEqual(p.UK_1, expected_state)
+                    else:
+                        self.assertEqual(p.DU_1, expected_state)
+
+                    # 整理前 PID=90、整理后基准=100，因此次拍出现一次 R_TRIG03
+                    # 上升沿；验证 AV_GC 非零时的位置保持/零增量路径仍不重复补偿。
+                    step_apcm(p, ref=ref, SP=50.0, PV=40.0, OC=20.0, TP=-77.0)
+                    self.assertIs(p.ZL_EVENT, False)
+                    self.assertIs(p.R_TRIG03.Q, True)
+                    self.assertEqual(ref.value, 100.0)
+                    if out_m == 0:
+                        self.assertEqual(p.AV_P_TEMP, 100.0)
+                        self.assertEqual(p.UK_1, expected_state)
+                    else:
+                        self.assertEqual(p.AV_P_TEMP, 0.0)
+
+    def test_cleanup_followup_rtrig03_contract_depends_on_output_mode(self):
+        """整理后 R_TRIG03 次拍沿：位置式保持，增量式输出零增量命令。"""
+
+        for out_m in (0, 1):
+            with self.subTest(OutM=out_m):
+                p = make_block()
+                p.MD = -100.0
+                p.MU = 100.0
+                p.OUTB = -100.0
+                p.OUTT = 100.0
+                p.ZLEN = True
+                p.RSFEN = True
+                p.OutM = out_m
+                p.AV = 100.0
+                p.AV_1 = 100.0
+                p.AV_P_TEMP = 90.0
+                p.AV_R = 10.0
+                p.F_TRIG2.step(False)  # 仅观察 R_TRIG03，不混入 CD 冷启动沿
+                ref = RealRef(0.0)
+
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+                self.assertIs(p.ZL_EVENT, True)
+                self.assertIs(p.R_TRIG03.Q, False)  # 本拍看到的是整理前 PID=90
+                self.assertEqual(p.AV_P_TEMP, 100.0)
+                self.assertEqual(ref.value, 100.0)
+
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+                self.assertIs(p.ZL_EVENT, False)
+                self.assertIs(p.R_TRIG03.Q, True)
+                self.assertEqual(p.AV_P_TEMP, 100.0 if out_m == 0 else 0.0)
+                self.assertEqual(ref.value, 100.0)
+
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+                self.assertIs(p.R_TRIG03.Q, False)
+                self.assertEqual(ref.value, 100.0)
+
+    def test_cleanup_same_scan_rsf_disable_and_tracking_transitions(self):
+        """RSFEN/TS/ATE/RM 与整理同拍时，事件优先级和旧模式收尾语义保持。"""
+
+        # RSFEN 下降沿可以同拍出现，但事件重建优先，MM 不被手动分支消费。
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.RSFEN = False
+        p.F_TRIG1.step(True)
+        p.AV = 100.0
+        p.AV_P_TEMP = 90.0
+        p.AV_R = 10.0
+        p.MM = 3
+        ref = RealRef(0.0)
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+        self.assertIs(p.ZL_EVENT, True)
+        self.assertIs(p.F_TRIG1.Q, True)
+        self.assertEqual(p.AV_P_TEMP, 100.0)
+        self.assertEqual(p.AV_R, 0.0)
+        self.assertEqual(p.MM, 3)
+
+        # TS+ATE 会先把 RM 切到 4，但整理分支当拍仍优先于普通 TP 跟踪。
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.ATE = True
+        p.TS = True
+        p.AV = 100.0
+        p.AV_P_TEMP = 90.0
+        p.AV_R = 10.0
+        ref = RealRef(0.0)
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+        self.assertEqual(p.RM, 4)
+        self.assertIs(p.ZL_EVENT, True)
+        self.assertEqual(p.AV_P_TEMP, 100.0)
+        self.assertEqual(ref.value, 100.0)
+
+        # RM=3 的事件拍仍用冻结基准；下一普通跟踪拍才恢复使用 TP。
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.RM = 3
+        p.AV = 100.0
+        p.AV_P_TEMP = 90.0
+        p.AV_R = 10.0
+        ref = RealRef(0.0)
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+        self.assertEqual(p.AV_P_TEMP, 100.0)
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+        self.assertEqual(p.AV_P_TEMP, -77.0)
+        self.assertEqual(ref.value, 100.0)
+
+    def test_cleanup_manual_and_output_inhibit_semantics_are_explicit(self):
+        """RM=0 与 SADD/SSUB 的既有收尾不能被原子整理修复静默改变。"""
+
+        p = make_block()
+        p.MD = -100.0
+        p.MU = 100.0
+        p.OUTB = -100.0
+        p.OUTT = 100.0
+        p.ZLEN = True
+        p.RM = 0
+        p.AV = 100.0
+        p.AV_P = 33.0
+        p.AV_P_TEMP = 90.0
+        p.AV_R = 10.0
+        ref = RealRef(0.0)
+        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-77.0)
+        self.assertIs(p.ZL_EVENT, True)
+        self.assertEqual(ref.value, 100.0)  # ZLOUT 仍按整理前 PID+RSF 累加
+        self.assertEqual(p.AV_P_TEMP, 33.0)  # RM=0 的既有 AV_P 收尾仍最终生效
+
+        for limit, inhibit_name in ((100.0, "SADD"), (-100.0, "SSUB")):
+            with self.subTest(limit=limit, inhibit=inhibit_name):
+                p = make_block()
+                p.MD = -100.0
+                p.MU = 100.0
+                p.OUTB = -100.0
+                p.OUTT = 100.0
+                p.ZLEN = True
+                setattr(p, inhibit_name, True)
+                p.AV = limit
+                p.AV_1 = limit
+                p.AV_P_TEMP = limit * 0.9
+                p.AV_R = limit * 0.1
+                ref = RealRef(0.0)
+                step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-limit)
+                self.assertIs(p.ZL_EVENT, True)
+                self.assertEqual(p.AV_P_TEMP, limit)
+                self.assertEqual(p.AV_R, 0.0)
+                self.assertEqual(p.AV, limit)
+                self.assertEqual(ref.value, limit)
+
+    def test_cleanup_rate_and_deadband_boundaries_keep_event_scan_continuous(self):
+        """OutRL/RTH 工程边界不得在整理事件拍制造二次跳变。"""
+
+        for limit in (-100.0, 100.0):
+            for out_rl in (0.0, 0.5):
+                for rth in (0.5, 100.0):
+                    with self.subTest(limit=limit, OutRL=out_rl, RTH=rth):
+                        p = make_block()
+                        p.MD = -100.0
+                        p.MU = 100.0
+                        p.OUTB = -100.0
+                        p.OUTT = 100.0
+                        p.ZLEN = True
+                        p.OutRL = out_rl
+                        p.RTH = rth
+                        p.AV = limit
+                        p.AV_1 = limit
+                        p.AV_P_TEMP = limit * 0.9
+                        p.AV_R = limit * 0.1
+                        ref = RealRef(0.0)
+
+                        step_apcm(p, ref=ref, SP=50.0, PV=50.0, OC=0.0, TP=-limit)
+
+                        self.assertIs(p.ZL_EVENT, True)
+                        self.assertEqual(p.AV_TEMP, limit)
+                        self.assertEqual(p.AV, limit)
+                        self.assertEqual(ref.value, limit)
 
 class TestMMOneShot(unittest.TestCase):
     def test_rm0_manual_command_is_consumed_once(self):
