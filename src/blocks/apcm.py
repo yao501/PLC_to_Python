@@ -6,7 +6,8 @@
 ``PERSISTENT RETAIN`` 的重启恢复不属于本轮范围。
 
 ``ZLOUT`` 是源 ST 的 ``VAR_IN_OUT``。Python 侧用可变引用 ``RealRef`` 适配，
-调用方必须每拍传入外部实际引用。
+调用方必须每拍传入外部实际引用。限位整理采用原子状态转换：事件拍先冻结
+``AV_P_TEMP + AV_R``，RSF 完整复位且不得同拍重触发，PID 只从该冻结值重建。
 """
 
 from __future__ import annotations
@@ -342,6 +343,8 @@ class APCM:
         self.SV_SJH: float = 0.0
         self.SV_SJL: float = 0.0
         self.AV_TEMP2: float = 0.0
+        self.ZL_EVENT: bool = False
+        self.ZL_PID_BASE: float = 0.0
         self.EK_LAST: float = 0.0
         self.AO1_1: float = 0.0
         self.AO2_1: float = 0.0
@@ -517,8 +520,11 @@ class APCM:
         self._run_observer(dt_ms)
         self._run_zlout(zlout_ref)
         self._run_rsf(dt_ms)
-        self._run_pre_limit_cleanup()
-        self._run_cd(dt_ms)
+        if not self.ZL_EVENT:
+            # 整理事件拍冻结其他会改写 AV_P_TEMP/AV_C 的支路。否则 CD 同拍退出
+            # 可能先清 AV_C，随后 PID 整理又覆盖其回补，仍破坏总输出连续性。
+            self._run_pre_limit_cleanup()
+            self._run_cd(dt_ms)
         self._run_pid()
         self._run_total_output()
         self._run_pidzzd(dt_ms)
@@ -702,10 +708,14 @@ class APCM:
         )
 
     def _run_zlout(self, zlout_ref: RealRef) -> None:
-        if self.ZLEN:
-            self.R_TRIG02.step(self.AV >= self.OUTT or self.AV <= self.OUTB)
-            if self.R_TRIG02.Q:
-                zlout_ref.value += self.AV_R + self.AV_P_TEMP
+        # R_TRIG02 必须每拍调用。否则在 Q=True 的整理拍之后关闭 ZLEN，FB
+        # 不再推进，Q 会保持旧 True 并持续强迫 RSF 清零/PID 跟踪。
+        self.R_TRIG02.step(self.ZLEN and (self.AV >= self.OUTT or self.AV <= self.OUTB))
+        self.ZL_EVENT = self.R_TRIG02.Q
+        if self.ZL_EVENT:
+            # 在任何 RSF 清理或 PID 重建之前取得唯一快照。
+            self.ZL_PID_BASE = self.AV_P_TEMP + self.AV_R
+            zlout_ref.value += self.ZL_PID_BASE
 
     def _run_rsf(self, dt_ms: int) -> None:
         self.TL = max(self.TL, 0.0)
@@ -736,13 +746,11 @@ class APCM:
         self.AO3_1 = self.AO3 * self.ZSYK_RSF
         self.AO4_1 = self.AO4 * self.ZSYK_RSF
 
-        if self.R_TRIG02.Q:
-            self.AV_R = 0.0
-            self.AV_R_TEMP = 0.0
-            self.AV_R_TEMP1 = 0.0
-            self.AV_R_TEMP2 = 0.0
-
-        if self.TS:
+        if self.ZL_EVENT:
+            # 整理是原子状态转换：本拍不能继续活动 RSF，否则保留的 CT_*/
+            # R_TRIG_R* 历史可在清零后立刻重新输出，甚至命中 AO4 最大档。
+            self._reset_rsf_cleanup_state()
+        elif self.TS:
             self._reset_rsf_state()
         elif self.RM == 1 and self.RSFEN:
             self._run_rsf_active(dt_ms)
@@ -792,6 +800,30 @@ class APCM:
         self.RSF_LOCK_LEVEL = 0.0
         self.RSF_LOCK_SIG = 0.0
         self.CT_RSF_LOCK = 0.0
+
+    def _reset_rsf_cleanup_state(self) -> None:
+        """整理事件专用的完整 RSF 复位与边沿重新武装。"""
+
+        self._reset_rsf_state()
+        self.FLAG_1 = 0.0
+        self.EK_R = 0.0
+        self.EK_R_1 = 0.0
+        self.SIG = 0.0
+        self.TL_TEMP = 0.0
+        self.RSF_EXIT = False
+        self.QJ1 = False
+        self.QJ2 = False
+        self.QJ3 = False
+        self.QJ4 = False
+        self.RSF_LOCK_R1 = False
+        self.RSF_LOCK_R2 = False
+        self.RSF_LOCK_R3 = False
+        self.RSF_LOCK_R4 = False
+        self.R_TRIG_R1.step(False)
+        self.R_TRIG_R2.step(False)
+        self.R_TRIG_R3.step(False)
+        self.R_TRIG_R4.step(False)
+        self.R_TRIG_R5.step(False)
 
     def _run_rsf_active(self, dt_ms: int) -> None:
         if self.PCMMS == 0:
@@ -1103,7 +1135,9 @@ class APCM:
         if self.AD:
             self.DEK = -self.DEK
 
-        if self.RM == 3 or self.RM == 4 or self.R_TRIG02.Q:
+        if self.ZL_EVENT:
+            self._run_pid_cleanup_rebase()
+        elif self.RM == 3 or self.RM == 4:
             self._run_pid_tracking()
         elif self.RM == 0 or self.R_TRIG03.Q or self.R_TRIG9.Q or self.F_TRIG1.Q or self.F_TRIG2.Q or self.R_TRIG05.Q or self.R_TRIG06.Q:
             self._run_pid_manual()
@@ -1133,6 +1167,25 @@ class APCM:
         else:
             self.UKOUT = self.TP + offset
             self.UKOUT = max(min(self.UKOUT, self.OUTT), self.OUTB)
+            self.AV_P_TEMP = self.UKOUT
+            self.AV_TEMP2 = self.AV_P_TEMP
+            self.UK = self.UKOUT - self.OC - offset
+        if self.TM:
+            self.SP_V = self.PV
+
+    def _run_pid_cleanup_rebase(self) -> None:
+        """从整理事件快照重建 PID，禁止读取该拍独立的旧 TP。"""
+
+        offset = self._gc_offset()
+        if self.OutM == 1:
+            self.DUOUT = self.ZL_PID_BASE
+            self.AV_P_TEMP = self.DUOUT
+            self.AV_TEMP2 = self.AV_P_TEMP
+            self.DU = self.DUOUT - self.OC - offset
+        else:
+            # 事件基准不能像普通 TP 跟踪那样单独限幅。PID+RSF 可能与反向
+            # AV_C 抵消后总输出恰在限位；若先截断 PID，会在整理瞬间破坏总量。
+            self.UKOUT = self.ZL_PID_BASE
             self.AV_P_TEMP = self.UKOUT
             self.AV_TEMP2 = self.AV_P_TEMP
             self.UK = self.UKOUT - self.OC - offset
