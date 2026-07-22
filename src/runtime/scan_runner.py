@@ -65,6 +65,7 @@ import threading
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 
+from src.runtime.commit_supervisor import CommitSupervisor
 from src.runtime.engine import ScanEngine, ScanReentryError, ScanResult
 from src.runtime.output_policy import OutputPolicyService
 from src.runtime.process_image import OutputPending
@@ -173,6 +174,11 @@ class CommitPort:
         self._inner = inner
         self.attempts = 0
 
+    @property
+    def inner(self) -> Any:
+        """本端口委托的底层提交端口（供 runner 只读校验共享，如 CommitSupervisor）。"""
+        return self._inner
+
     def reset(self) -> None:
         """本拍开始前清零提交尝试证据（由运行器在自身锁内调用）。"""
         self.attempts = 0
@@ -226,6 +232,15 @@ class OuterScanRunner:
         if not callable(getattr(policy, "stage_safe_image", None)):
             raise ScanRunnerConfigError(
                 "OutputPolicyService 缺少安全映像入口 stage_safe_image()")
+        # 若提交端口委托的是 CommitSupervisor，它必须绑定引擎/运行器**同一**策略——
+        # 否则正常提交、scan_fault 与 watchdog 安全提交会分属两套逐通道故障状态
+        # （WP-20260721-009 §4“不得出现第二套平行故障状态”）。CommitPort 是可选层，
+        # 非 CommitSupervisor 的底层端口保持既有 WP-007/008 装配不变。
+        inner = getattr(commit_port, "inner", None)
+        if isinstance(inner, CommitSupervisor) and inner.policy is not policy:
+            raise ScanRunnerConfigError(
+                "CommitPort 委托的 CommitSupervisor 必须绑定引擎/运行器同一 "
+                "OutputPolicyService（否则正常/安全提交走两套逐通道故障状态）")
         self._engine = engine
         self._policy = policy
         self._port = commit_port

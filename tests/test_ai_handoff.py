@@ -17,6 +17,7 @@ from urllib.request import urlopen
 
 from tools.ai_handoff.parser import (
     HandoffParser,
+    LEGACY_WORK_PACKAGE_IDS,
     WorkPackage,
     canonical_actor,
     canonical_status,
@@ -1673,13 +1674,21 @@ class ThreePhaseHandoffTests(unittest.TestCase):
         self.assertIsNone(package.self_review_verdict)
         self.assertIsNone(package.self_review_scope_sha256)
 
-    def test_real_handoff_file_all_packages_are_legacy_but_parse(self):
+    def test_real_handoff_file_respects_protocol_generation_boundary(self):
         source = Path(__file__).resolve().parents[1] / "docs" / "AI_REVIEW_HANDOFF.md"
         result = HandoffParser(source).parse_file()
         self.assertTrue(result.ok, result.source_error)
+        package_ids = {package.work_package_id for package in result.packages}
+        self.assertTrue(LEGACY_WORK_PACKAGE_IDS.issubset(package_ids))
         for package in result.packages:
-            self.assertTrue(package.self_review_is_legacy, package.work_package_id)
-            self.assertTrue(package.handoff_gate_ok, package.work_package_id)
+            if package.work_package_id in LEGACY_WORK_PACKAGE_IDS:
+                self.assertFalse(package.protocol_is_v2, package.work_package_id)
+                self.assertTrue(package.self_review_is_legacy, package.work_package_id)
+                self.assertTrue(package.handoff_gate_ok, package.work_package_id)
+            else:
+                self.assertTrue(package.valid, package.errors)
+                self.assertTrue(package.protocol_is_v2, package.work_package_id)
+                self.assertFalse(package.self_review_is_legacy, package.work_package_id)
 
     # 10. 旧 Fable5 名称只读兼容，新记录统一为 Claude
     def test_legacy_fable5_names_still_readable_in_three_phase_world(self):

@@ -951,6 +951,74 @@ class TestSafeImageEntry(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# WP-20260721-009 新增策略 API：commit_specs / mark_boundary_reset
+# （供 CommitSupervisor 读取通道配置与恢复后重建限速基准；不放宽既有语义）
+# ---------------------------------------------------------------------------
+
+class TestCommitSupervisionHooks(unittest.TestCase):
+
+    def test_commit_specs_returns_channel_config_copy(self):
+        store = Store()
+        store.declare("A", "INT", None)
+        store.declare("B", "REAL", None)
+        io_map = [
+            IOMap("A", "CHA", "OUT",
+                  policy=OutputPolicy("A", "INT", 7, commit_fault_retry_n=2)),
+            IOMap("B", "CHB", "OUT",
+                  policy=OutputPolicy("B", "REAL", 3.5, commit_fault_retry_n=5)),
+        ]
+        svc = OutputPolicyService(store, io_map,
+                                  SafetyStateService(SafetySnapshot.all_ok()))
+        specs = svc.commit_specs()
+        self.assertEqual(specs, {"CHA": ("INT", 7, 2), "CHB": ("REAL", 3.5, 5)})
+        # 独立副本：改返回值不污染服务
+        specs["CHA"] = ("X", 0, 0)
+        self.assertEqual(svc.commit_specs()["CHA"], ("INT", 7, 2))
+
+    def test_mark_boundary_reset_forces_safe_baseline_next_normal(self):
+        store, io_map, _, svc = _single("INT", 0, rate_limit=5)
+        store.write("V", 100)
+        _stage(svc, io_map, store)                 # cold 0→5
+        _stage(svc, io_map, store)                 # 5→10
+        self.assertEqual(svc.diagnostic_last_effective(), {"CH": 10})
+        # 重建边界基准：下一正常拍从 safe_value(0) 限速，而非 last_effective(10)
+        svc.mark_boundary_reset("CH")
+        self.assertEqual(_stage(svc, io_map, store), {"CH": 5})   # 0→5，非 10→15
+
+    def test_mark_boundary_reset_unknown_channel_rejected(self):
+        _, _, _, svc = _single("INT", 0)
+        with self.assertRaises(OutputPolicyConfigError):
+            svc.mark_boundary_reset("NOPE")
+
+    def test_mark_boundary_reset_does_not_change_last_effective_value(self):
+        store, io_map, _, svc = _single("INT", 0, rate_limit=100)
+        store.write("V", 40)
+        _stage(svc, io_map, store)                 # le=40
+        svc.mark_boundary_reset("CH")
+        # 只改边界标记，不动 last_effective 逻辑值
+        self.assertEqual(svc.diagnostic_last_effective(), {"CH": 40})
+
+    def test_boundary_pending_reflects_reset_and_stage_consumption(self):
+        # 供 CommitSupervisor 判定复位后是否已在 safe 基准重建：冷启动挂起，正常
+        # staging 消费后回落，mark_boundary_reset 再次挂起。
+        store, io_map, _, svc = _single("INT", 0, rate_limit=5)
+        self.assertEqual(svc.boundary_pending(), {"CH": True})   # 冷启动挂起
+        store.write("V", 100)
+        _stage(svc, io_map, store)                 # 正常拍消费边界
+        self.assertEqual(svc.boundary_pending(), {"CH": False})
+        svc.mark_boundary_reset("CH")              # 复位重新挂起
+        self.assertEqual(svc.boundary_pending(), {"CH": True})
+        _stage(svc, io_map, store)                 # 新一拍再次消费
+        self.assertEqual(svc.boundary_pending(), {"CH": False})
+
+    def test_boundary_pending_independent_copy(self):
+        _, _, _, svc = _single("INT", 0)
+        snap = svc.boundary_pending()
+        snap["CH"] = "tampered"
+        self.assertEqual(svc.boundary_pending(), {"CH": True})
+
+
+# ---------------------------------------------------------------------------
 # 包边界：稳定导出
 # ---------------------------------------------------------------------------
 

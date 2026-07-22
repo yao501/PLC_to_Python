@@ -55,8 +55,17 @@ from src.runtime.scan_runner import (
     ScanRunnerError, ScanRunnerConfigError, ScanRunnerReentryError,
     SafeCommitSignal, ScanFaultSafeCommit, WatchdogSafeCommit,
 )
+from src.runtime.commit_supervisor import (
+    CommitSupervisor, CommitReceipt, ChannelCommitStatus, CommitOutcome,
+    CommitSupervisorError, CommitSupervisorConfigError,
+    CommitSupervisorReentryError, PartialCommitError,
+)
 
 __all__ = [
+    # 提交监督器：驱动确认提交证据 + 逐通道 commit_fault/channel_fault（WP-20260721-009）
+    "CommitSupervisor", "CommitReceipt", "ChannelCommitStatus", "CommitOutcome",
+    "CommitSupervisorError", "CommitSupervisorConfigError",
+    "CommitSupervisorReentryError", "PartialCommitError",
     # 外层安全扫描运行器与扫描/看门狗故障安全提交（WP-20260720-008）
     "CommitPort", "OuterScanRunner",
     "ScanRunnerError", "ScanRunnerConfigError", "ScanRunnerReentryError",
