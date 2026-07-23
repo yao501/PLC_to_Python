@@ -38,16 +38,33 @@
 （不受限速约束，§4.2）；可配置原因命中 ``"hold"`` 时取该通道 ``last_effective``，
 冷启动无历史时退化为 ``safe_value``。
 
+—— Shadow / write-disable 边界支持（WP-20260722-012，仅策略层入口，不含编排）——
+
+自 WP-20260722-012 起本模块**额外**提供两个供 shadow / write-disable 编排消费的
+纯策略层入口，**不**在本模块引入 shadow 模式状态、写出开关或物理抑制（那些属
+``scan_runner`` 的 ``OuterScanRunner`` / ``WriteGate``）：
+
+- ``mark_boundary_reset_all()``：在 shadow→实写切换时**原子**为全部输出挂起边界
+  重建，使实写首拍限速基准回到 ``safe_value``（§4.1“恢复后首拍从安全基准限速”），
+  绝不用 shadow 期间照常前移的 ``last_effective`` 或任何 ``last_physical_committed``
+  对齐；
+- ``adopt_safe_image_shadow(ticket)``：**shadow 下逻辑采用**安全映像——与
+  ``confirm_safe_image`` 走**同一令牌校验与历史前移**，但语义上**明确区分**：它
+  **不**代表“安全映像已物理提交成功”（shadow 下根本无物理提交），仅让逻辑
+  ``last_effective`` 连续模拟。冒充物理提交成功的是 ``confirm_safe_image``，本入口
+  绝不与之混用。
+
 —— 明确不实现（诚实边界，均属后续独立工作包，不在本包"顺手完善"）——
 
 watchdog / scan-fault 信号**生成**、扫描异常外层安全提交的**编排**（§4.3 由
 scan runner 承担；本模块自 WP-20260720-008 起只提供其消费的两阶段安全映像入口
 ``stage_safe_image()``（准备/staging）+ ``confirm_safe_image()``（提交成功后才前移
-策略历史），不做外层捕获/分类/提交编排）、shadow mode、
-``last_physical_committed``、真实驱动提交、``commit_fault`` / ``channel_fault``
-锁存与复位（§4.4）、可信设备反馈 / HAL（§4.1 阶段 7）、实时线程、L2 adapter
-注册表、参数装载总闸门。本包只**消费**注入的安全信号，不生成 startup/watchdog
-计时，也不实现 outer scan runner 本体。
+策略历史），不做外层捕获/分类/提交编排）、**shadow 模式状态机 / 写出开关 / 物理
+写抑制的编排本体**（WP-20260722-012 由 ``scan_runner`` 承担；本模块只提供上述两个
+被其消费的纯策略层入口）、``last_physical_committed``、真实驱动提交、``commit_fault``
+/ ``channel_fault`` 锁存与复位（§4.4）、可信设备反馈 / HAL（§4.1 阶段 7）、实时线程、
+L2 adapter 注册表、参数装载总闸门。本包只**消费**注入的安全信号，不生成
+startup/watchdog 计时，也不实现 outer scan runner 本体。
 
 **基准边界的落地范围（诚实声明）**：§4.1 列出四类需重建物理输出基准的边界
 （冷启动、shadow→实写、提交故障恢复、``channel_fault`` 复位）。本包只实现其中
@@ -483,6 +500,21 @@ class OutputPolicyService:
                     "mark_boundary_reset 未知通道 '%s'" % channel)
             self._state[channel][1] = True
 
+    def mark_boundary_reset_all(self) -> None:
+        """**原子**为全部输出通道挂起 ``boundary_reset``（shadow→实写切换专用，
+        §4.1）：下一次正常路径每个输出的限速基准都回到 ``safe_value`` 重建，**绝不**
+        使用 shadow 期间照常前移的 ``last_effective`` 或任何 ``last_physical_committed``
+        对齐（本包无可信 HAL 反馈，边界基准一律退化为 ``safe_value``）。
+
+        与逐通道 ``mark_boundary_reset`` 的区别：本方法在**同一把锁内一次性**置全部
+        通道边界标志，实现“全部输出原子挂起边界重建”，不留半挂起的撕裂状态；只改独立
+        的边界标记，不动 ``last_effective`` 逻辑值本身。与 ``stage_outputs`` /
+        ``stage_safe_image`` / ``confirm_safe_image`` 共用同一锁保证与门控/安全拍串行。
+        """
+        with self._lock:
+            for channel in self._order:
+                self._state[channel][1] = True
+
     # ---- ScanEngine 第 4 步端口 ----
 
     def stage_outputs(self, pending: Any, store: Any, inputs: Any,
@@ -600,41 +632,74 @@ class OutputPolicyService:
                 "同一 OutputPolicyService 的 confirm_safe_image() 不可重入"
                 "（递归或并发）：本拍拒绝")
         try:
-            # 1) 签发者身份 + 一次性令牌校验：拒绝任意映像 / 他服务 / 重复令牌。
-            if not isinstance(ticket, SafeImageTicket) or ticket._issuer is not self:
-                raise OutputPolicyError(
-                    "confirm_safe_image 需要本服务 stage_safe_image() 签发的 "
-                    "SafeImageTicket；拒绝任意映像冒充已提交安全事务")
-            if self._pending_ticket is None or ticket._token is not self._pending_ticket:
-                raise OutputPolicyError(
-                    "安全映像令牌已消费或非本次 stage_safe_image() 所签发"
-                    "（一次性确认，拒绝重复/过期令牌）")
-            image = ticket._image
-            # 2) 通道集合校验。
-            if set(image) != set(self._order):
-                raise OutputPolicyError(
-                    "confirm_safe_image 的安全映像通道 %r 与装配通道 %r 不一致"
-                    % (sorted(image), sorted(self._order)))
-            # 3) 逐通道值校验：== 当前配置 safe_value（严格类型）且 IEC 合法。
-            for channel in self._order:
-                pol = self._policy[channel]
-                value = image[channel]
-                err = _iec_value_error(pol.iec_type, value)
-                if err is not None:
-                    raise OutputPolicyError(
-                        "通道 '%s' 确认值 %r %s（安全映像拒绝前移）"
-                        % (channel, value, err))
-                if type(value) is not type(pol.safe_value) or value != pol.safe_value:
-                    raise OutputPolicyError(
-                        "通道 '%s' 确认值 %r 与当前配置 safe_value %r 不一致"
-                        "（拒绝污染 last_effective）"
-                        % (channel, value, pol.safe_value))
-            # 4) 全有或全无：仅在三重校验通过后统一前移；消费令牌（一次性）。
-            for channel in self._order:
-                self._state[channel] = [image[channel], True]
-            self._pending_ticket = None
+            self._advance_from_ticket(ticket, "confirm_safe_image")
         finally:
             self._lock.release()
+
+    def adopt_safe_image_shadow(self, ticket: "SafeImageTicket") -> None:
+        """**shadow 下逻辑采用**一张已 staging 的安全映像（``ENGINE_SCAN_SPEC §4.3``；
+        WP-20260722-012）：把每通道 ``last_effective`` 前移为该 ``safe_value`` 并置
+        ``boundary_reset``，使 shadow 期间的逻辑 ``last_effective`` / 限速基准**连续
+        模拟**——正如物理路径下 ``confirm_safe_image`` 所做的历史前移。
+
+        与 ``confirm_safe_image`` 的**本质区别（语义，非算法）**：``confirm_safe_image``
+        的前置语义是“安全映像**已物理提交成功**”（由外层 runner 在 ``port.commit()``
+        成功后调用）；本入口用于 **shadow / write-disable** 下——此时**根本没有物理
+        提交**，故绝不可调用 ``confirm_safe_image`` 冒充现场落值。两者共用**同一**
+        一次性令牌校验与历史前移逻辑（``_advance_from_ticket``），保证 shadow 逻辑采用
+        同样受“签发者身份 + 一次性令牌 + 通道集 + 逐通道值 == 配置 ``safe_value``”四重
+        校验约束，任一不满足即整体失败关闭、不前移、不消费令牌。与 ``stage_outputs`` /
+        ``stage_safe_image`` / ``confirm_safe_image`` 共用同一非重入锁。
+        """
+        if not self._lock.acquire(blocking=False):
+            raise OutputPolicyReentryError(
+                "同一 OutputPolicyService 的 adopt_safe_image_shadow() 不可重入"
+                "（递归或并发）：本拍拒绝")
+        try:
+            self._advance_from_ticket(ticket, "adopt_safe_image_shadow")
+        finally:
+            self._lock.release()
+
+    def _advance_from_ticket(self, ticket: "SafeImageTicket", entry: str) -> None:
+        """令牌四重校验 + 全有或全无历史前移（**调用方须持锁**）。
+
+        ``confirm_safe_image``（物理提交成功后前移）与 ``adopt_safe_image_shadow``
+        （shadow 下逻辑采用）共用本核心：两条入口的**校验与前移完全一致**，仅调用语义
+        （是否代表物理提交成功）不同——差异体现在外层 runner 选择哪条入口及其结构化
+        信号，而非此处的状态变更。``entry`` 仅用于诊断串定位来源。"""
+        # 1) 签发者身份 + 一次性令牌校验：拒绝任意映像 / 他服务 / 重复令牌。
+        if not isinstance(ticket, SafeImageTicket) or ticket._issuer is not self:
+            raise OutputPolicyError(
+                "%s 需要本服务 stage_safe_image() 签发的 SafeImageTicket；"
+                "拒绝任意映像冒充已 staging 安全事务" % entry)
+        if self._pending_ticket is None or ticket._token is not self._pending_ticket:
+            raise OutputPolicyError(
+                "安全映像令牌已消费或非本次 stage_safe_image() 所签发"
+                "（一次性确认，拒绝重复/过期令牌）")
+        image = ticket._image
+        # 2) 通道集合校验。
+        if set(image) != set(self._order):
+            raise OutputPolicyError(
+                "%s 的安全映像通道 %r 与装配通道 %r 不一致"
+                % (entry, sorted(image), sorted(self._order)))
+        # 3) 逐通道值校验：== 当前配置 safe_value（严格类型）且 IEC 合法。
+        for channel in self._order:
+            pol = self._policy[channel]
+            value = image[channel]
+            err = _iec_value_error(pol.iec_type, value)
+            if err is not None:
+                raise OutputPolicyError(
+                    "通道 '%s' 确认值 %r %s（安全映像拒绝前移）"
+                    % (channel, value, err))
+            if type(value) is not type(pol.safe_value) or value != pol.safe_value:
+                raise OutputPolicyError(
+                    "通道 '%s' 确认值 %r 与当前配置 safe_value %r 不一致"
+                    "（拒绝污染 last_effective）"
+                    % (channel, value, pol.safe_value))
+        # 4) 全有或全无：仅在四重校验通过后统一前移；消费令牌（一次性）。
+        for channel in self._order:
+            self._state[channel] = [image[channel], True]
+        self._pending_ticket = None
 
     def _compute(self, pol: OutputPolicy, request: Any,
                  snapshot: SafetySnapshot, state: list):

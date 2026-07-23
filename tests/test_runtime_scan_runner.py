@@ -143,7 +143,8 @@ def _build(*, av_type="INT", av_safe=0, av_rate=None, motor_safe=False,
     safety = safety or SafetyStateService(SafetySnapshot.all_ok())
     policy = OutputPolicyService(layout.store, task.io_map, safety)
     committer = _RecordingCommitter() if committer is None else committer
-    port = CommitPort(committer)
+    # 既有 WP-007/008 无门始终物理写装配：显式、可审计的 legacy 直写 opt-in。
+    port = CommitPort(committer, legacy_unshadowed=True)
     engine = ScanEngine(task, layout, executor, policy, port)
     runner = OuterScanRunner(engine, policy, port)
     return SimpleNamespace(task=task, layout=layout, executor=executor,
@@ -541,13 +542,20 @@ class TestRunnerConfig(unittest.TestCase):
 
     def test_rejects_port_not_shared_with_engine(self):
         w = _build()
-        other_port = CommitPort(_RecordingCommitter())
+        other_port = CommitPort(_RecordingCommitter(), legacy_unshadowed=True)
         with self.assertRaises(ScanRunnerConfigError):
             OuterScanRunner(w.engine, w.policy, other_port)
 
-    def test_commit_port_exposes_inner(self):
+    def test_commit_port_hides_inner(self):
+        # Codex WP-20260723-015 Round 2 反证 1：底层提交端口**不得**经普通属性暴露——否则
+        # port.inner.commit(...) / port.inner._driver.commit(...) 可不经门物理写。inner 只
+        # 存于闭包（__closure__ 反射除外），普通属性遍历取不到 committer 对象本身。
         inner = _RecordingCommitter()
-        self.assertIs(CommitPort(inner).inner, inner)
+        port = CommitPort(inner, legacy_unshadowed=True)
+        self.assertFalse(hasattr(port, "inner"))
+        self.assertFalse(hasattr(port, "_inner"))
+        self.assertFalse(any(getattr(port, n) is inner
+                             for n in dir(port) if not n.startswith("__")))
 
     def test_plain_committer_inner_not_validated_as_supervisor(self):
         # 非 CommitSupervisor 的底层端口保持既有 WP-007/008 装配不变（不触发新校验）
@@ -555,14 +563,30 @@ class TestRunnerConfig(unittest.TestCase):
         self.assertIsInstance(w.runner, OuterScanRunner)
 
     def test_runner_accepts_supervisor_sharing_same_policy(self):
-        # CommitSupervisor 绑定引擎/运行器同一策略时装配通过（共享同一故障状态）
+        # CommitSupervisor 绑定引擎/运行器同一策略时装配通过（共享同一故障状态），且端口
+        # 不因此泄露底层监督器（身份校验经 port.assert_shared_policy，不返回 inner）。
         w = _build()
         sup = CommitSupervisor(_RecordingCommitter(), w.policy)
-        port = CommitPort(sup)
+        port = CommitPort(sup, legacy_unshadowed=True)
         engine = ScanEngine(w.task, w.layout, w.executor, w.policy, port)
         runner = OuterScanRunner(engine, w.policy, port)
-        self.assertIs(port.inner, sup)
+        self.assertFalse(hasattr(port, "inner"))
+        self.assertFalse(any(getattr(port, n) is sup
+                             for n in dir(port) if not n.startswith("__")))
         self.assertIsInstance(runner, OuterScanRunner)
+
+    def test_runner_rejects_supervisor_bound_to_other_policy(self):
+        # CommitSupervisor 绑定**另一** OutputPolicyService 时装配失败关闭——新的身份校验
+        # 方法（不读取会泄露底层能力的 inner）仍正确拒绝两套逐通道故障状态。
+        w = _build()
+        other_safety = SafetyStateService(SafetySnapshot.all_ok())
+        other_policy = OutputPolicyService(w.layout.store, w.task.io_map,
+                                           other_safety)
+        sup = CommitSupervisor(_RecordingCommitter(), other_policy)
+        port = CommitPort(sup, legacy_unshadowed=True)
+        engine = ScanEngine(w.task, w.layout, w.executor, w.policy, port)
+        with self.assertRaises(ScanRunnerConfigError):
+            OuterScanRunner(engine, w.policy, port)
 
 
 class TestPackageExports(unittest.TestCase):

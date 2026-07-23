@@ -99,7 +99,7 @@
 | **RUNTIME-STARTUP-INHIBIT** | 冷启动稳定窗口 `startup_inhibit_ms` | blocker | ⏸ deferred | 项目默认 500ms；释放还需叠加 `io_ready / bus_ready / comm_ready / safety_ok` 等条件。 |
 | **RUNTIME-5-STEPS** | 主程序五步式：输入快照 → FB 推进 → request 生成 → 输出门控 → 一次性提交 | blocker | ⏸ deferred | 契约已规定，尚未写代码骨架。 |
 | **RUNTIME-SAFETY-DEFAULT** | 扫描异常 / 超时 / 主循环失败时物理输出落到安全默认值 | blocker | ⏸ deferred | 需要 watchdog + fallback state 机制。 |
-| **RUNTIME-SHADOW-MODE** | Shadow mode / write disable | blocker | ⏸ deferred | 首次接现场设备前必须先具备"只读取不写"的模式。 |
+| **RUNTIME-SHADOW-MODE** | Shadow mode / write disable | blocker | 🟨 in-progress（WP-20260723-015 Round 3 已获 Codex `APPROVED`、用户确认 `CLOSED`：Python 核心已审核关闭，**未现场验证、不得发布**） | Python 已实现零配置默认 write-disable 的 `WriteGate` / `CommitPort` / `OuterScanRunner` 栈；普通可达属性图不能取得可旁路的底层 `CommitSupervisor` 或物理驱动，历史无门实写必须显式 `legacy_unshadowed=True`。shadow 正常、scan-fault、watchdog 均零物理提交且诊断不冒充成功；shadow→实写先原子挂起全通道边界重建，首拍从 `safe_value` 限速，预存 `commit_fault` / `channel_fault` 不因切换清除。39 条 shadow 回归覆盖零配置多拍、属性/底层端口旁路反证、并发/递归失败关闭和 `safe_value` 首拍。诚实边界：不防御 `object.__setattr__`、槽描述符、`__closure__`、`gc` 等 Python 语言级反射；真实 HAL/可信反馈、实时 monitor/周期线程/抖动统计、硬件 watchdog、真实驱动/协议 I/O、自动放开写、趋势对拍、PLC/CODESYS 与现场安全证明均未完成，因此风险保持 in-progress。 |
 | **RUNTIME-HAL** | 硬件抽象层 | recommended | ⏸ deferred | 现场 I/O 对接、协议驱动、时钟源。需要与具体部署环境一起决策。 |
 | **RUNTIME-WATCHDOG** | 扫描周期看门狗 | recommended | ⏸ deferred | 扫描超时时的安全响应。 |
 | **RUNTIME-INTEGRATION-TESTS** | APCHXHCL 与 Runtime 门控的集成测试 | recommended | ⏸ deferred | RUNTIME-GATE + APCHXHCL-R3 联调后补集成测试，验证"门控有效期内冻结的均值不会误导下游"。 |
