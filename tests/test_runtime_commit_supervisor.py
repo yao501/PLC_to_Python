@@ -985,7 +985,8 @@ def _wire(driver=None, av_safe=0, av_rate=None, retry_n=3):
     policy = OutputPolicyService(layout.store, task.io_map, safety)
     driver = driver or _Driver()
     sup = CommitSupervisor(driver, policy)
-    port = CommitPort(sup)
+    # 既有 WP-007/008 无门始终物理写装配：显式、可审计的 legacy 直写 opt-in。
+    port = CommitPort(sup, legacy_unshadowed=True)
     engine = ScanEngine(task, layout, executor, policy, port)
     runner = OuterScanRunner(engine, policy, port)
     return SimpleNamespace(task=task, layout=layout, safety=safety, policy=policy,
@@ -1045,7 +1046,7 @@ class TestEngineRunnerIntegration(unittest.TestCase):
         policy = OutputPolicyService(layout.store, task.io_map, safety)
         driver = _Driver()
         sup = CommitSupervisor(driver, policy)
-        port = CommitPort(sup)
+        port = CommitPort(sup, legacy_unshadowed=True)
         engine = ScanEngine(task, layout, executor, policy, port)
         runner = OuterScanRunner(engine, policy, port)
         layout.store.write("AV", 999)              # 越 USINT 域 → 正常策略 staging 失败
@@ -1199,7 +1200,7 @@ class TestConfigAndExports(unittest.TestCase):
         w = _wire()                                # 策略 P = w.policy
         q = _wire()                                # 策略 Q = q.policy（同通道集）
         bad_sup = CommitSupervisor(_Driver(), q.policy)
-        bad_port = CommitPort(bad_sup)
+        bad_port = CommitPort(bad_sup, legacy_unshadowed=True)
         engine2 = ScanEngine(w.task, w.layout, Executor(w.task, w.layout),
                              w.policy, bad_port)   # 门控用 P，提交端口委托绑定 Q 的监督器
         with self.assertRaises(ScanRunnerConfigError):
