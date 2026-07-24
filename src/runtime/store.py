@@ -19,10 +19,16 @@
   或越界转换（IR_SPEC §5.3/§5.4，属后续数值层与真机裁决范围）。
 - RETAIN/PERSISTENT 仅保留声明元数据（``retain_flags()`` 可查询），
   **不实现**持久化、恢复或下载语义（阶段 8，`IR_SPEC §9`）。
-- 库块（kind="library"）内部状态与管脚分配依赖尚未建立的 L2 描述符
-  注册表（COMPONENT_CONTRACT），本包**不猜测其管脚**：只在布局中登记
-  库块实例路径与声明（``RuntimeLayout.library_instances``），不为其分配
-  任何 Store 键，接入边界留待 L2 工作包。
+- 库块（kind="library"）管脚分配现按传入的 L2 描述符注册表
+  （COMPONENT_CONTRACT v2.1，``build_runtime_store(task, registry)``）在
+  **装载期一次性**完成：按已注册 ``BlockSchema`` 为每个输入/输出/
+  VAR_IN_OUT 管脚分配一个持久 Store 键（``<路径>.<管脚名>``），初值取
+  ``init_overrides`` > 管脚 ``default`` > 类型默认，retain 取管脚在 schema
+  ``retainable`` 或 ``InstanceDecl.retain`` 中的声明。库块**内部状态**仍属
+  块实例自身（``src/blocks``/``src/primitives`` 零改动），Store 只承载其
+  管脚过程映像。**不传 registry 时保持历史行为**：不猜测管脚、不分配键，
+  仅登记实例路径与声明（``RuntimeLayout.library_instances``）供注入式
+  adapter 或诊断使用。
 - FUNCTION 无持久实例；VAR_TEMP 与 FUNCTION 调用局部变量不进持久
   Store（调用帧属下一个执行器工作包）。
 
@@ -46,10 +52,16 @@ from src.runtime.ir import (
     REAL_TYPES,
     SIGNED_INT_TYPES,
     UNSIGNED_INT_TYPES,
+    Binding,
+    CallFbInstance,
+    CallFunc,
     FBInstance,
     InstanceDecl,
     POUDefinition,
     ProgramInstance,
+    StackSlot,
+    StoreKey,
+    StoreVar,
     Task,
     VarDecl,
 )
@@ -271,24 +283,30 @@ class RuntimeLayout:
         return tuple(fb.path for fb in self.fb_instances)
 
 
-def build_runtime_store(task: Task) -> RuntimeLayout:
+def build_runtime_store(task: Task, registry=None) -> RuntimeLayout:
     """根据已通过静态校验的 Task 建立运行时内存布局。
 
     规则（IR_SPEC §3 实例化规则）：
-    - 先执行 ``validate_task(task)``（防御性复验；失败则不建任何状态）；
+    - 先执行 ``validate_task(task, registry)``（防御性复验；失败则不建任何
+      状态）——与执行器共用**同一** L2 注册表，保证加载期类型闭环、管脚
+      分配与运行期调用出自同一权威；
     - GVL 变量以裸名声明（含 retain/persistent 元数据）；
     - 每个 ``ProgramInstance`` 只创建一次：其 VAR_INPUT/VAR_OUTPUT/VAR
       在 ``store_prefix`` 路径下分配持久键；
     - 定义体内的 user_fb 实例按路径**递归展开**，每实例一份独立持久
       状态；``init_overrides`` 覆盖对应变量的 ``initial``，键不存在即抛
       ``InstanceLayoutError``（不得静默丢失）；
-    - library 实例只登记路径与声明，不分配键（L2 描述符边界）；
+    - library 实例：传入 ``registry`` 时按已注册 Schema 一次性分配全部管脚
+      键（见 ``_allocate_library_pins``）；未传 registry 时保持历史行为，
+      只登记路径与声明、不分配键（诚实边界）；两种情况都登记
+      ``library_instances``；
     - FUNCTION 不创建持久实例；VAR_TEMP / VAR_IN_OUT 不分配持久键。
 
     布局建立后，Store 拒绝一切未声明键的读写——"运行期调用不得创建
-    实例内存"由此从机制上保证（执行器属后续工作包）。
+    实例内存"由此从机制上保证（库块管脚亦在装载期一次性分配，运行期只读写
+    既有键）。
     """
-    validate_task(task)
+    validate_task(task, registry)
     store = Store()
     layout = RuntimeLayout(store=store)
 
@@ -302,7 +320,7 @@ def build_runtime_store(task: Task) -> RuntimeLayout:
         definition = task.pou_lib[prog.definition]
         _allocate_pou_state(store, definition, prog.store_prefix, overrides=None)
         layout.programs.append(prog)
-        _expand_instances(task, layout, definition, prog.store_prefix)
+        _expand_instances(task, layout, definition, prog.store_prefix, registry)
 
     return layout
 
@@ -332,14 +350,18 @@ def _allocate_pou_state(store: Store, definition: POUDefinition,
 
 
 def _expand_instances(task: Task, layout: RuntimeLayout,
-                      definition: POUDefinition, parent_path: str) -> None:
+                      definition: POUDefinition, parent_path: str,
+                      registry=None) -> None:
     """递归展开定义体内声明的 FB 实例（validate_task 已排除循环）。"""
     for inst in definition.instances:
         if not isinstance(inst, InstanceDecl):
             continue
         path = "%s.%s" % (parent_path, inst.name)
         if inst.kind == "library":
-            # L2 描述符注册表未建立：不猜测管脚，不分配键，仅登记边界。
+            # 传入 registry：按 Schema 一次性分配管脚键（装载期）；否则保持
+            # 历史诚实边界，只登记路径与声明、不猜测/不分配键。
+            if registry is not None:
+                _allocate_library_pins(layout.store, registry, path, inst)
             layout.library_instances.append((path, inst))
             continue
         sub_def = task.pou_lib[inst.block_type]
@@ -348,4 +370,50 @@ def _expand_instances(task: Task, layout: RuntimeLayout,
         layout.fb_instances.append(
             FBInstance(definition=sub_def.name, path=path,
                        retain=set(inst.retain)))
-        _expand_instances(task, layout, sub_def, path)
+        _expand_instances(task, layout, sub_def, path, registry)
+
+
+def _allocate_library_pins(store: Store, registry, path: str,
+                           inst: InstanceDecl) -> None:
+    """为一个库块实例按已注册 Schema 一次性分配全部管脚 Store 键。
+
+    管脚存储 = 库块的过程映像：输入管脚由 IR ``STORE_VAR`` 写入、``CALL_FB``
+    时喂给块；输出/VAR_IN_OUT 管脚在块 ``step`` 后回收写回、由 ``LOAD_VAR``
+    读出。块**内部**长期状态仍归块实例自身（零改动），Store 只承载管脚。
+
+    初值优先级：``init_overrides`` > 管脚 ``default`` > 类型默认；retain 取
+    管脚在 Schema ``retainable`` 或 ``InstanceDecl.retain``（``{"*"}`` = 整
+    实例）中的声明。``init_overrides`` / ``retain`` 指向不存在的管脚一律抛
+    ``InstanceLayoutError``（不得静默丢失）。变体固定 engineering：管脚结构
+    对 engineering/fidelity_f1 一致，fidelity_f2 属块级独立变体、按需另行
+    立项（COMPONENT_CONTRACT §5）。
+    """
+    try:
+        schema = registry.resolve(inst.block_type, "engineering")[0]
+    except Exception as e:      # noqa: BLE001 —— 未注册/缺变体：装载期明确失败
+        raise InstanceLayoutError(
+            "库块实例 '%s'（block_type '%s'）无法在 L2 注册表解析 engineering "
+            "变体：%r" % (path, inst.block_type, e)) from e
+    pins = schema.all_pins()
+    pin_names = {p.name for p in pins}
+    unknown_over = set(inst.init_overrides) - pin_names
+    if unknown_over:
+        raise InstanceLayoutError(
+            "库块实例 '%s' 的 init_overrides 指向不存在的管脚：%s（不得静默丢失）"
+            % (path, sorted(unknown_over)))
+    retain_names = {r for r in inst.retain if r != "*"}
+    unknown_retain = retain_names - pin_names
+    if unknown_retain:
+        raise InstanceLayoutError(
+            "库块实例 '%s' 的 retain 指向不存在的管脚：%s"
+            % (path, sorted(unknown_retain)))
+    whole_retain = "*" in inst.retain
+    for p in pins:
+        if p.name in inst.init_overrides:
+            initial = inst.init_overrides[p.name]
+        else:
+            initial = p.default        # None → Store 用类型默认
+        retain = whole_retain or p.name in retain_names \
+            or p.name in schema.retainable
+        store.declare(persistent_key(path, p.name), p.iec_type, initial,
+                      retain=retain, persistent=False)

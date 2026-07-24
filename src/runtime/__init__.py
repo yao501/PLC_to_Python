@@ -40,6 +40,19 @@ from src.runtime.numeric import (
 from src.runtime.executor import (
     Executor, TypedValue, IRExecutionError,
     MissingStdFunctionError, MissingLibraryAdapterError,
+    LibraryRuntimeError,
+)
+from src.runtime.descriptors import (
+    Pin, BlockSchema, RuntimeAdapter,
+    PIN_KINDS, OMIT_POLICIES, NUMERIC_VARIANTS,
+    collect_outputs, parse_output_access,
+    DescriptorError, SchemaValidationError, AdapterBindingError,
+    Registry, RegistryError, DuplicateDescriptorError,
+    UnknownBlockError, MissingVariantError, variant_for_mode,
+    TON_SCHEMA, TON_ADAPTER,
+    APCHSHLLIM_SCHEMA, APCHSHLLIM_ADAPTER,
+    APCM_SCHEMA, APCM_ADAPTER,
+    build_default_registry,
 )
 from src.runtime.engine import (
     ScanEngine, ScanResult,
@@ -83,6 +96,18 @@ __all__ = [
     "quantize_real32", "wrap_int", "default_value", "trunc_div", "iec_mod",
     "Executor", "TypedValue", "IRExecutionError",
     "MissingStdFunctionError", "MissingLibraryAdapterError",
+    "LibraryRuntimeError",
+    # L2 组件描述符核心与代表性 adapter（WP-20260723-017 检查点恢复）
+    "Pin", "BlockSchema", "RuntimeAdapter",
+    "PIN_KINDS", "OMIT_POLICIES", "NUMERIC_VARIANTS",
+    "collect_outputs", "parse_output_access",
+    "DescriptorError", "SchemaValidationError", "AdapterBindingError",
+    "Registry", "RegistryError", "DuplicateDescriptorError",
+    "UnknownBlockError", "MissingVariantError", "variant_for_mode",
+    "TON_SCHEMA", "TON_ADAPTER",
+    "APCHSHLLIM_SCHEMA", "APCHSHLLIM_ADAPTER",
+    "APCM_SCHEMA", "APCM_ADAPTER",
+    "build_default_registry",
     # 运行时 Store 与实例布局（WP-20260714-003）
     "Store", "StoreSnapshot", "RuntimeLayout",
     "StoreError", "UnknownStoreKeyError", "DuplicateStoreKeyError",

@@ -14,6 +14,7 @@ from src.runtime import (
     InstanceDecl,
     InstanceLayoutError,
     IOMap,
+    IRValidationError,
     LoadVar,
     OutputImageError,
     OutputPending,
@@ -25,6 +26,7 @@ from src.runtime import (
     Task,
     UnknownStoreKeyError,
     VarDecl,
+    build_default_registry,
     build_runtime_store,
     latch_inputs,
     make_prev_snapshot,
@@ -429,6 +431,115 @@ class TestNoPrototypeDependency(unittest.TestCase):
                 if stripped.startswith(("import ", "from ")):
                     self.assertNotIn("prototype_05", stripped,
                                      "%s 存在对原型的导入" % py.name)
+
+
+# ---------------------------------------------------------------------------
+# 接入 L2 注册表后的库块管脚一次性分配（WP-20260723-018）
+# ---------------------------------------------------------------------------
+#
+# 传入 `build_default_registry()` 时，`build_runtime_store` 在**装载期一次性**
+# 为每个库块实例按已注册 Schema 分配全部管脚键；初值取 init_overrides >
+# 管脚 default > 类型默认；retain 取管脚在 InstanceDecl.retain / Schema
+# retainable 的声明。运行期不新增键（Store 拒绝未声明键）。这些断言只验证
+# Python 侧运行时内存底座，不构成与 CODESYS 语义一致的证据。
+
+class TestRegistryLibraryLayout(unittest.TestCase):
+    def _reg(self):
+        return build_default_registry()
+
+    def _lib_task(self, instances):
+        return _task(main_extra_instances=instances)
+
+    def test_library_pins_allocated_once(self):
+        task = self._lib_task([InstanceDecl("TON1", "TON", kind="library")])
+        layout = build_runtime_store(task, self._reg())
+        for pin in ("IN", "PT_ms", "Q", "ET_ms"):
+            self.assertIn(persistent_key("PLC_PRG.TON1", pin), layout.store)
+        self.assertEqual([p for p, _ in layout.library_instances],
+                         ["PLC_PRG.TON1"])
+
+    def test_pin_default_and_type_default(self):
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library"),
+            InstanceDecl("L1", "APCHSHLLIM", kind="library"),
+        ])
+        s = build_runtime_store(task, self._reg()).store
+        # 管脚 default（TON IN=False、PT_ms=0）
+        self.assertEqual(s.read(persistent_key("PLC_PRG.TON1", "IN")), False)
+        self.assertEqual(s.read(persistent_key("PLC_PRG.TON1", "PT_ms")), 0)
+        # 无 default 的输出/required 管脚 → 类型默认
+        self.assertEqual(s.read(persistent_key("PLC_PRG.TON1", "Q")), False)
+        self.assertEqual(s.read(persistent_key("PLC_PRG.L1", "IN")), 0.0)
+        self.assertEqual(s.read(persistent_key("PLC_PRG.L1", "AV")), 0.0)
+
+    def test_init_override_and_retain(self):
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library",
+                         init_overrides={"PT_ms": 2000}, retain={"ET_ms"}),
+        ])
+        s = build_runtime_store(task, self._reg()).store
+        self.assertEqual(s.read(persistent_key("PLC_PRG.TON1", "PT_ms")), 2000)
+        self.assertEqual(s.retain_flags(persistent_key("PLC_PRG.TON1", "ET_ms")),
+                         (True, False))
+        # 未列入 retain 的管脚默认不 retain
+        self.assertEqual(s.retain_flags(persistent_key("PLC_PRG.TON1", "IN")),
+                         (False, False))
+
+    def test_whole_instance_retain_star(self):
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library", retain={"*"}),
+        ])
+        s = build_runtime_store(task, self._reg()).store
+        for pin in ("IN", "PT_ms", "Q", "ET_ms"):
+            self.assertTrue(
+                s.retain_flags(persistent_key("PLC_PRG.TON1", pin))[0], pin)
+
+    def test_init_override_unknown_pin_rejected(self):
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library",
+                         init_overrides={"GHOST": 1}),
+        ])
+        with self.assertRaises(InstanceLayoutError):
+            build_runtime_store(task, self._reg())
+
+    def test_retain_unknown_pin_rejected(self):
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library", retain={"GHOST"}),
+        ])
+        with self.assertRaises(InstanceLayoutError):
+            build_runtime_store(task, self._reg())
+
+    def test_init_override_pin_type_checked(self):
+        # PT_ms 是 TIME（int 族）；float 初值不匹配 → Store 结构检查拒绝
+        task = self._lib_task([
+            InstanceDecl("TON1", "TON", kind="library",
+                         init_overrides={"PT_ms": 1.5}),
+        ])
+        with self.assertRaises(StoreTypeError):
+            build_runtime_store(task, self._reg())
+
+    def test_unregistered_library_block_rejected(self):
+        # build_runtime_store 先跑 validate_task(task, registry)：未注册库块
+        # 类型在装载校验即失败关闭
+        task = self._lib_task([InstanceDecl("G1", "GHOST", kind="library")])
+        with self.assertRaises(IRValidationError):
+            build_runtime_store(task, self._reg())
+
+    def test_runtime_rejects_new_library_key(self):
+        # 运行期不新增 Store 键：布局建立后写未声明的库块管脚键被拒
+        task = self._lib_task([InstanceDecl("TON1", "TON", kind="library")])
+        layout = build_runtime_store(task, self._reg())
+        with self.assertRaises(UnknownStoreKeyError):
+            layout.store.write(persistent_key("PLC_PRG.TON1", "GHOST"), True)
+
+    def test_no_registry_allocates_no_pins(self):
+        # 不传 registry 时保持历史诚实边界：不猜测/不分配任何管脚键
+        task = self._lib_task([InstanceDecl("TON1", "TON", kind="library")])
+        layout = build_runtime_store(task)
+        self.assertFalse(any(k.startswith("PLC_PRG.TON1.")
+                             for k in layout.store.keys()))
+        self.assertEqual([p for p, _ in layout.library_instances],
+                         ["PLC_PRG.TON1"])
 
 
 if __name__ == "__main__":

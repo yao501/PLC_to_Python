@@ -45,13 +45,20 @@
   冒充上一拍）；frame/VAR_TEMP 变量无上一拍语义，遇到即明确拒绝。反馈边
   到 LOAD_PREV 的 lowering 映射仍是待真机验证假设，本执行器只执行已生成
   的 LoadPrev 指令。
-- **CallStd / CallFb 注入边界**：标准函数经可注入的 ``std_functions``
-  名册解析（本包不建完整 IEC 函数库）；库块经可注入的
-  ``library_adapters``（键 = 实例全路径）委托，与 COMPONENT_CONTRACT 的
-  BlockSchema/RuntimeAdapter 拆分方向对齐——正式 L2 注册表（按
-  ``(block_type, variant)`` 解析、``call_adapter`` 约定）属独立工作包，
-  届时替换此注入点即可；缺实现/缺 adapter 明确报错，adapter 异常包入
-  ``IRExecutionError`` 原样携带 cause。
+- **CallStd 注入边界**：标准函数经可注入的 ``std_functions`` 名册解析
+  （本包不建完整 IEC 函数库）；缺实现明确报错，异常包入 ``IRExecutionError``
+  原样携带 cause。
+- **CallFb / 库块管脚（L2 注册表接入，WP-20260723-017）**：传入 ``registry``
+  时，执行器按 COMPONENT_CONTRACT v2.1 的 ``Registry.resolve((block_type,
+  variant))`` 为每个库块实例构造 ``_LibraryRuntime``（``adapter.construct``
+  注入共享构造依赖如 ``license_context``、管脚过程映像落 Store、
+  ``RuntimeAdapter.call_adapter`` 按省略语义驱动块并回收输出/VAR_IN_OUT），
+  键 = 实例全路径。**Registry 路径不得被旧式 ``library_adapters`` 注入旁路**
+  （两者同时提供即拒绝）。不传 registry 时保持历史注入式 ``library_adapters``
+  边界（键 = 实例全路径、``read_pin``/``write_pin``/``pin_type``/``step``
+  协议），供既有测试与过渡使用；缺 adapter/缺实现明确报错，adapter 异常
+  包入 ``IRExecutionError`` 原样携带 cause。这些 Python 对照 ≠ 与 CODESYS
+  语义一致（一致性属阶段 6 对拍）。
 - 无限循环的外层终止（watchdog/扫描超时）属后续 scan runner，本包不实现
   也不伪造 PLC watchdog 语义。
 
@@ -193,7 +200,10 @@ class _CellLoc:
 
 
 class _PinLoc:
-    """库块管脚位置：全部读写委托给注入的 adapter（L2 边界）。"""
+    """库块管脚位置：全部读写委托给库块 runtime（``read_pin``/``write_pin``/
+    ``pin_type`` 协议）。正式 L2 注册表接入时该 runtime 为 ``_LibraryRuntime``
+    （按 Schema 报出管脚类型、管脚过程映像落在 Store）；未接入时为调用方注入
+    的旧式 adapter（``pin_type`` 可缺省，返回 None=类型未知）。"""
     __slots__ = ("adapter", "pin")
 
     def __init__(self, adapter, pin):
@@ -208,7 +218,175 @@ class _PinLoc:
 
     def declared_type(self):
         getter = getattr(self.adapter, "pin_type", None)
-        return getter(self.pin) if getter is not None else None   # None=未知（L2 未接入）
+        return getter(self.pin) if getter is not None else None   # None=未知（旧式注入）
+
+
+# ---------------------------------------------------------------------------
+# L2 注册表运行绑定（COMPONENT_CONTRACT v2.1）
+# ---------------------------------------------------------------------------
+
+class LibraryRuntimeError(Exception):
+    """库块 runtime 绑定/调用错误（如 required 管脚本拍未驱动）。"""
+
+
+class _RealRef:
+    """``VAR_IN_OUT`` 写透用的最小可变引用（只暴露 ``value``）。
+
+    ``RuntimeAdapter.call_adapter`` 通过 ``inout_refs[pin].value`` 读入调用前
+    的 VAR_IN_OUT 当前值、写出调用后的新值；runtime 在 step 前后把它与 Store
+    管脚键同步，实现"引用别名写透"而不改动块源码。"""
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+
+class _LibraryRuntime:
+    """单个库块实例的进程内运行绑定（Registry 驱动，非注入旁路）。
+
+    职责：把 IR 侧的"管脚过程映像"（落在 Store 的
+    ``<路径>.<管脚名>`` 键）与库块实例、``RuntimeAdapter.call_adapter`` 约定
+    桥接起来，向执行器暴露与旧式注入 adapter 相同的
+    ``read_pin``/``write_pin``/``pin_type``/``step`` 协议：
+
+    - ``write_pin``：写入输入管脚 Store 键，并记录该管脚"本拍被驱动"；
+    - ``step``：按 Schema 省略语义组装 ``resolved_inputs``——``required``
+      本拍必被驱动否则 fail-closed；``use_default`` 恒传（未驱动用 Schema
+      声明默认/类型默认，**非**上次驱动值）；``keep_previous`` **首拍**未驱动
+      同样传 Schema 声明默认（使首拍值由 Schema 契约而非块构造器偶然初值
+      决定），**此后**省略才不传、由块保持内部上次值；``none_means_no_write``
+      未驱动即从首拍起一律不传（块保持内部值 / 不覆盖）——再组装
+      ``VAR_IN_OUT`` 引用，转调 ``call_adapter``，回收输出与 VAR_IN_OUT 写回
+      Store（经 ``on_store`` + 结构复检）；无论成功或异常，都在 ``finally``
+      清空本拍驱动记录（失败调用残留的驱动标记会污染下一拍的 required 判定）；
+    - ``read_pin``：从输出/VAR_IN_OUT/输入管脚 Store 键读回（供 ``LOAD_VAR``）；
+    - ``pin_type``：报出 Schema 管脚 IEC 类型（供 ``LOAD_VAR``/``STORE_VAR``
+      指令类型核对与 F1 REAL 管脚量化）。
+
+    块**内部**长期状态归块实例自身（``src/blocks``/``src/primitives`` 零改动）。
+    """
+
+    __slots__ = ("path", "schema", "adapter", "instance", "store", "mode",
+                 "_driven", "_stepped")
+
+    def __init__(self, path, schema, adapter, instance, store, mode):
+        self.path = path
+        self.schema = schema
+        self.adapter = adapter
+        self.instance = instance
+        self.store = store
+        self.mode = mode
+        self._driven: set = set()
+        # 该实例是否已被成功驱动过一次（整步——``call_adapter`` **与**全部
+        # VAR_IN_OUT / 声明输出回收——至少完整成功一次）。``keep_previous``
+        # 省略语义按 COMPONENT_CONTRACT §3 分首拍/后续拍：**首拍**用 Schema
+        # 声明默认（不依赖块构造器偶然内部初值），此后省略才保持块内该管脚
+        # 上次值。required 缺失 / adapter 异常 / 任一输出回收失败时不置真，
+        # 下一拍仍按首拍取默认。
+        self._stepped: bool = False
+
+    def _key(self, pin: str) -> str:
+        return persistent_key(self.path, pin)
+
+    def pin_type(self, pin: str):
+        p = self.schema.pin(pin)
+        return p.iec_type if p is not None else None
+
+    def read_pin(self, pin: str):
+        return self.store.read(self._key(pin))
+
+    def write_pin(self, pin: str, value) -> None:
+        # Store.write 做结构性类型检查（不做隐式转换）；记录本拍已驱动
+        self.store.write(self._key(pin), value)
+        self._driven.add(pin)
+
+    def _store_output(self, pin: str, iec_type: str, value) -> None:
+        """输出/VAR_IN_OUT 回收：结构检查先于 on_store，再写回 Store 键。"""
+        if not check_value_type(iec_type, value):
+            raise StoreTypeError(
+                "库块 '%s' 管脚 '%s' 输出值 %r 与声明类型 %s 结构不匹配"
+                "（检查先于数值钩子，F1 量化不得洗白）"
+                % (self.path, pin, value, iec_type))
+        self.store.write(self._key(pin), self.mode.on_store(value, iec_type))
+
+    def _default_input(self, pin):
+        """管脚**省略拍取 Schema 声明默认**的统一取值（COMPONENT_CONTRACT §3）。
+
+        两处调用：``use_default``（每拍未驱动即用 default）与 ``keep_previous``
+        的**首拍**（首拍用 default，此后省略才保持块内上次值）。二者省略拍的
+        "取默认"边界完全同口径，故共用本方法。
+
+        取 Schema 声明 ``default``（为 ``None`` 时退化为该 IEC 类型默认值），
+        经与驱动路径同口径的输入边界：结构性类型检查（``check_value_type``，
+        不做隐式转换）**先于** ``on_store``（F1 下 REAL 量化到 binary32、整数
+        按声明位宽回绕）——F1 量化不得洗白结构性错误的默认值。**绝不退化为
+        持久 Store 的上次驱动值**：把 ``use_default`` 省略当作 ``keep_previous``
+        会让"先驱动后省略"的管脚错误保持上次值（Codex WP-019 Round 1 复现）；
+        把 ``keep_previous`` 首拍当作"读块构造器偶然初值"会让首拍值不由
+        Schema 契约决定（Codex WP-019 Round 2 复现）。"""
+        value = pin.default if pin.default is not None \
+            else default_value(pin.iec_type)
+        if not check_value_type(pin.iec_type, value):
+            raise LibraryRuntimeError(
+                "库块 '%s' use_default 管脚 '%s' 的默认值 %r 与声明类型 %s "
+                "结构不匹配（结构检查先于 on_store，不做隐式转换）"
+                % (self.path, pin.name, value, pin.iec_type))
+        return self.mode.on_store(value, pin.iec_type)
+
+    def step(self, dt_ms: int) -> None:
+        schema = self.schema
+        first = not self._stepped
+        try:
+            resolved: dict = {}
+            for p in schema.inputs:
+                if p.name in self._driven:
+                    resolved[p.name] = self.store.read(self._key(p.name))
+                elif p.omit_policy == "required":
+                    raise LibraryRuntimeError(
+                        "库块 '%s' 的 required 管脚 '%s' 本拍未被驱动"
+                        "（fail-closed，不静默用默认值）" % (self.path, p.name))
+                elif p.omit_policy == "use_default":
+                    # COMPONENT_CONTRACT §3：use_default 本拍未驱动 → 用 Schema
+                    # 声明 default（缺省则类型默认），**不是**读持久 Store 的上次
+                    # 驱动值（那是 keep_previous）。默认值同走驱动路径输入边界。
+                    resolved[p.name] = self._default_input(p)
+                elif p.omit_policy == "keep_previous" and first:
+                    # COMPONENT_CONTRACT §3：keep_previous **首拍**用 Schema 声明
+                    # default（同 use_default 边界），使块首拍值由 Schema 契约
+                    # 决定、而非块构造器偶然内部初值；此后省略才由块保持内部
+                    # 上次值（落入下方省略分支、不传）。
+                    resolved[p.name] = self._default_input(p)
+                # keep_previous（非首拍）/ none_means_no_write：省略 → 不传 →
+                # 块保持内部上次值 / 本拍不覆盖
+            inout_refs = {p.name: _RealRef(self.store.read(self._key(p.name)))
+                          for p in schema.inouts}
+            outputs = self.adapter.call_adapter(self.instance, dt_ms, resolved,
+                                                inout_refs)
+            # VAR_IN_OUT 写透回收
+            for p in schema.inouts:
+                self._store_output(p.name, p.iec_type, inout_refs[p.name].value)
+            # 输出管脚回收（Schema 声明的全部 VAR_OUTPUT 必须齐备，否则 KeyError
+            # 被上层 CALL_FB 包成带上下文的 IRExecutionError）
+            out_by_name = {p.name: p for p in schema.outputs}
+            for name in out_by_name:
+                if name not in outputs:
+                    raise LibraryRuntimeError(
+                        "库块 '%s' step 未回收声明输出管脚 '%s'"
+                        % (self.path, name))
+                self._store_output(name, out_by_name[name].iec_type,
+                                   outputs[name])
+            # 块已被成功驱动一次：置于 call_adapter **与**全部 VAR_IN_OUT / 声明
+            # 输出回收均成功之后——required 缺失、adapter 异常、或任一 VAR_IN_OUT
+            # /输出回收失败（缺声明输出、_store_output 结构错误）时保持 False，
+            # 下一拍 keep_previous 仍按首拍取 Schema 默认。Codex WP-021 Round 2
+            # 复现：把该赋值放在 call_adapter 之后、回收之前，一次整体失败的
+            # CALL_FB 会错误推进"首次完整成功"状态，使下一拍省略不再取默认。
+            self._stepped = True
+        finally:
+            # 无论成功或异常，都清空本拍驱动集合：失败调用残留的驱动标记会让
+            # 下一拍缺失的 required 管脚被误判为"已驱动"（Codex WP-019 Round 2
+            # 复现——第 1 拍缺 B 抛错后 A 标记残留，第 2 拍缺 A 却意外成功）。
+            self._driven.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -239,13 +417,27 @@ class Executor:
     def __init__(self, task: Task, layout: RuntimeLayout,
                  numeric_mode: Optional[NumericMode] = None,
                  std_functions: Optional[Mapping[str, Callable]] = None,
-                 library_adapters: Optional[Mapping[str, Any]] = None):
+                 library_adapters: Optional[Mapping[str, Any]] = None,
+                 registry=None,
+                 dependencies: Optional[Mapping[str, Any]] = None):
         self.task = task
         self.layout = layout
         self.store = layout.store
         self.mode = numeric_mode if numeric_mode is not None else NumericMode()
         self._std = dict(std_functions or {})
-        self._adapters = dict(library_adapters or {})
+        # 库块运行绑定：接入 L2 注册表时按 Registry 为每个库块实例构造
+        # `_LibraryRuntime`（构造依赖注入、管脚过程映像落 Store、call_adapter
+        # 驱动）；**Registry 路径不得被旧式 adapter 注入旁路**——两者同时提供
+        # 即拒绝。未接入 registry 时保持历史注入式 adapter 边界。
+        if registry is not None:
+            if library_adapters:
+                raise ValueError(
+                    "提供 registry 时不得再注入 library_adapters："
+                    "正式 L2 注册表路径不得被旧式 adapter 注入旁路")
+            self._adapters = self._build_library_runtimes(
+                registry, dict(dependencies or {}))
+        else:
+            self._adapters = dict(library_adapters or {})
         self._gvl_types = {d.name: d.iec_type for d in task.gvl
                            if isinstance(d, VarDecl)}
         self._fb_paths = set(fb.path for fb in layout.fb_instances)
@@ -259,6 +451,29 @@ class Executor:
                     ins.id: i for i, ins in enumerate(pou.code)
                     if isinstance(ins, Label)
                 }
+
+    # ------------------------------------------------------------------
+    # L2 注册表 → 库块运行绑定
+    # ------------------------------------------------------------------
+
+    def _build_library_runtimes(self, registry, dependencies: dict) -> dict:
+        """按 Registry 为 ``layout.library_instances`` 每个实例构造运行绑定。
+
+        用当前数值模式选变体（``variant_for_mode``：engineering/fidelity_f1 →
+        engineering）解析 ``(schema, adapter)``，经 ``adapter.construct`` 从注入
+        依赖构造块实例（如 APCM 的共享 ``license_context``——同一 dependencies
+        对象让同任务多实例共享同一 context），键 = 实例全路径。管脚过程映像
+        键已由 ``build_runtime_store`` 装载期分配，运行期只读写既有键。
+        """
+        variant = "fidelity_f2" if self.mode.mode == "fidelity_f2" \
+            else "engineering"
+        runtimes: dict = {}
+        for path, inst in self.layout.library_instances:
+            schema, adapter = registry.resolve(inst.block_type, variant)
+            instance = adapter.construct(dependencies)
+            runtimes[path] = _LibraryRuntime(path, schema, adapter, instance,
+                                             self.store, self.mode)
+        return runtimes
 
     # ------------------------------------------------------------------
     # 公开入口
