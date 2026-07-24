@@ -111,24 +111,60 @@ class _Scope:
     local_types: dict = field(default_factory=dict)    # name -> iec_type（interface+locals）
     instances: dict = field(default_factory=dict)      # name -> InstanceDecl
     gvl_types: dict = field(default_factory=dict)      # name -> iec_type（FUNCTION 为空）
+    registry: object = None                            # 可选 L2 注册表（接入后核验管脚）
 
     def resolve(self, key: str) -> Optional[str]:
         """解析变量键，返回声明类型；解析不到返回 None。
 
         支持三种形态（IR_SPEC §7）：本地名、GVL 名、``<inst>.<pin>``。
-        库块实例管脚类型无法在本包核对，返回 ``"*"`` 表示"实例已声明、
-        类型未知"（调用方据此跳过类型核对，属诚实边界）。
+        库块实例管脚：**未接入 L2 注册表**时返回 ``"*"``（实例已声明、类型
+        未知，调用方跳过核对，属诚实边界）；**接入注册表**后按 Schema 返回
+        管脚 IEC 类型，未知管脚 / 未注册块型返回 None（由调用方报错）。
         """
         if key in self.local_types:
             return self.local_types[key]
         if key in self.gvl_types:
             return self.gvl_types[key]
         if "." in key:
-            inst_name, _pin = key.split(".", 1)
+            inst_name, pin = key.split(".", 1)
             inst = self.instances.get(inst_name)
             if inst is not None and inst.kind == "library":
-                return "*"      # 库块管脚：类型待 L2 描述符核对
+                if self.registry is None:
+                    return "*"      # 库块管脚：类型待 L2 描述符核对
+                schema = self._schema_for(inst)
+                if schema is None:
+                    return None     # 未注册块型（错误在 lib_pin_info 报出）
+                p = schema.pin(pin)
+                return p.iec_type if p is not None else None
         return None
+
+    def _schema_for(self, inst):
+        """取库块实例的 engineering Schema；未注册返回 None。"""
+        try:
+            return self.registry.resolve(inst.block_type, "engineering")[0]
+        except Exception:       # noqa: BLE001 —— 未注册 / 缺变体：由上层报错
+            return None
+
+    def lib_pin_info(self, key: str):
+        """库块管脚解析（仅 registry 接入时有意义）。
+
+        返回 ``None``（非库块管脚引用）或 ``(status, payload)``：
+        ``("unregistered", block_type)`` / ``("unknown_pin", pin_name)`` /
+        ``("ok", Pin)``。
+        """
+        if self.registry is None or "." not in key:
+            return None
+        inst_name, pin = key.split(".", 1)
+        inst = self.instances.get(inst_name)
+        if inst is None or inst.kind != "library":
+            return None
+        schema = self._schema_for(inst)
+        if schema is None:
+            return ("unregistered", inst.block_type)
+        p = schema.pin(pin)
+        if p is None:
+            return ("unknown_pin", pin)
+        return ("ok", p)
 
     def is_gvl(self, key: str) -> bool:
         return key.split(".", 1)[0] in self.gvl_types
@@ -138,8 +174,14 @@ class _Scope:
 # 公开入口
 # ---------------------------------------------------------------------------
 
-def validate_task(task: Task) -> None:
-    """校验整个 Task；失败抛 ``IRValidationError``（汇总全部错误）。"""
+def validate_task(task: Task, registry=None) -> None:
+    """校验整个 Task；失败抛 ``IRValidationError``（汇总全部错误）。
+
+    ``registry``（可选 L2 ``Registry``）接入后，库块实例的 ``block_type`` 必须
+    已注册、``<inst>.<pin>`` 必须按 Schema 核验管脚存在性、方向与 IEC 类型；
+    不再对库块管脚用 ``"*"`` 跳过类型检查。``registry=None`` 时保持历史诚实
+    边界（库块管脚类型未知）。
+    """
     errors: list = []
     if not isinstance(task, Task):
         raise IRValidationError(["validate_task 需要 ir.Task 实例"])
@@ -147,7 +189,7 @@ def validate_task(task: Task) -> None:
     _check_task_shell(task, errors)
     gvl_types = _check_gvl(task, errors)
     _check_io_map(task, gvl_types, errors)
-    _check_pou_lib(task, errors)
+    _check_pou_lib(task, errors, registry)
     _check_programs(task, errors)
     reachable = _check_instance_graph(task, errors)
 
@@ -161,7 +203,7 @@ def validate_task(task: Task) -> None:
                     "POU '%s'：被 Task 引用（可达）但 code=None，无可执行 IR" % name
                 )
             continue
-        scope = _build_scope(pou, gvl_types)
+        scope = _build_scope(pou, gvl_types, registry)
         _check_code(pou, scope, task, errors)
 
     if errors:
@@ -230,7 +272,7 @@ def _check_io_map(task: Task, gvl_types: dict, errors: list) -> None:
             )
 
 
-def _check_pou_lib(task: Task, errors: list) -> None:
+def _check_pou_lib(task: Task, errors: list, registry=None) -> None:
     for key, pou in task.pou_lib.items():
         if not isinstance(pou, POUDefinition):
             errors.append("pou_lib['%s'] 不是 POUDefinition：%r" % (key, pou))
@@ -294,6 +336,13 @@ def _check_pou_lib(task: Task, errors: list) -> None:
                     errors.append(
                         "POU '%s' 实例 '%s' 的目标 '%s' 不是 FUNCTION_BLOCK（是 %s）"
                         % (pou.name, inst.name, inst.block_type, target.pou_kind)
+                    )
+            elif inst.kind == "library" and registry is not None:
+                # L2 接入：库块类型必须已注册（engineering 变体）
+                if not registry.has(inst.block_type, "engineering"):
+                    errors.append(
+                        "POU '%s' 实例 '%s' 引用未在 L2 注册表登记的库块类型 '%s'"
+                        % (pou.name, inst.name, inst.block_type)
                     )
             if inst.name in seen:
                 errors.append("POU '%s' 内名称重复：'%s'" % (pou.name, inst.name))
@@ -407,8 +456,8 @@ def _check_instance_graph(task: Task, errors: list) -> set:
 # 代码校验（控制流感知栈类型验证）
 # ---------------------------------------------------------------------------
 
-def _build_scope(pou: POUDefinition, gvl_types: dict) -> _Scope:
-    scope = _Scope(pou=pou)
+def _build_scope(pou: POUDefinition, gvl_types: dict, registry=None) -> _Scope:
+    scope = _Scope(pou=pou, registry=registry)
     for decl in list(pou.interface) + list(pou.locals):
         if isinstance(decl, VarDecl):
             scope.local_types[decl.name] = decl.iec_type
@@ -535,6 +584,25 @@ def _step(pou, scope, task, idx, ins, stack, errors, prefix):
     if isinstance(ins, (LoadVar, LoadPrev)):
         if not _require_type(ins.type, prefix, idx, "LOAD", errors):
             return None
+        info = scope.lib_pin_info(ins.key)
+        if info is not None:
+            status, payload = info
+            if status == "unregistered":
+                err("LOAD 引用未在 L2 注册表登记的库块类型 '%s'（管脚 '%s'）"
+                    % (payload, ins.key))
+                return None
+            if status == "unknown_pin":
+                err("LOAD 引用库块不存在的管脚 '%s'" % ins.key)
+                return None
+            pin = payload
+            if pin.kind not in ("VAR_OUTPUT", "VAR_IN_OUT"):
+                err("LOAD 读取库块输入管脚 '%s'（方向 %s；只读 VAR_OUTPUT/"
+                    "VAR_IN_OUT）" % (ins.key, pin.kind))
+            if pin.iec_type != ins.type:
+                err("LOAD '%s' 指令类型 %s 与管脚声明类型 %s 不一致"
+                    % (ins.key, ins.type, pin.iec_type))
+            stack.append(ins.type)
+            return stack, [], True
         declared = scope.resolve(ins.key)
         if declared is None:
             kind = "LOAD_PREV" if isinstance(ins, LoadPrev) else "LOAD_VAR"
@@ -558,6 +626,30 @@ def _step(pou, scope, task, idx, ins, stack, errors, prefix):
     if isinstance(ins, StoreVar):
         if not _require_type(ins.type, prefix, idx, "STORE_VAR", errors):
             return None
+        info = scope.lib_pin_info(ins.key)
+        if info is not None:
+            status, payload = info
+            if status == "unregistered":
+                err("STORE_VAR 引用未在 L2 注册表登记的库块类型 '%s'（管脚 '%s'）"
+                    % (payload, ins.key))
+                return None
+            if status == "unknown_pin":
+                err("STORE_VAR 引用库块不存在的管脚 '%s'" % ins.key)
+                return None
+            pin = payload
+            if pin.kind not in ("VAR_INPUT", "VAR_IN_OUT"):
+                err("STORE_VAR 写库块输出管脚 '%s'（方向 %s；只写 VAR_INPUT/"
+                    "VAR_IN_OUT）" % (ins.key, pin.kind))
+            if pin.iec_type != ins.type:
+                err("STORE_VAR '%s' 指令类型 %s 与管脚声明类型 %s 不一致"
+                    % (ins.key, ins.type, pin.iec_type))
+            top = pop1(what="STORE_VAR 待写值")
+            if top is None:
+                return None
+            if top != "*" and top != ins.type:
+                err("STORE_VAR '%s' 要求栈顶类型严格等于 %s，实为 %s"
+                    % (ins.key, ins.type, top))
+            return stack, [], True
         declared = scope.resolve(ins.key)
         if declared is None:
             extra = ""

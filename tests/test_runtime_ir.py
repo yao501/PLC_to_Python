@@ -32,6 +32,7 @@ from src.runtime import (
     LoadConst,
     LoadPrev,
     LoadVar,
+    MissingVariantError,
     POUDefinition,
     ProgramInstance,
     StackSlot,
@@ -40,7 +41,9 @@ from src.runtime import (
     StoreVar,
     Task,
     UnOp,
+    UnknownBlockError,
     VarDecl,
+    build_default_registry,
     validate_task,
 )
 
@@ -609,6 +612,83 @@ class TestPouStructureErrors(_Base):
         task = _task([])
         task.programs.append(ProgramInstance("Main", "PLC_PRG"))
         self.assert_rejected(task, "store_prefix 重复")
+
+
+# ---------------------------------------------------------------------------
+# 接入 L2 注册表后的库块管脚类型闭环（WP-20260723-018）
+# ---------------------------------------------------------------------------
+#
+# 未接入注册表时，库块实例管脚解析为 "*"（类型未知、跳过核对，历史诚实
+# 边界）；接入 `build_default_registry()` 后，`<inst>.<pin>` 必须按已注册
+# BlockSchema 核验存在性、方向与 IEC 类型，`"*"` 与 legacy 路径都不得绕过。
+# 这些断言只验证 Python 侧静态校验，不构成与 CODESYS 语义一致的证据。
+
+class TestRegistryLibraryPins(_Base):
+    def _reg(self):
+        return build_default_registry()
+
+    def _ton_task(self, code):
+        main = _program(code,
+                        instances=[InstanceDecl("TON1", "TON", kind="library")])
+        return _task(pou=main)
+
+    def assert_rejected_reg(self, task, *needles):
+        with self.assertRaises(IRValidationError) as cm:
+            validate_task(task, registry=self._reg())
+        text = str(cm.exception)
+        for needle in needles:
+            self.assertIn(needle, text)
+        return cm.exception
+
+    def test_registered_library_pins_closed(self):
+        """已注册库块：管脚存在、方向、IEC 类型全部核对通过。"""
+        code = [
+            LoadVar("Start", "BOOL"), StoreVar("TON1.IN", "BOOL"),
+            LoadConst(1000, "TIME"), StoreVar("TON1.PT_ms", "TIME"),
+            CallFb("TON1"),
+            LoadVar("TON1.Q", "BOOL"), StoreVar("Motor", "BOOL"),
+        ]
+        validate_task(self._ton_task(code), registry=self._reg())
+
+    def test_unknown_pin_rejected(self):
+        code = [LoadVar("TON1.NOPE", "BOOL"), StoreVar("Motor", "BOOL")]
+        self.assert_rejected_reg(self._ton_task(code), "不存在的管脚")
+
+    def test_wrong_direction_rejected(self):
+        # 读输入管脚（IN 是 VAR_INPUT，不可 LOAD）
+        code_in = [LoadVar("TON1.IN", "BOOL"), StoreVar("Motor", "BOOL")]
+        self.assert_rejected_reg(self._ton_task(code_in), "只读 VAR_OUTPUT")
+        # 写输出管脚（Q 是 VAR_OUTPUT，不可 STORE）
+        code_q = [LoadConst(True, "BOOL"), StoreVar("TON1.Q", "BOOL")]
+        self.assert_rejected_reg(self._ton_task(code_q), "只写 VAR_INPUT")
+
+    def test_pin_type_mismatch_rejected(self):
+        # Q 声明 BOOL；指令按 REAL 读 → 类型闭环拒绝
+        code = [LoadVar("TON1.Q", "REAL"), StoreVar("Setpoint", "REAL")]
+        self.assert_rejected_reg(self._ton_task(code), "不一致")
+
+    def test_no_star_bypass_when_registry_present(self):
+        """同一 IR：无注册表时 '*' 跳过类型检查而被接受；接入注册表后按
+        Schema 闭环拒绝——证明 '*'/legacy 路径不再绕过。"""
+        code = [LoadVar("TON1.Q", "REAL"), StoreVar("Setpoint", "REAL")]
+        validate_task(self._ton_task(code))                 # 无注册表：接受
+        self.assert_rejected_reg(self._ton_task(code), "不一致")   # 有注册表：拒绝
+
+    def test_unregistered_library_block_rejected(self):
+        """库块类型未在 L2 注册表登记 → 失败关闭（诊断只引用 block_type
+        字符串，不对不可信对象做危险字符串化）。"""
+        main = _program([CallFb("G1")],
+                        instances=[InstanceDecl("G1", "GHOST", kind="library")])
+        self.assert_rejected_reg(_task(pou=main),
+                                 "未在 L2 注册表登记", "GHOST")
+
+    def test_registry_resolve_fail_closed(self):
+        """缺变体 / 未知块解析一律显式报错，绝不静默降级到 engineering。"""
+        reg = self._reg()
+        with self.assertRaises(MissingVariantError):
+            reg.resolve("APCM", "fidelity_f2")       # F2 缺变体不静默回退
+        with self.assertRaises(UnknownBlockError):
+            reg.resolve("GHOST", "engineering")
 
 
 if __name__ == "__main__":

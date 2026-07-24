@@ -28,6 +28,7 @@ from src.runtime import (
     Jmp,
     JmpIfFalse,
     Label,
+    LibraryRuntimeError,
     LoadConst,
     LoadPrev,
     LoadVar,
@@ -46,10 +47,46 @@ from src.runtime import (
     UnOp,
     UnsupportedNumericModeError,
     VarDecl,
+    BlockSchema,
+    Pin,
+    Registry,
+    RuntimeAdapter,
+    build_default_registry,
     build_runtime_store,
+    collect_outputs,
     persistent_key,
     quantize_real32,
 )
+from src.blocks.apchshllim import APCHSHLLIM
+from src.blocks.apcm import APCM, RealRef
+from src.globals import LicenseContext
+from src.licensing.bd_zcm import BD_ZCM
+from src.licensing.issuer import derive_passwords_from_registration_codes
+from src.licensing.providers import (
+    ManualDateTimeProvider,
+    StaticSerialTextProvider,
+)
+from src.primitives.timers import TON
+
+
+_APCM_SERIAL = "PYPLC|TEST|MACHINE-0001"
+
+
+def _make_license_ctx() -> LicenseContext:
+    """已授权的 LicenseContext（与 tests/test_blocks_apcm.py 同口径）。
+
+    APCM 授权门控依赖 ctx；本 helper 给出通过门控的独立 ctx，两次调用得到
+    彼此隔离但行为一致的授权上下文（供 Registry 路径与直接调用对照）。
+    """
+    ctx = LicenseContext(
+        StaticSerialTextProvider(_APCM_SERIAL),
+        ManualDateTimeProvider(5000),
+    )
+    zcm = BD_ZCM(StaticSerialTextProvider(_APCM_SERIAL)).step(True)
+    ctx.set_passwords(
+        *derive_passwords_from_registration_codes(
+            zcm["ZCM1"], zcm["ZCM2"], zcm["ZCM3"]))
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -1190,6 +1227,760 @@ class TestLibraryPinRealQuantization(unittest.TestCase):
         self.assertIn("LOAD_VAR", str(cm.exception))
         self.assertIn("原始值", str(cm.exception))
         self.assertEqual(layout.store.read("X"), 0.0)
+
+
+# ---------------------------------------------------------------------------
+# L2 注册表驱动的库块执行：与直接调用原块行为对照（WP-20260723-018）
+# ---------------------------------------------------------------------------
+#
+# 接入 `build_default_registry()` 时，执行器按 COMPONENT_CONTRACT v2.1 的
+# Registry 为每个库块实例构造 `_LibraryRuntime`（adapter.construct 注入共享
+# 构造依赖、管脚过程映像落 Store、call_adapter 按省略语义驱动块并回收输出/
+# VAR_IN_OUT）。以下测试比较**经 Registry/Executor** 与**直接调用原块**的
+# 可观察输出与跨拍状态。E 模式为精确等价对照；F1 量化只锁定当前候选行为。
+# 这些 Python 对照 **不构成** 与 CODESYS 语义一致的证据。
+
+
+class TestRegistryLegacyMutualExclusion(unittest.TestCase):
+    def test_registry_and_library_adapters_rejected(self):
+        # 提供 registry 时不得再注入 legacy library_adapters（注册表路径不得
+        # 被旧式 adapter 注入旁路）
+        task = _lib_task()
+        reg = build_default_registry()
+        layout = build_runtime_store(task, reg)
+        with self.assertRaises(ValueError):
+            Executor(task, layout, registry=reg,
+                     library_adapters={"PLC_PRG.T1": _FakeAdapter()})
+
+
+class TestRegistryTonBehavior(unittest.TestCase):
+    """TON：有状态跨拍、dt_ms=Task.cycle_ms=500、tuple 输出回收。"""
+
+    def _ton_task(self):
+        main = _prog("Main",
+                     [LoadVar("Start", "BOOL"), StoreVar("T1.IN", "BOOL"),
+                      LoadConst(1000, "TIME"), StoreVar("T1.PT_ms", "TIME"),
+                      CallFb("T1")],
+                     instances=[InstanceDecl("T1", "TON", kind="library")])
+        return _task(pous=[main])
+
+    def test_ton_matches_direct_across_scans(self):
+        reg = build_default_registry()
+        task = self._ton_task()
+        layout = build_runtime_store(task, reg)
+        layout.store.write("Start", True)          # IN=True
+        ex = Executor(task, layout, registry=reg)
+        ref = TON()
+        qk = persistent_key("PLC_PRG.T1", "Q")
+        ek = persistent_key("PLC_PRG.T1", "ET_ms")
+        # PT_ms=1000、dt=500：第 1 拍 ET=500 Q=False，第 2 拍 ET=1000 Q=True
+        for _ in range(3):
+            ex.execute_programs(layout.store.snapshot())
+            q, et = ref.step(500, IN=True, PT_ms=1000)
+            self.assertEqual(layout.store.read(qk), q)      # tuple[0] 回收
+            self.assertEqual(layout.store.read(ek), et)     # tuple[1] 回收
+        self.assertIs(layout.store.read(qk), True)          # 已到点
+        self.assertEqual(layout.store.read(ek), 1000)
+
+    def test_ton_reset_when_in_false_matches_direct(self):
+        reg = build_default_registry()
+        task = self._ton_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = TON()
+        qk = persistent_key("PLC_PRG.T1", "Q")
+        ek = persistent_key("PLC_PRG.T1", "ET_ms")
+        for in_val in (True, True, False, True):
+            layout.store.write("Start", in_val)
+            ex.execute_programs(layout.store.snapshot())
+            q, et = ref.step(500, IN=in_val, PT_ms=1000)
+            self.assertEqual(layout.store.read(qk), q, in_val)
+            self.assertEqual(layout.store.read(ek), et, in_val)
+
+    def _ton_conditional_task(self):
+        # DriveIN=True 时驱动 T1.IN，否则经控制流**省略** T1.IN；PT_ms 恒驱动。
+        # 用于反证 use_default 省略语义：省略拍须回落 Schema 默认 IN=False，
+        # 不得保持上次驱动的 True（那是 keep_previous 语义）。
+        main = _prog(
+            "Main",
+            [LoadVar("DriveIN", "BOOL"), JmpIfFalse("SKIP_IN"),
+             LoadVar("Start", "BOOL"), StoreVar("T1.IN", "BOOL"),
+             Label("SKIP_IN"),
+             LoadConst(1000, "TIME"), StoreVar("T1.PT_ms", "TIME"),
+             CallFb("T1")],
+            instances=[InstanceDecl("T1", "TON", kind="library")])
+        gvl = _gvl() + [VarDecl("DriveIN", "BOOL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def test_ton_use_default_omitted_resets_not_keeps_previous(self):
+        # Codex WP-019 Round 1 反证：先驱动 IN=True（Q=False, ET=500），下一拍
+        # 经控制流省略 IN → use_default 回落 Schema 默认 False → TON 复位
+        # （Q=False, ET=0）。若 use_default 错误退化为读上次驱动值（=True），
+        # 则会错误累计到 ET=1000/Q=True（该缺陷正是本轮修复目标）。
+        reg = build_default_registry()
+        task = self._ton_conditional_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        qk = persistent_key("PLC_PRG.T1", "Q")
+        ek = persistent_key("PLC_PRG.T1", "ET_ms")
+
+        # 拍 1：驱动 IN=True → 计时半程
+        layout.store.write("DriveIN", True)
+        layout.store.write("Start", True)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertIs(layout.store.read(qk), False)
+        self.assertEqual(layout.store.read(ek), 500)
+
+        # 拍 2：省略 IN（DriveIN=False）→ use_default → IN=False → 复位
+        layout.store.write("DriveIN", False)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertIs(layout.store.read(qk), False)
+        self.assertEqual(layout.store.read(ek), 0)      # 复位，非 1000
+
+        # 双向锁定：与"省略拍传默认 IN=False"的直接调用逐拍一致
+        ref = TON()
+        self.assertEqual(ref.step(500, IN=True, PT_ms=1000), (False, 500))
+        self.assertEqual(ref.step(500, IN=False, PT_ms=1000), (False, 0))
+
+    def test_ton_use_default_omitted_f1_quantizes_default(self):
+        # use_default 省略拍的默认值同走驱动路径输入边界（结构检查 + on_store
+        # F1 量化）：PT_ms 恒驱动、IN 省略回落默认 False，F1 下行为与 E 一致
+        # 复位；本例锁定"默认值不绕过边界"，不把默认当作已在 Store 的量化值。
+        reg = build_default_registry()
+        task = self._ton_conditional_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, numeric_mode=F1, registry=reg)
+        qk = persistent_key("PLC_PRG.T1", "Q")
+        ek = persistent_key("PLC_PRG.T1", "ET_ms")
+        layout.store.write("DriveIN", True)
+        layout.store.write("Start", True)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ek), 500)
+        layout.store.write("DriveIN", False)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertIs(layout.store.read(qk), False)
+        self.assertEqual(layout.store.read(ek), 0)
+
+
+class TestRegistryApchshllimBehavior(unittest.TestCase):
+    """APCHSHLLIM：普通业务块、dict 输出回收（return:AV）、dt_ms 占位、
+    required 输入。"""
+
+    def _lim_task(self):
+        main = _prog("Main",
+                     [LoadVar("X", "REAL"), StoreVar("L1.IN", "REAL"),
+                      LoadVar("Y", "REAL"), StoreVar("L1.HL", "REAL"),
+                      LoadConst(0.0, "REAL"), StoreVar("L1.LL", "REAL"),
+                      CallFb("L1")],
+                     instances=[InstanceDecl("L1", "APCHSHLLIM",
+                                             kind="library")])
+        return _task(pous=[main])
+
+    def test_apchshllim_matches_direct(self):
+        reg = build_default_registry()
+        task = self._lim_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = APCHSHLLIM()
+        avk = persistent_key("PLC_PRG.L1", "AV")
+        # 覆盖钳到 HL / 钳到 LL / 区间内三种分支
+        for xin, hl in [(5.0, 10.0), (15.0, 10.0), (-3.0, 10.0)]:
+            layout.store.write("X", xin)
+            layout.store.write("Y", hl)
+            ex.execute_programs(layout.store.snapshot())
+            out = ref.step(500, IN=xin, HL=hl, LL=0.0)      # dict 输出
+            self.assertEqual(layout.store.read(avk), out["AV"], (xin, hl))
+
+    def test_required_pin_not_driven_fail_closed(self):
+        # 只驱动 IN/HL，省略 required 的 LL → step fail-closed
+        main = _prog("Main",
+                     [LoadVar("X", "REAL"), StoreVar("L1.IN", "REAL"),
+                      LoadVar("Y", "REAL"), StoreVar("L1.HL", "REAL"),
+                      CallFb("L1")],
+                     instances=[InstanceDecl("L1", "APCHSHLLIM",
+                                             kind="library")])
+        task = _task(pous=[main])
+        reg = build_default_registry()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        with self.assertRaises(IRExecutionError) as cm:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm.exception.cause, LibraryRuntimeError)
+        self.assertIn("L1", str(cm.exception))
+
+    def test_pin_real_quantized_f1(self):
+        # F1：输入管脚经 on_store 量化写入、输出回收再量化到 binary32
+        reg = build_default_registry()
+        task = self._lim_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, numeric_mode=F1, registry=reg)
+        q = quantize_real32
+        layout.store.write("X", 0.1)               # 0.1 不可 binary32 精确表示
+        layout.store.write("Y", 10.0)
+        ex.execute_programs(layout.store.snapshot())
+        avk = persistent_key("PLC_PRG.L1", "AV")
+        self.assertEqual(layout.store.read(avk), q(0.1))
+        self.assertNotEqual(layout.store.read(avk), 0.1)
+
+
+class TestRegistryApcmBehavior(unittest.TestCase):
+    """APCM：共享 LicenseContext（ctor_args 注入）、RealRef/VAR_IN_OUT 写透、
+    None=本拍不覆盖（none_means_no_write）与保持上次值省略（keep_previous）。
+
+    不改变 APCM 原子整理修复——adapter 只按真实签名转调 step。"""
+
+    _REQUIRED = [
+        (LoadVar("SP_in", "REAL"), "M1.SP", "REAL"),
+        (LoadVar("PV_in", "REAL"), "M1.PV", "REAL"),
+    ]
+
+    def _apcm_task(self, instances=None, drive_zsyk=None):
+        insts = instances or [InstanceDecl("M1", "APCM", kind="library")]
+        code = [
+            LoadVar("SP_in", "REAL"), StoreVar("M1.SP", "REAL"),
+            LoadVar("PV_in", "REAL"), StoreVar("M1.PV", "REAL"),
+            LoadConst(0.0, "REAL"), StoreVar("M1.OC", "REAL"),
+            LoadConst(False, "BOOL"), StoreVar("M1.TS", "BOOL"),
+            LoadConst(0.0, "REAL"), StoreVar("M1.TP", "REAL"),
+        ]
+        if drive_zsyk is not None:
+            code += [LoadConst(drive_zsyk, "REAL"), StoreVar("M1.ZSYK", "REAL")]
+        code.append(CallFb("M1"))
+        main = _prog("Main", code, instances=insts)
+        gvl = _gvl() + [VarDecl("SP_in", "REAL", section="VAR_GLOBAL"),
+                        VarDecl("PV_in", "REAL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    _OUT_PINS = ("AV", "AV_P", "AV_R", "AV_GC", "AV_J", "AV_D", "AV_C")
+
+    def test_apcm_outputs_and_inout_match_direct(self):
+        reg = build_default_registry()
+        task = self._apcm_task()
+        layout = build_runtime_store(task, reg)
+        # 种子 ZLOUT 非零 → 验证 VAR_IN_OUT 双向写透（读入块、写回 Store）
+        zk = persistent_key("PLC_PRG.M1", "ZLOUT")
+        layout.store.write(zk, 5.0)
+        ctx_ex = _make_license_ctx()
+        ex = Executor(task, layout, registry=reg,
+                      dependencies={"license_context": ctx_ex})
+        ref = APCM(_make_license_ctx())
+        ref_ref = RealRef(5.0)
+        for sp, pv in [(5.0, 3.0), (6.0, 4.0), (5.0, 5.0)]:
+            layout.store.write("SP_in", sp)
+            layout.store.write("PV_in", pv)
+            ex.execute_programs(layout.store.snapshot())
+            ref.step(500, SP=sp, PV=pv, OC=0.0, TS=False, TP=0.0,
+                     zlout_ref=ref_ref)
+            for pin in self._OUT_PINS:
+                self.assertEqual(
+                    layout.store.read(persistent_key("PLC_PRG.M1", pin)),
+                    getattr(ref, pin), pin)
+            # attr: 输出回收全 7 路一致；VAR_IN_OUT 写透一致
+            self.assertEqual(layout.store.read(zk), ref_ref.value)
+
+    def test_shared_license_context_across_instances(self):
+        # ctor_args=("license_context",)：同任务多实例经注入依赖共享同一 ctx
+        reg = build_default_registry()
+        task = self._apcm_task(instances=[
+            InstanceDecl("M1", "APCM", kind="library"),
+            InstanceDecl("M2", "APCM", kind="library"),
+        ])
+        layout = build_runtime_store(task, reg)
+        ctx = _make_license_ctx()
+        ex = Executor(task, layout, registry=reg,
+                      dependencies={"license_context": ctx})
+        rt1 = ex._adapters["PLC_PRG.M1"].instance
+        rt2 = ex._adapters["PLC_PRG.M2"].instance
+        self.assertIs(rt1._ctx, ctx)
+        self.assertIs(rt2._ctx, ctx)               # 共享同一 context 对象
+
+    def test_omitted_optional_pins_keep_block_value_match_direct(self):
+        # RM(none_means_no_write)/ZSYK(keep_previous) 从不驱动 → 块保持内部
+        # 演化；Registry 路径与"直接调用同样省略"完全一致。ZSYK Schema default
+        # 显式写成与 APCM 源块 __init__ 相同的 1.0，因此 keep_previous 首拍传
+        # Schema default 与"直接省略保持 __init__"逐拍等价（default 与块初值
+        # 一致时无分叉；分叉场景见 test_keep_previous_first_tick_uses_schema_default）
+        reg = build_default_registry()
+        task = self._apcm_task()
+        layout = build_runtime_store(task, reg)
+        ctx_ex = _make_license_ctx()
+        ex = Executor(task, layout, registry=reg,
+                      dependencies={"license_context": ctx_ex})
+        ref = APCM(_make_license_ctx())
+        ref_ref = RealRef(0.0)
+        layout.store.write("SP_in", 5.0)
+        layout.store.write("PV_in", 3.0)
+        ex.execute_programs(layout.store.snapshot())
+        ref.step(500, SP=5.0, PV=3.0, OC=0.0, TS=False, TP=0.0,
+                 zlout_ref=ref_ref)
+        rt = ex._adapters["PLC_PRG.M1"].instance
+        self.assertEqual(rt.RM, ref.RM)            # 省略 → 与直接省略一致
+        self.assertEqual(rt.ZSYK, ref.ZSYK)
+        self.assertEqual(rt.ZSYK, 1.0)             # 首拍传 Schema default=块初值 1.0
+
+    def test_driven_optional_pin_takes_effect(self):
+        # 驱动 ZSYK=2.0：Registry 路径必须把该值传入块（≠ 省略保持 1.0）
+        reg = build_default_registry()
+        task = self._apcm_task(drive_zsyk=2.0)
+        layout = build_runtime_store(task, reg)
+        ctx_ex = _make_license_ctx()
+        ex = Executor(task, layout, registry=reg,
+                      dependencies={"license_context": ctx_ex})
+        ref_driven = APCM(_make_license_ctx())
+        ref_omit = APCM(_make_license_ctx())
+        r1, r2 = RealRef(0.0), RealRef(0.0)
+        layout.store.write("SP_in", 5.0)
+        layout.store.write("PV_in", 3.0)
+        ex.execute_programs(layout.store.snapshot())
+        ref_driven.step(500, SP=5.0, PV=3.0, OC=0.0, TS=False, TP=0.0,
+                        zlout_ref=r1, ZSYK=2.0)
+        ref_omit.step(500, SP=5.0, PV=3.0, OC=0.0, TS=False, TP=0.0,
+                      zlout_ref=r2)
+        rt = ex._adapters["PLC_PRG.M1"].instance
+        self.assertEqual(rt.ZSYK, 2.0)
+        self.assertEqual(rt.ZSYK, ref_driven.ZSYK)      # 与"传入 2.0"一致
+        self.assertNotEqual(rt.ZSYK, ref_omit.ZSYK)     # ≠ 省略(保持 1.0)
+
+    def _apcm_conditional_zsyk_task(self):
+        # DriveZSYK=True 时驱动 M1.ZSYK=2.0，否则经控制流**省略** ZSYK；
+        # SP/PV/OC/TS/TP 恒驱动。用于 keep_previous 的"先驱动后省略"跨拍对照。
+        code = [
+            LoadVar("SP_in", "REAL"), StoreVar("M1.SP", "REAL"),
+            LoadVar("PV_in", "REAL"), StoreVar("M1.PV", "REAL"),
+            LoadConst(0.0, "REAL"), StoreVar("M1.OC", "REAL"),
+            LoadConst(False, "BOOL"), StoreVar("M1.TS", "BOOL"),
+            LoadConst(0.0, "REAL"), StoreVar("M1.TP", "REAL"),
+            LoadVar("DriveZSYK", "BOOL"), JmpIfFalse("SKIP_ZSYK"),
+            LoadConst(2.0, "REAL"), StoreVar("M1.ZSYK", "REAL"),
+            Label("SKIP_ZSYK"),
+            CallFb("M1"),
+        ]
+        main = _prog("Main", code,
+                     instances=[InstanceDecl("M1", "APCM", kind="library")])
+        gvl = _gvl() + [VarDecl("SP_in", "REAL", section="VAR_GLOBAL"),
+                        VarDecl("PV_in", "REAL", section="VAR_GLOBAL"),
+                        VarDecl("DriveZSYK", "BOOL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def test_keep_previous_drive_then_omit_keeps_value(self):
+        # keep_previous 跨拍对照（与 use_default 省略即复位相反，防止两枚举
+        # 再次合并）：拍 1 驱动 ZSYK=2.0，拍 2 经控制流省略 → 块**保持**上次
+        # 驱动值 2.0，不回落默认 1.0。TON use_default 省略拍回落默认、APCM
+        # keep_previous 省略拍保持上次值——两条反证锁定枚举语义分离。
+        reg = build_default_registry()
+        task = self._apcm_conditional_zsyk_task()
+        layout = build_runtime_store(task, reg)
+        ctx_ex = _make_license_ctx()
+        ex = Executor(task, layout, registry=reg,
+                      dependencies={"license_context": ctx_ex})
+        rt = ex._adapters["PLC_PRG.M1"].instance
+        layout.store.write("SP_in", 5.0)
+        layout.store.write("PV_in", 3.0)
+
+        layout.store.write("DriveZSYK", True)      # 拍 1：驱动 2.0
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(rt.ZSYK, 2.0)
+
+        layout.store.write("DriveZSYK", False)     # 拍 2：省略 ZSYK
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(rt.ZSYK, 2.0)             # keep_previous 保持 2.0，非默认
+
+
+# ---------------------------------------------------------------------------
+# WP-20260724-019 Round 3 返修反证：省略语义四值枚举与失败调用的通用边界
+#
+# 用最小探针块（不依赖三个代表性块的偶然内部初值）把语义锁成可迁移契约：
+# ① keep_previous 首拍由 Schema default 决定、而非块构造器偶然值；
+# ② 失败调用不得让驱动标记残留污染下一拍的 required 判定；
+# ③ use_default REAL 默认值实际经 F1 binary32 量化，且结构检查先于量化。
+# 这些 Python 对照 **不构成** 与 CODESYS 语义一致的证据。
+# ---------------------------------------------------------------------------
+
+
+class _KeepPrevProbe:
+    """keep_previous 探针块：Schema default 与类内部初值**故意不同**。
+
+    构造器把 ``k`` 置成偶然内部初值 99.0；``step`` 传入 ``k`` 才覆盖，
+    ``out`` 回显当前生效值。用于证明 keep_previous 首拍值由 Schema 声明
+    default（7.0）决定，而非块构造器偶然值（99.0）。"""
+
+    def __init__(self):
+        self.k = 99.0
+        self.out = 0.0
+
+    def step(self, dt_ms, k=None):
+        if k is not None:
+            self.k = k
+        self.out = self.k
+        return {"out": self.out}
+
+
+_KEEPPREV_SCHEMA = BlockSchema(
+    block_type="KEEPPREV_PROBE",
+    inputs=(Pin("k", "REAL", "VAR_INPUT", default=7.0,
+                omit_policy="keep_previous"),),
+    outputs=(Pin("out", "REAL", "VAR_OUTPUT"),),
+    output_access={"out": "return:out"},
+)
+
+
+def _keepprev_call(instance, dt_ms, resolved_inputs, inout_refs):
+    # 省略拍 resolved_inputs 无 "k" → 不传（块保持内部值）；首拍/驱动拍有值 → 传
+    kwargs = {"k": resolved_inputs["k"]} if "k" in resolved_inputs else {}
+    return collect_outputs(_KEEPPREV_SCHEMA.output_access, instance,
+                           instance.step(dt_ms, **kwargs))
+
+
+_KEEPPREV_ADAPTER = RuntimeAdapter(cls=_KeepPrevProbe,
+                                   call_adapter=_keepprev_call)
+
+
+class TestKeepPreviousFirstTickSemantics(unittest.TestCase):
+    """keep_previous 首拍/后续拍分层（COMPONENT_CONTRACT §3）：首拍用 Schema
+    default，此后省略保持块内上次值——公开 Registry→Store→Executor 路径反证，
+    Schema default（7.0）与类内部初值（99.0）故意不同。"""
+
+    def _probe_task(self):
+        # DriveK=True 时驱动 P1.k=Kval，否则经控制流**省略** k。
+        code = [
+            LoadVar("DriveK", "BOOL"), JmpIfFalse("SKIP_K"),
+            LoadVar("Kval", "REAL"), StoreVar("P1.k", "REAL"),
+            Label("SKIP_K"),
+            CallFb("P1"),
+        ]
+        main = _prog("Main", code,
+                     instances=[InstanceDecl("P1", "KEEPPREV_PROBE",
+                                             kind="library")])
+        gvl = _gvl() + [VarDecl("DriveK", "BOOL", section="VAR_GLOBAL"),
+                        VarDecl("Kval", "REAL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def _fixture(self):
+        reg = Registry()
+        reg.register(_KEEPPREV_SCHEMA, _KEEPPREV_ADAPTER)
+        task = self._probe_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        return layout, ex, persistent_key("PLC_PRG.P1", "out")
+
+    def test_first_tick_uses_schema_default_not_constructor(self):
+        # 拍 1 省略 k → keep_previous 首拍取 Schema default 7.0，而非块构造器
+        # 偶然内部初值 99.0（若首拍错误地"读块内值"则会得 99.0，此即缺陷）
+        layout, ex, ok = self._fixture()
+        layout.store.write("DriveK", False)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ok), 7.0)
+        self.assertNotEqual(layout.store.read(ok), 99.0)
+        self.assertEqual(ex._adapters["PLC_PRG.P1"].instance.k, 7.0)
+
+    def test_drive_then_omit_keeps_previous_not_default(self):
+        # 与 use_default 省略即复位相反：keep_previous 非首拍省略保持块内上次值
+        layout, ex, ok = self._fixture()
+        # 拍 1 省略 → 首拍 default 7.0
+        layout.store.write("DriveK", False)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ok), 7.0)
+        # 拍 2 驱动 k=5.0
+        layout.store.write("DriveK", True)
+        layout.store.write("Kval", 5.0)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ok), 5.0)
+        # 拍 3 省略 → keep_previous 保持 5.0（非默认 7.0、非构造器 99.0）
+        layout.store.write("DriveK", False)
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ok), 5.0)
+
+
+class _TwoRequiredProbe:
+    """两 required 输入探针块：``out = A + B``（A、B 均须驱动）。``boom`` 为
+    True 时 ``step`` 抛错，用于覆盖 adapter 自身抛错后的下一拍。"""
+
+    def __init__(self):
+        self.out = 0.0
+        self.boom = False
+
+    def step(self, dt_ms, A, B):
+        if self.boom:
+            raise RuntimeError("probe adapter boom")
+        self.out = A + B
+        return {"out": self.out}
+
+
+_TWOREQ_SCHEMA = BlockSchema(
+    block_type="TWOREQ_PROBE",
+    inputs=(Pin("A", "REAL", "VAR_INPUT", omit_policy="required"),
+            Pin("B", "REAL", "VAR_INPUT", omit_policy="required")),
+    outputs=(Pin("out", "REAL", "VAR_OUTPUT"),),
+    output_access={"out": "return:out"},
+)
+
+
+def _tworeq_call(instance, dt_ms, resolved_inputs, inout_refs):
+    return collect_outputs(_TWOREQ_SCHEMA.output_access, instance,
+                           instance.step(dt_ms, A=resolved_inputs["A"],
+                                         B=resolved_inputs["B"]))
+
+
+_TWOREQ_ADAPTER = RuntimeAdapter(cls=_TwoRequiredProbe,
+                                 call_adapter=_tworeq_call)
+
+
+class TestDrivenResidueOnFailure(unittest.TestCase):
+    """失败调用不得让本拍驱动标记残留污染下一拍的 required 判定（Codex
+    WP-019 Round 2 复现）——公开 Registry→Store→Executor 路径反证。"""
+
+    def _task(self):
+        # DriveA/DriveB 控制是否驱动 X1.A / X1.B（经控制流省略）。
+        code = [
+            LoadVar("DriveA", "BOOL"), JmpIfFalse("SKIP_A"),
+            LoadVar("Aval", "REAL"), StoreVar("X1.A", "REAL"),
+            Label("SKIP_A"),
+            LoadVar("DriveB", "BOOL"), JmpIfFalse("SKIP_B"),
+            LoadVar("Bval", "REAL"), StoreVar("X1.B", "REAL"),
+            Label("SKIP_B"),
+            CallFb("X1"),
+        ]
+        main = _prog("Main", code,
+                     instances=[InstanceDecl("X1", "TWOREQ_PROBE",
+                                             kind="library")])
+        gvl = _gvl() + [VarDecl("DriveA", "BOOL", section="VAR_GLOBAL"),
+                        VarDecl("DriveB", "BOOL", section="VAR_GLOBAL"),
+                        VarDecl("Aval", "REAL", section="VAR_GLOBAL"),
+                        VarDecl("Bval", "REAL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def _fixture(self):
+        reg = Registry()
+        reg.register(_TWOREQ_SCHEMA, _TWOREQ_ADAPTER)
+        task = self._task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        layout.store.write("Aval", 1.0)
+        layout.store.write("Bval", 2.0)
+        return layout, ex
+
+    def test_two_ticks_missing_different_required_both_fail(self):
+        # 拍 1 只驱动 A、缺 B → required B fail-closed；
+        # 拍 2 只驱动 B、缺 A → 必须再次 fail（拍 1 的 A 驱动标记不得残留，
+        # 否则 A 被误判为已驱动、缺 A 却意外成功）
+        layout, ex = self._fixture()
+        layout.store.write("DriveA", True)
+        layout.store.write("DriveB", False)
+        with self.assertRaises(IRExecutionError) as cm1:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm1.exception.cause, LibraryRuntimeError)
+        self.assertIn("'B'", str(cm1.exception))
+        self.assertNotIn("'A'", str(cm1.exception))
+
+        layout.store.write("DriveA", False)
+        layout.store.write("DriveB", True)
+        with self.assertRaises(IRExecutionError) as cm2:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm2.exception.cause, LibraryRuntimeError)
+        self.assertIn("'A'", str(cm2.exception))
+
+    def test_adapter_throw_does_not_leak_driven_to_next_tick(self):
+        # 拍 1 驱动 A 与 B，但 adapter step 抛错 → IRExecutionError；A/B 驱动
+        # 标记须在 finally 清除。拍 2 adapter 恢复、只驱动 A 缺 B → 必须 fail
+        # （拍 1 残留的 B 标记不得让缺失的 required B 被误判为已驱动）。
+        layout, ex = self._fixture()
+        inst = ex._adapters["PLC_PRG.X1"].instance
+        inst.boom = True
+        layout.store.write("DriveA", True)
+        layout.store.write("DriveB", True)
+        with self.assertRaises(IRExecutionError) as cm1:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm1.exception.cause, RuntimeError)
+
+        inst.boom = False
+        layout.store.write("DriveA", True)
+        layout.store.write("DriveB", False)
+        with self.assertRaises(IRExecutionError) as cm2:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm2.exception.cause, LibraryRuntimeError)
+        self.assertIn("'B'", str(cm2.exception))
+
+
+class _KeepPrevOutputRecycleProbe:
+    """keep_previous 探针块：验证"输出回收失败不得推进首拍状态"（Codex
+    WP-021 Round 2 反证）。Schema default（7.0）与类内部初值（99.0）故意不同。
+
+    ``drop_output`` 为 True 时 ``step`` 已把内部状态改成哨兵 55.0，但 adapter
+    随后**故意返回空输出 {}**——失败因此落在 Executor 的输出回收阶段
+    （``call_adapter`` **成功返回之后**"未回收声明输出管脚"），而非 adapter
+    自身抛错。用于证明：一次整体失败的 CALL_FB 不得推进 ``_stepped``，否则
+    下一拍省略 keep_previous 会错误保持哨兵 55.0 而非重新取 Schema 默认 7.0。"""
+
+    def __init__(self):
+        self.k = 99.0
+        self.out = 0.0
+        self.drop_output = False
+
+    def step(self, dt_ms, k=None):
+        if k is not None:
+            self.k = k
+        if self.drop_output:
+            self.k = 55.0            # 内部状态已变更（哨兵），输出稍后被漏回收
+            return {}
+        self.out = self.k
+        return {"out": self.out}
+
+
+_KEEPPREV_RECYCLE_SCHEMA = BlockSchema(
+    block_type="KEEPPREV_RECYCLE_PROBE",
+    inputs=(Pin("k", "REAL", "VAR_INPUT", default=7.0,
+                omit_policy="keep_previous"),),
+    outputs=(Pin("out", "REAL", "VAR_OUTPUT"),),
+    output_access={"out": "return:out"},
+)
+
+
+def _keepprev_recycle_call(instance, dt_ms, resolved_inputs, inout_refs):
+    kwargs = {"k": resolved_inputs["k"]} if "k" in resolved_inputs else {}
+    ret = instance.step(dt_ms, **kwargs)
+    if instance.drop_output:
+        # adapter 成功返回，但**故意漏回收声明输出 out**（返回空 {}）——让失败
+        # 落在 Executor 的输出回收阶段（call_adapter 之后），复现 Codex 反证；
+        # 若经 collect_outputs 反而会在 adapter 内 KeyError，走不到该路径。
+        return {}
+    return collect_outputs(_KEEPPREV_RECYCLE_SCHEMA.output_access, instance, ret)
+
+
+_KEEPPREV_RECYCLE_ADAPTER = RuntimeAdapter(
+    cls=_KeepPrevOutputRecycleProbe, call_adapter=_keepprev_recycle_call)
+
+
+class TestStepStateNotAdvancedOnOutputRecycleFailure(unittest.TestCase):
+    """整步失败（adapter 成功返回、随后输出回收失败）不得推进"首次完整成功"
+    状态：``_stepped`` 须保持 False、``_driven`` 须清空，下一拍省略 keep_previous
+    重新取 Schema 默认 7.0，而非块内被污染的哨兵值 55.0——公开
+    Registry→Store→Executor 路径反证（Codex WP-021 Round 2 必须返修）。"""
+
+    def _fixture(self):
+        reg = Registry()
+        reg.register(_KEEPPREV_RECYCLE_SCHEMA, _KEEPPREV_RECYCLE_ADAPTER)
+        main = _prog("Main", [CallFb("P1")],
+                     instances=[InstanceDecl("P1", "KEEPPREV_RECYCLE_PROBE",
+                                             kind="library")])
+        task = _task(pous=[main])
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        return layout, ex, persistent_key("PLC_PRG.P1", "out")
+
+    def test_output_recycle_failure_keeps_first_tick_state(self):
+        layout, ex, ok = self._fixture()
+        rt = ex._adapters["PLC_PRG.P1"]
+        # 拍 1：省略 k → keep_previous 首拍取 Schema 默认 7.0；adapter 成功返回
+        # 但漏回收 out → Executor 输出回收阶段抛 LibraryRuntimeError。
+        rt.instance.drop_output = True
+        with self.assertRaises(IRExecutionError) as cm:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm.exception.cause, LibraryRuntimeError)
+        self.assertIn("未回收声明输出管脚", str(cm.exception))
+        self.assertIn("'out'", str(cm.exception))
+        # 整步失败：_stepped 必须仍为 False（缺陷时会被提前置真），_driven 清空。
+        self.assertFalse(rt._stepped)
+        self.assertEqual(rt._driven, set())
+        # 内部状态已被本拍污染成哨兵 55.0：若下一拍误保持内部值即取到错误值。
+        self.assertEqual(rt.instance.k, 55.0)
+
+        # 拍 2：恢复正常输出、仍省略 k。因拍 1 未推进首拍状态，本拍仍是
+        # keep_previous **首拍** → 重新取 Schema 默认 7.0（而非污染的 55.0）。
+        rt.instance.drop_output = False
+        ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read(ok), 7.0)
+        self.assertNotEqual(layout.store.read(ok), 55.0)
+        self.assertEqual(rt.instance.k, 7.0)
+        self.assertTrue(rt._stepped)         # 本拍整步成功后才置真
+
+
+class _RealDefaultProbe:
+    """use_default REAL 默认探针：``step`` 回显收到的 ``v``（默认拍应收到经
+    F1 binary32 量化的默认值，而非未量化 float64）。"""
+
+    def __init__(self):
+        self.seen = None
+
+    def step(self, dt_ms, v):
+        self.seen = v
+        return {"echo": v}
+
+
+_REALDEF_SCHEMA = BlockSchema(
+    block_type="REALDEF_PROBE",
+    inputs=(Pin("v", "REAL", "VAR_INPUT", default=0.1,
+                omit_policy="use_default"),),
+    outputs=(Pin("echo", "REAL", "VAR_OUTPUT"),),
+    output_access={"echo": "return:echo"},
+)
+
+
+def _realdef_call(instance, dt_ms, resolved_inputs, inout_refs):
+    return collect_outputs(_REALDEF_SCHEMA.output_access, instance,
+                           instance.step(dt_ms, v=resolved_inputs["v"]))
+
+
+_REALDEF_ADAPTER = RuntimeAdapter(cls=_RealDefaultProbe,
+                                  call_adapter=_realdef_call)
+
+
+class TestUseDefaultRealQuantization(unittest.TestCase):
+    """use_default REAL 默认值确实经 F1 binary32 量化，且结构检查先于量化
+    （F1 数值钩子不得把结构错误的默认值"洗白"）。"""
+
+    def _task(self):
+        main = _prog("Main", [CallFb("D1")],
+                     instances=[InstanceDecl("D1", "REALDEF_PROBE",
+                                             kind="library")])
+        return _task(pous=[main])
+
+    def _registry(self):
+        reg = Registry()
+        reg.register(_REALDEF_SCHEMA, _REALDEF_ADAPTER)
+        return reg
+
+    def test_f1_quantizes_use_default_real(self):
+        # 从不驱动 v → use_default → 默认 0.1（不可 binary32 精确表示）。
+        # F1 下块实际收到 quantize_real32(0.1)，E 下收到未量化 0.1。
+        reg = self._registry()
+        ek = persistent_key("PLC_PRG.D1", "echo")
+
+        layout_f1 = build_runtime_store(self._task(), reg)
+        ex_f1 = Executor(self._task(), layout_f1, numeric_mode=F1,
+                         registry=reg)
+        ex_f1.execute_programs(layout_f1.store.snapshot())
+        seen_f1 = ex_f1._adapters["PLC_PRG.D1"].instance.seen
+        self.assertEqual(seen_f1, quantize_real32(0.1))
+        self.assertNotEqual(seen_f1, 0.1)               # 已量化，非未量化 0.1
+        self.assertEqual(layout_f1.store.read(ek), quantize_real32(0.1))
+
+        layout_e = build_runtime_store(self._task(), reg)
+        ex_e = Executor(self._task(), layout_e, registry=reg)   # E 模式
+        ex_e.execute_programs(layout_e.store.snapshot())
+        self.assertEqual(ex_e._adapters["PLC_PRG.D1"].instance.seen, 0.1)
+
+    def test_structurally_bad_default_rejected_before_quantize(self):
+        # 结构检查先于 on_store：结构错误的默认值（REAL 脚 default=True）在
+        # 量化前即被拒。若检查错误地放到量化之后，quantize_real32(True) 会得
+        # 合法的 1.0 而"洗白"该错误——故意让钩子有可乘之机，证明它没得逞。
+        # 因 Store.declare 会先结构校验默认值（合法默认才能建 Store），此处
+        # 沿用本模块"装载校验通过后篡改"手法（见模块 docstring）：先以合法
+        # 默认建 Store，再把运行绑定的 schema 换成 default=True 的篡改 schema。
+        reg = self._registry()
+        layout = build_runtime_store(self._task(), reg)
+        ex = Executor(self._task(), layout, numeric_mode=F1, registry=reg)
+        tampered = BlockSchema(
+            block_type="REALDEF_PROBE",
+            inputs=(Pin("v", "REAL", "VAR_INPUT", default=True,
+                        omit_policy="use_default"),),
+            outputs=(Pin("echo", "REAL", "VAR_OUTPUT"),),
+            output_access={"echo": "return:echo"},
+        )
+        ex._adapters["PLC_PRG.D1"].schema = tampered     # 装载后篡改（绕过 Store 校验）
+        with self.assertRaises(IRExecutionError) as cm:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(cm.exception.cause, LibraryRuntimeError)
+        self.assertIn("结构不匹配", str(cm.exception))
 
 
 if __name__ == "__main__":
