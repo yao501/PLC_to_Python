@@ -27,6 +27,7 @@ from src.runtime.descriptors.model import (
     RuntimeAdapter,
     collect_outputs,
 )
+from src.runtime.descriptors.primitives import PRIMITIVE_DESCRIPTORS
 from src.runtime.descriptors.registry import Registry
 
 # ---------------------------------------------------------------------------
@@ -156,13 +157,19 @@ APCM_ADAPTER = RuntimeAdapter(cls=APCM, call_adapter=_apcm_call,
 # ---------------------------------------------------------------------------
 
 def build_default_registry() -> Registry:
-    """构造含三个代表性 engineering 变体的注册表。
+    """构造含 10 个 engineering 变体的默认注册表。
 
-    仅 engineering 变体（E/F1 共用）；fidelity_f2 变体属独立按需立项，
-    本包不注册（F2 解析时注册表将按 §5 加载期失败）。
+    三个代表性异构块（TON / APCHSHLLIM / APCM）+ 其余七个基础原语
+    （TOF / TP / R_TRIG / F_TRIG / SR / RS / BLINK，见 ``primitives.py``），
+    合计精确 10 个 ``(block_type, "engineering")`` 键。仅 engineering 变体
+    （E/F1 共用）；fidelity_f2 变体属独立按需立项，本包不注册（F2 解析时
+    注册表将按 §5 加载期失败）。**仍不代表** L2 14+8 全目录完成——剩余 12
+    个业务块 adapter 待后继独立工作包。
     """
     registry = Registry()
     registry.register(TON_SCHEMA, TON_ADAPTER)
     registry.register(APCHSHLLIM_SCHEMA, APCHSHLLIM_ADAPTER)
     registry.register(APCM_SCHEMA, APCM_ADAPTER)
+    for schema, adapter in PRIMITIVE_DESCRIPTORS:
+        registry.register(schema, adapter)
     return registry

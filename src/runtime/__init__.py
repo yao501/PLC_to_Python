@@ -52,6 +52,14 @@ from src.runtime.descriptors import (
     TON_SCHEMA, TON_ADAPTER,
     APCHSHLLIM_SCHEMA, APCHSHLLIM_ADAPTER,
     APCM_SCHEMA, APCM_ADAPTER,
+    TOF_SCHEMA, TOF_ADAPTER,
+    TP_SCHEMA, TP_ADAPTER,
+    R_TRIG_SCHEMA, R_TRIG_ADAPTER,
+    F_TRIG_SCHEMA, F_TRIG_ADAPTER,
+    SR_SCHEMA, SR_ADAPTER,
+    RS_SCHEMA, RS_ADAPTER,
+    BLINK_SCHEMA, BLINK_ADAPTER,
+    PRIMITIVE_DESCRIPTORS,
     build_default_registry,
 )
 from src.runtime.engine import (
@@ -107,6 +115,15 @@ __all__ = [
     "TON_SCHEMA", "TON_ADAPTER",
     "APCHSHLLIM_SCHEMA", "APCHSHLLIM_ADAPTER",
     "APCM_SCHEMA", "APCM_ADAPTER",
+    # L2 其余七个基础原语 adapter（WP-20260724-023）
+    "TOF_SCHEMA", "TOF_ADAPTER",
+    "TP_SCHEMA", "TP_ADAPTER",
+    "R_TRIG_SCHEMA", "R_TRIG_ADAPTER",
+    "F_TRIG_SCHEMA", "F_TRIG_ADAPTER",
+    "SR_SCHEMA", "SR_ADAPTER",
+    "RS_SCHEMA", "RS_ADAPTER",
+    "BLINK_SCHEMA", "BLINK_ADAPTER",
+    "PRIMITIVE_DESCRIPTORS",
     "build_default_registry",
     # 运行时 Store 与实例布局（WP-20260714-003）
     "Store", "StoreSnapshot", "RuntimeLayout",

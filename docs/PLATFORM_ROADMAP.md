@@ -46,15 +46,15 @@
 | 层 | 职责 | 现状 |
 |---|---|---|
 | **L1 标准库** | 可被程序引用的功能块与原语（TON/TOF/.../APCM 等） | ✅ 已迁移 14 块 + 8 原语 + 授权 |
-| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 事实约定已有，需正式化基类与元数据 |
-| **L3 程序模型（IR）** | 实例集 + 连接(out→in) + GVL 声明(含 RETAIN) + I/O 映射 + 执行顺序 | 🟥 未做（平台地基） |
-| **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟥 未做（`src/main/` 待填） |
-| **L5 运行时安全服务** | system_ready / 输出门控 / 启动抑制 / watchdog / 安全默认值 / shadow mode | 🟨 契约 `00a` 已规定，未落代码 |
+| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心及 10/22 个 engineering adapter 已审核收口（TON/APCHSHLLIM/APCM + TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK）；其余 12 个业务块 adapter 待分批补齐 |
+| **L3 程序模型（IR）** | 实例集 + 连接(out→in) + GVL 声明(含 RETAIN) + I/O 映射 + 执行顺序 | 🟨 正式 IR、静态校验、Store、实例布局已实现；RETAIN/PERSISTENT 仅建模，断电恢复仍属阶段 8 |
+| **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟨 显式顺序 Executor 与确定性五步单拍引擎已实现；CFC 图定序编译器仍属阶段 2 |
+| **L5 运行时安全服务** | system_ready / 输出门控 / 启动抑制 / watchdog / 安全默认值 / shadow mode | 🟨 OutputPolicy、故障安全外层运行器、提交监督器和 Python shadow 核心已实现；startup 计时、实时 monitor/watchdog 事件源、真实 HAL/现场证明未完成 |
 | **L6 语言前端** | ST 解析执行；CFC 模型 + 编辑器；CODESYS 导入 | 🟥 未做 |
 | **L7 I/O 与 HAL** | 驱动/协议、GVL↔物理点映射、实时循环驱动 | 🟥 未做（接现场必需） |
-| **L8 持久化** | RETAIN / PERSISTENT 变量的断电恢复 | 🟥 未做（建议立项） |
+| **L8 持久化** | RETAIN / PERSISTENT 变量的断电恢复 | 🟨 IR/Schema 已预留声明与 serializer 边界，真实快照/恢复未做 |
 | **L9 AI / Python 集成** | 控制逻辑与 AI/Python 程序同平台协作（**分进程** + 共享内存/IPC，D-AI；本平台的核心价值） | 🟥 未做 |
-| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 部分（本地 unittest 690 用例） |
+| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 本地 unittest 最新全仓快照 1349 项；GitHub CI、覆盖率、lint/type-check 仍未建立 |
 
 ### 1.1 一拍执行时序（引擎核心，泛化自 `00a` 五步式）
 
@@ -83,7 +83,7 @@
 - **授权**：`src/licensing/` 一机一码 + `src/globals/LicenseContext`（每实例全局量容器，**可泛化成通用 GVL 容器**）。
 - **基建**：`config.py`（CYCLE_MS / STARTUP_INHIBIT_MS）、`validation.py`（PT_ms / TB 校验）、`compat/conversions.py`（REAL_TO_INT / REAL_TO_TIME）。
 - **契约**：`.cursor/rules/00 / 00a / 01 / 02 / 03`，其中 `00a` 已把运行时与安全机制规定齐全。
-- **测试**：最近记录基线 690 个 unittest 用例通过（阶段 0.5 未重跑，当前状态见 `PROJECT_STATE.md §2`）；`docs/RISKS.md` 为唯一风险登记簿。
+- **测试**：2026-07-24 最近记录的全仓 Python 发现集为 1349/1349；历史 690 项是阶段 0.5 前后的旧快照，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
 
 **映射关系**：L1 已就绪；L2 把这些块补元数据即可；`LicenseContext`→L3 的 GVL 容器雏形；`00a`→L4/L5 的规格来源；`validation.py`→L5 的参数校验来源。
 
@@ -312,4 +312,4 @@
 
 ---
 
-> **下一步建议**：从阶段 0 开始——先产出 IR 数据模型与引擎一拍时序的设计稿。它是整个平台的地基，且不卡在任何外部材料上。
+> **下一步建议（2026-07-25 状态再基线）**：阶段 0/0.5 已冻结，阶段 1 的 IR、显式顺序引擎与安全核心已具 Python 实现；L2 当前已审核收口 10/22 个 engineering adapter。先把剩余 12 个业务块分为“5 个相对简单块”和“7 个复杂/组合/授权块”两个独立工作包，再做 22/22 目录验收；参数装载校验、软件 monitor/watchdog 事件源与阶段 1 端到端验收继续分别立项，不得把 F2、真实 HAL、现场 I/O 或现场安全证明混入这些工作包。

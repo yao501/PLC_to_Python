@@ -26,6 +26,16 @@ from src.runtime.descriptors.registry import (
     UnknownBlockError,
     variant_for_mode,
 )
+from src.runtime.descriptors.primitives import (
+    BLINK_ADAPTER, BLINK_SCHEMA,
+    F_TRIG_ADAPTER, F_TRIG_SCHEMA,
+    PRIMITIVE_DESCRIPTORS,
+    RS_ADAPTER, RS_SCHEMA,
+    R_TRIG_ADAPTER, R_TRIG_SCHEMA,
+    SR_ADAPTER, SR_SCHEMA,
+    TOF_ADAPTER, TOF_SCHEMA,
+    TP_ADAPTER, TP_SCHEMA,
+)
 from src.runtime.descriptors.representative import (
     APCHSHLLIM_ADAPTER,
     APCHSHLLIM_SCHEMA,
@@ -46,5 +56,13 @@ __all__ = [
     "TON_SCHEMA", "TON_ADAPTER",
     "APCHSHLLIM_SCHEMA", "APCHSHLLIM_ADAPTER",
     "APCM_SCHEMA", "APCM_ADAPTER",
+    "TOF_SCHEMA", "TOF_ADAPTER",
+    "TP_SCHEMA", "TP_ADAPTER",
+    "R_TRIG_SCHEMA", "R_TRIG_ADAPTER",
+    "F_TRIG_SCHEMA", "F_TRIG_ADAPTER",
+    "SR_SCHEMA", "SR_ADAPTER",
+    "RS_SCHEMA", "RS_ADAPTER",
+    "BLINK_SCHEMA", "BLINK_ADAPTER",
+    "PRIMITIVE_DESCRIPTORS",
     "build_default_registry",
 ]
