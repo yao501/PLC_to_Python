@@ -3926,3 +3926,414 @@ Claude 必须亲自逐条运行：
 - 用户于 2026-07-24 明确同意关闭 WP-022、同步 `docs/PROJECT_STATE.md`，并授权 Codex 将 WP-016～022 累积的 L2 registry 实现作为独立提交和 PR 执行 Git/GitHub 收尾。
 - 关闭裁决: WP-022 从 `APPROVED` 转为 `CLOSED / owner=user / handoff_to=user / round=1`；WP-016～021 的中断或阻塞状态继续作为真实历史保留，不改写为已完成。
 - 发布边界: 只允许提交已审核的 L2 registry 核心、Loader/Store/Executor 纵向接入、代表性 adapter、OmitPolicy 反证与对应协议/状态/风险文档；不得混入完整 14+8 目录、其余 19 个 adapter、F2、monitor、HAL、真实 I/O 或现场证明。
+
+## WP-20260724-023
+
+- title: L2 剩余七个基础原语 Schema/adapter 第一批收口
+- status: BLOCKED
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 3
+- handoff_protocol: v2
+- base_commit: 4d7190ebc1d701cb92c41bc4433ee0558b9467ae
+- created_by: user
+- created_at: 2026-07-24 22:08:07 +0800
+- depends_on:
+  - WP-20260724-022 CLOSED（L2 Registry 核心、纵向接入、三个代表性 adapter 与 OmitPolicy 完整成功边界已审核关闭）
+  - WP-20260723-015 CLOSED（Python shadow mode 核心已审核关闭）
+  - `docs/COMPONENT_CONTRACT.md` v2.1
+  - `docs/IR_SPEC.md` v2.2.4
+  - `docs/TARGET_PROFILE.md` v1.3
+- scope:
+  - src/runtime/descriptors/__init__.py
+  - src/runtime/descriptors/primitives.py
+  - src/runtime/descriptors/representative.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_descriptors.py
+  - tests/test_runtime_executor.py
+  - docs/RISKS.md
+- scope_baseline_sha256: e87f4cbf859e34acbf7456d6fd76ddbb2357196953dd37b9fff997b6b5a3a702
+- scope_baseline_manifest:
+  - `44f4571b5157a11cbc64b46f0f523eea354fdfc00b754c7e9c4fc4bdade447b0  src/runtime/descriptors/__init__.py`
+  - `ABSENT  src/runtime/descriptors/primitives.py`
+  - `8a2197562f006afb73f8c7344184f4e1119ef326613812cfe051d9229a7fce67  src/runtime/descriptors/representative.py`
+  - `5649140b96e98d33c1dffbcecf059afe6a36dd07ed0960c64c4b02a2ff0b5dd3  src/runtime/__init__.py`
+  - `68cef103ace19cc1631c3ccb5dc74aa9f0b08e5514ef12bbd2073fa89706b180  tests/test_runtime_descriptors.py`
+  - `95d1f33f73c7f47d83a786f2aa5b764dcc7e8bedd2d971e4cd54971d70c74b9c  tests/test_runtime_executor.py`
+  - `0b4308f038fddbf929d05daa9720e79c005fe22c0d27aa68ab66eca0cb61a4e2  docs/RISKS.md`
+
+### 工作包创建与行政再基线证据（Claude 启动前）
+
+- 用户于 2026-07-24 明确同意 Codex 的整体分阶段建议并授权开始执行：先同步 PR #21 合并后的行政状态，再创建/启动本包。开工时 `main == origin/main == 4d7190ebc1d701cb92c41bc4433ee0558b9467ae`，工作区干净；PR #21 已合并，远端与本地已同步。
+- Codex 仅对 `docs/PLATFORM_ROADMAP.md` 与 `docs/RISKS.md` 做获授权的行政再基线：前者更新 L2～L5 现状、测试快照和下一步，后者把 `RUNTIME-GATE / RUNTIME-5-STEPS / RUNTIME-SAFETY-DEFAULT` 按“Python 核心已实现 / 软件事件源与现场未完成”分层，不改任何功能语义。`docs/PROJECT_STATE.md` 与本交接文件只记录当前状态/任务书。上述行政改动不冒充 Claude 功能交付；`docs/RISKS.md` 的再基线内容已纳入本包不可变 baseline。
+- 上列七个 scope 文件按声明顺序实盘复算；新文件 `src/runtime/descriptors/primitives.py` 按协议使用 `ABSENT  <path>`，其余逐项 SHA-256 如 manifest，聚合 SHA-256 为 `e87f4cbf859e34acbf7456d6fd76ddbb2357196953dd37b9fff997b6b5a3a702`。该值只表示可复现开工基线，不表示七个 adapter 已实现或测试已通过。
+- 创建前协调器投影为 `state=stopped / coordinator_live=false / execution_failure_alert=null`；旧 Claude/Codex 30 分钟主轮询保持暂停且 `legacy_polling_resume_authorized=false`。只有本包 v2 五字段、baseline manifest 与协调器健康门禁全部合法后，才允许使用新幂等键 `WP-20260724-023:1:start_claude_implementation` 启动一次；不得复用历史失败键或自动重试。
+- Claude 禁止读取或解析 `.git`，禁止执行 `git` / `gh` / `shasum` / `rm` / `sudo` 或借 Python `subprocess` 绕过；不得创建 scope 外辅助脚本、日志、缓存或临时核验文件。Claude 直接信赖本包 `base_commit` 与 baseline manifest；`git diff --check`、Git/GitHub 写操作和独立审核由 Codex 负责。
+
+### Round 1 首次执行中断与用户授权重试
+
+- 首次执行使用幂等键 `WP-20260724-023:1:start_claude_implementation`，于 2026-07-24 22:14:32 +0800 启动；Claude CLI 于 2026-07-24 22:26:41 +0800 达到 `--max-turns 40` 后以 `error_max_turns` 退出。协调器失败关闭且未自动重试；未生成 v2 自审或实施交接，五字段保持 `CLAUDE_WORKING / owner=claude / handoff_to=claude / round=1`。
+- Codex 只读核验首次中断后的部分实现：变更仍严格限于声明 scope，聚合 SHA-256 为 `ba2c13d9bd32a0ebe622963e47fffcaf0fb3ca464452f06d6c8e28b79eba9b1b`；`git diff --check` 通过，定向测试为描述符/执行器 118/118、原语 51/51、descriptors+IR+Store+Executor 215/215、安全运行时 240/240。上述结果只说明当前中间态未立即暴露回归，不构成 Claude 自审、原子交接或 Codex 独立审核。
+- 用户于 2026-07-24 明确授权对失败幂等键 `WP-20260724-023:1:start_claude_implementation` 进行一次受限重试。重试必须从上述部分实现继续核验和收尾，不得扩大 scope、重做历史、读取 `.git` 或执行 Git/GitHub 写操作；Claude 仍须亲自完成七条测试、`docs/RISKS.md` 本包事实收口、完整 v2 自审及原子交接。
+- 授权记录时间：2026-07-24 22:31:41 +0800。若本次单次重试再次失败，必须停止并交用户裁决，不得自行再次重试。
+- 2026-07-24 22:33 +0800，协调器在启动任何 Claude 子进程前以 `rejected-invalid` 拒绝该重试：当前部分实现聚合哈希 `ba2c13d9bd32a0ebe622963e47fffcaf0fb3ca464452f06d6c8e28b79eba9b1b` 与本包不可变原始基线 `e87f4cbf859e34acbf7456d6fd76ddbb2357196953dd37b9fff997b6b5a3a702` 不一致。该拒绝是预期的防漂移门禁，不是新的功能失败；未启动 Claude、未产生额外功能改动。Codex 于 2026-07-24 22:34:19 +0800 干净停止协调器，未改写原始基线。后续必须由用户裁决是否另建检查点恢复包，不得通过替换本包 baseline 绕过审计。
+- 用户于 2026-07-24 明确同意创建并启动 `WP-20260724-024` 检查点恢复包。WP-023 据此诚实封存为 `BLOCKED / owner=user / handoff_to=user / round=1`；原始 baseline、40-turn 中断、重试授权及防漂移拒绝记录全部保留，不再调度本包。
+
+### 目标与验收条件
+
+在不修改 `src/primitives/*`、任何业务块或既有 L2 核心语义的前提下，为剩余七个基础原语 TOF、TP、R_TRIG、F_TRIG、SR、RS、BLINK 建立外挂 engineering `BlockSchema + RuntimeAdapter`，并通过现有 Registry→Loader/Store/Executor 路径证明直接调用与平台调用的可观察行为一致。本包完成后默认注册表应从 3 个扩展为 10 个 engineering block type；仍不得把 L2 14+8 全目录标记为完成。
+
+1. **Schema、注册与公开入口**
+   - 七个原语各有唯一 engineering Schema/Adapter；block type、管脚名、IEC 类型、声明默认值、输出访问、`state_vars` 与源类实际接口/状态一致，所有输入脚显式选择 OmitPolicy。
+   - `build_default_registry()` 必须稳定注册原有 TON/APCHSHLLIM/APCM 与新增七个原语，合计精确 10 个 `(block_type, "engineering")` 键；不得重复注册、覆盖或改变 F2 缺变体加载期失败语义。
+   - 描述符包与 `src.runtime` 的公开导出保持一致；不得把 class/callable 混入 `BlockSchema`，不得改变 Registry/model 公共契约。
+
+2. **真实调用签名与时间边界**
+   - TOF/TP 与 BLINK 由 adapter 注入 `Task.cycle_ms` 作为 `dt_ms`；R_TRIG/F_TRIG/SR/RS 的真实 `step` 不接 `dt_ms`，adapter 不得臆造参数。
+   - TOF/TP 正确回收 `(Q, ET_ms)`；R_TRIG/F_TRIG 正确回收 `Q`；SR/RS 正确回收 `Q1`；BLINK 正确回收 `OUT`。不得通过引擎猜测返回形态。
+   - 原语声明输入省略时按 Schema default 每拍处理；不得把 `use_default` 偷换成 `keep_previous`，也不得改变实例内部跨拍状态。
+
+3. **对照、跨拍与实例隔离**
+   - 每个新增 adapter 至少有直接调用与 Registry/Executor 调用的对照证据；有状态原语必须覆盖多拍序列，而不是只检查 Schema 字段。
+   - TOF 覆盖断开延时，TP 覆盖不可重触发/重新武装，R_TRIG/F_TRIG 覆盖 IEC 冷启动上一拍状态，SR/RS 覆盖同时置位/复位的优先级，BLINK 覆盖 disable 冻结、重新启用与跨多相位余数保留。
+   - 至少一组同类型双实例交错推进测试证明状态不串扰；F1 路径继续执行现有管脚边界规则，不能绕过 Store/Executor 类型检查。
+
+4. **不回退既有三块与失败原子性**
+   - TON、APCHSHLLIM、APCM 的既有 Schema/Adapter/OmitPolicy、APCM `VAR_IN_OUT` 与原子整理修复不得改变。
+   - 既有 `_stepped` 完整成功边界、失败时 `_driven` 清理、Registry 与 legacy adapter 互斥、数值变体选择不得回退；新增原语不得要求修改 Executor/Loader/Store。
+
+5. **状态和证据边界**
+   - `docs/RISKS.md` 只追加本包当前事实、真实测试计数及“10/22、剩余 12 个业务块 adapter”的诚实边界；不得重写历史测试快照或把 Python 回归升级为 PLC/CODESYS/现场证明。
+   - 本包只证明七个原语 adapter 的 Python 契约；不证明 BLINK/定时器与目标 SP16.1 真机完全一致，也不完成参数装载、startup、monitor/watchdog 事件源、HAL、持久化或现场安全。
+
+### 明确排除与冻结边界
+
+- 禁止修改 `src/primitives/*`、`src/blocks/*`、`src/licensing/*`、Loader、Store、Executor、IR、OutputPolicy、CommitSupervisor、shadow mode、正式规格、`.cursor/rules/*`、`docs/PLATFORM_ROADMAP.md`、`docs/PROJECT_STATE.md`、协调器/自动化配置或 `.git`。
+- 不实现其余 12 个业务块 adapter，不宣称完成 14+8 全目录；不实现 F2 块级 float32、参数装载校验、startup 计时、实时 monitor/周期线程/watchdog 事件产生器、真实 HAL/驱动/I/O、可信反馈、ST/CFC 前端、持久化、AI worker 或现场安全证明。
+- 不改变 BLINK、TOF、TP、R_TRIG、F_TRIG、SR、RS 源语义；若 Schema 默认值或状态字段无法从仓库源码/锁定测试确定，必须保持 `CLAUDE_WORKING` 并把疑问写入自审，不得自行猜测 CODESYS 语义。
+- 只允许修改上述七个 scope 文件以及按 v2 协议原子追加本包自审/实施交接。任何 scope 扩大、删除、规格裁决或 Git 操作必须停止并转用户裁决。
+
+### 测试计划与 v2 原子交接
+
+Claude 交接前必须亲自逐条运行，并在精确字段 `实际测试命令与结果` 中记录命令、真实计数及 `Ran N tests, OK`：
+
+1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor`
+2. `python -m unittest tests.test_primitives tests.test_primitives_blink`
+3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor`
+4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor`
+5. `python -m unittest discover -s tests -t .`
+6. `python -m unittest discover -s prototype_05 -t .`
+7. `python -m unittest discover -s . -t .`
+
+- Claude 必须在 `CLAUDE_WORKING` 内先完成 `### Claude 交接前自审（Round 1）`，完整提供 v2 九项门禁字段、七文件同序 manifest、七条真实测试命令与计数、首次失败/根因/修复/重跑、已知疑问、未验证边界及精确字段 `是否满足交接条件: 是`。
+- 只有自审 `PASS`、七组测试全部成功、manifest 与实盘逐项一致且 `self_review_scope_sha256 == scope_sha256` 时，才可追加 `### Claude 实施交接（Round 1）`，并以一次原子写入转为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`。
+- Claude 原子交接后立即停止修改 scope；Codex 将独立复算开始/结束哈希、静态检查全部七个 adapter、设计独立反证、复跑七组测试及 `git diff --check`，并给出 `APPROVED / CHANGES_REQUESTED / BLOCKED` 三值结论。
+
+## WP-20260724-024
+
+- title: WP-023 七原语 adapter 部分实现检查点恢复
+- status: BLOCKED
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 3
+- handoff_protocol: v2
+- base_commit: 4d7190ebc1d701cb92c41bc4433ee0558b9467ae
+- created_by: user
+- created_at: 2026-07-24 23:02:00 +0800
+- depends_on:
+  - WP-20260724-023 BLOCKED（Round 1 固定 40 turns 中断；七文件部分实现检查点转入本包）
+  - WP-20260724-022 CLOSED（L2 Registry 核心、纵向接入、三个代表性 adapter 与 OmitPolicy 完整成功边界已审核关闭）
+  - `docs/COMPONENT_CONTRACT.md` v2.1
+  - `docs/IR_SPEC.md` v2.2.4
+  - `docs/TARGET_PROFILE.md` v1.3
+- scope:
+  - src/runtime/descriptors/__init__.py
+  - src/runtime/descriptors/primitives.py
+  - src/runtime/descriptors/representative.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_descriptors.py
+  - tests/test_runtime_executor.py
+  - docs/RISKS.md
+- scope_baseline_sha256: ba2c13d9bd32a0ebe622963e47fffcaf0fb3ca464452f06d6c8e28b79eba9b1b
+- scope_baseline_manifest:
+  - `8f110fc6df8dcace63d0bd0f30acf48c1bbdac617ac719c3428350971f1a15a4  src/runtime/descriptors/__init__.py`
+  - `5689b6a0236f0d975ebbeeb86765148206e4a443f754f54f236a5f6e27d59c20  src/runtime/descriptors/primitives.py`
+  - `d0bef682855fbc02af93e8fa0300dd1798b67f387c031fddbd4f81e6be7eb965  src/runtime/descriptors/representative.py`
+  - `4d1de88bc64f795a9adef356698c7f4e9b76f60e9210669078b74918021146ca  src/runtime/__init__.py`
+  - `0fe28c5e029f3fc61b0846181a1a39b3807f3018fd5ec968809b76929e670945  tests/test_runtime_descriptors.py`
+  - `80695181d340318deef7c95e6743bc60b61b807ef9790dfe53785e46be3769fa  tests/test_runtime_executor.py`
+  - `0b4308f038fddbf929d05daa9720e79c005fe22c0d27aa68ab66eca0cb61a4e2  docs/RISKS.md`
+
+### 工作包创建与检查点行政证据
+
+- 用户于 2026-07-24 明确同意创建并启动本检查点恢复包；WP-023 的中断封存、本节与 `docs/PROJECT_STATE.md` 同步均属协议行政动作，不是 Claude 功能实施或 Codex 独立审核。
+- 创建时 `main == origin/main == 4d7190ebc1d701cb92c41bc4433ee0558b9467ae`。工作区包含 WP-023 未交接的七原语部分实现，以及获授权的交接、路线、状态与风险行政再基线改动；没有把脏工作区误写为已审核交付。
+- 上列七文件按声明顺序实盘复算，逐项哈希如 manifest，聚合 SHA-256 为 `ba2c13d9bd32a0ebe622963e47fffcaf0fb3ca464452f06d6c8e28b79eba9b1b`。该值只表示可复现检查点，不表示实现完整、测试全部通过、已审核或可现场使用。
+- 创建前 Codex 只读验证：`git diff --check` 通过；描述符/执行器 118/118、原语 51/51、descriptors+IR+Store+Executor 215/215、安全运行时 240/240 均 `OK`。尚未由 Claude 完成七组正式自审测试、`docs/RISKS.md` 本包事实收口或原子交接，因此这些数字不能冒充本包验收。
+- 创建前协调器投影为 `state=stopped / coordinator_live=false / execution_failure_alert=null`，无活动执行租约、Claude/Codex/测试残留或 8765 监听。旧 Claude/Codex 30 分钟主轮询继续暂停且无恢复授权。本包使用新幂等键 `WP-20260724-024:1:start_claude_implementation`，不复用或再次重试 WP-023 键。
+- Claude 禁止读取或解析 `.git`，禁止执行 `git` / `gh` / `shasum` / `rm` / `sudo` 或借 Python `subprocess` 绕过；不得创建 scope 外辅助文件。Claude 直接信赖本包 `base_commit` 与 baseline manifest；`git diff --check`、Git/GitHub 写操作和独立审核由 Codex 负责。
+
+### 检查点恢复目标与验收条件
+
+以当前七文件 partial checkpoint 为唯一开工内容，优先核验而非重写；完整继承 WP-023 的目标、验收条件、排除项和证据边界。只有测试或逐项审阅暴露真实缺陷时，才允许在本包 scope 内做必要最小修正。
+
+1. **核验七个原语 Schema/Adapter**
+   - 确认 TOF、TP、R_TRIG、F_TRIG、SR、RS、BLINK 的 block type、管脚名、IEC 类型、声明默认值、OmitPolicy、`state_vars`、输出访问和源类真实签名一致。
+   - TOF/TP/BLINK 仅由 adapter 注入 `Task.cycle_ms` 为 `dt_ms`；R_TRIG/F_TRIG/SR/RS 不得臆造 `dt_ms`。TOF/TP 回收 tuple，边沿/锁存/BLINK 按声明访问回收，不得依赖引擎猜测。
+   - 默认 Registry 必须精确包含原有 TON/APCHSHLLIM/APCM 与新增七原语，共 10 个 engineering 键；F2 缺变体继续加载期失败，不改变 Registry/model 公共契约。
+
+2. **核验跨拍行为与实例隔离**
+   - 通过直接块调用与 Registry→Loader/Store/Executor 公共路径逐拍对照，覆盖 TOF 断开延时、TP 不可重触发/重新武装、R_TRIG/F_TRIG 冷启动边沿、SR/RS 同拍优先级、BLINK disable 冻结/重启/跨多相位余数。
+   - 确认同类型双实例交错推进不串状态，F1 边界规则、四种 OmitPolicy、`_stepped` 完整成功边界和失败时 `_driven` 清理均不回退。
+   - TON、APCHSHLLIM、APCM 既有 Schema/Adapter、APCM `VAR_IN_OUT` 与原子整理修复不得改变；不修改 Loader、Store、Executor 或任何块/原语源文件。
+
+3. **完成状态与证据收口**
+   - `docs/RISKS.md` 只追加 WP-024 实际确认的事实、真实测试计数，以及默认 Registry 达到 10/22、仍剩 12 个业务块 adapter 的边界；不得改写历史测试快照。
+   - 明确 Python 回归不证明 CODESYS SP16.1、真实 PLC/HAL/I/O、定时精度、物理执行器或现场安全一致；BLINK/定时器真机对拍仍为后续验证。
+   - 若现有实现已满足全部条件，可以零功能代码修改完成检查点恢复；不得为了制造差异进行重构、扩功能或重复探索。
+
+### 明确排除与冻结边界
+
+- 只允许修改上列七个 scope 文件及按 v2 协议原子追加本包自审/实施交接；不得改写 WP-023 历史、`docs/PROJECT_STATE.md`、正式规格、`.cursor/rules/*`、AI 协调器/自动化配置或 `.git`。
+- 不修改 `src/primitives/*`、`src/blocks/*`、`src/licensing/*`、Loader、Store、Executor、IR、OutputPolicy、CommitSupervisor 或 shadow mode。
+- 不实现其余 12 个业务块 adapter、完整 22/22 目录验收、F2 块级 float32、参数装载、startup、monitor/周期线程/watchdog 事件源、真实 HAL/驱动/I/O、可信反馈、ST/CFC 前端、持久化、AI worker 或现场安全证明。
+- 禁止创建 scope 外辅助脚本、日志、缓存、临时核验文件或补丁；只可直接运行获准的 Python 命令。任何 scope 扩大、删除、规格裁决或 Git/GitHub 操作必须停止并交用户裁决。
+
+### 测试计划与 v2 原子交接
+
+Claude 交接前必须亲自逐条运行，并在精确字段 `实际测试命令与结果` 中记录命令、真实计数及 `Ran N tests, OK`：
+
+1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor`
+2. `python -m unittest tests.test_primitives tests.test_primitives_blink`
+3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor`
+4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor`
+5. `python -m unittest discover -s tests -t .`
+6. `python -m unittest discover -s prototype_05 -t .`
+7. `python -m unittest discover -s . -t .`
+
+- Claude 必须在 `CLAUDE_WORKING` 内先完成 `### Claude 交接前自审（Round 1）`，完整提供 v2 九项门禁字段、七文件同序 manifest、七条真实测试命令与计数、首次失败/根因/修复/重跑、已知疑问、未验证边界及精确字段 `是否满足交接条件: 是`。
+- 只有自审 `PASS`、七组测试全部成功、manifest 与实盘逐项一致且 `self_review_scope_sha256 == scope_sha256` 时，才可追加 `### Claude 实施交接（Round 1）`，并以一次原子写入转为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`。
+- Claude 原子交接后立即停止修改 scope；Codex 将独立复算开始/结束哈希、静态检查全部七个 adapter、设计独立反证、复跑七组测试和 `git diff --check`，并给出 `APPROVED / CHANGES_REQUESTED / BLOCKED` 三值结论。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-24 23:04:00 +0800
+- self_review_finished_at: 2026-07-24 23:14:00 +0800
+- self_review_verdict: PASS
+- 接手前门禁复核：五字段 `status=CLAUDE_WORKING / owner=claude / handoff_to=claude / round=1 / max_rounds=3` 与 `handoff_protocol: v2` 均合法，属 Claude 可接手组合；接手前用 Python `hashlib`（非 `git`/`shasum`/`subprocess`）复算七文件，逐项哈希与聚合 `ba2c13d9bd32a0ebe622963e47fffcaf0fb3ca464452f06d6c8e28b79eba9b1b` 与本包 `scope_baseline_manifest`/`scope_baseline_sha256` 完全一致，无证据漂移，允许接手。
+- 核验方式与结论：以 WP-023 转入的七文件 partial checkpoint 为唯一开工内容，逐一比对 `src/runtime/descriptors/primitives.py` 七个 Schema/Adapter 与源类 `src/primitives/{timers,edges,latches,blink}.py` 的真实 `step` 签名、初值与跨拍状态字段——TOF/TP `step(dt_ms, IN, PT_ms)→(Q,ET_ms)` 与 `return:0/1` 对应；R_TRIG/F_TRIG `step(CLK)→bool`、`_CLK_prev` 冷启动 `False/True`、`attr:Q`；SR `step(SET1,RESET)`/RS `step(SET,RESET1)`、`attr:Q1`；BLINK `step(dt_ms,ENABLE,TIMELOW_ms,TIMEHIGH_ms)→bool`、`attr:OUT`、`_elapsed_ms` 冻结/余数保留。七原语输入全 `use_default`；`state_vars` 与源类私有字段一致；`build_default_registry()` 精确 10 键、`fidelity_f2` 缺变体加载期失败。`src/runtime/descriptors/__init__.py` 与 `src/runtime/__init__.py` 公开导出与描述符包一致。测试文件覆盖字段锁定 + 直接调用 vs Registry/Executor 逐拍对照 + TOF 双实例隔离。**核验结论：partial checkpoint 无源缺陷，未触发「测试或逐项审阅暴露真实缺陷」的最小修正条件，故本包代码/测试七文件零改动**。
+- 实际测试命令与结果（本宿主允许本地端口绑定，交接面板测试均绿；下列七条 2026-07-24 亲自逐条运行）：
+  1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor` → Ran 118 tests, OK（118/118 通过）
+  2. `python -m unittest tests.test_primitives tests.test_primitives_blink` → Ran 51 tests, OK（51/51 通过）
+  3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor` → Ran 215 tests, OK（215/215 通过）
+  4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor` → Ran 240 tests, OK（240/240 通过）
+  5. `python -m unittest discover -s tests -t .` → Ran 1299 tests, OK（1299/1299 通过）
+  6. `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK（68/68 通过）
+  7. `python -m unittest discover -s . -t .` → Ran 1367 tests, OK（1367/1367 通过）
+- 首次失败与根因：无——七组命令首次运行即全部 OK，无任何失败/异常项，故无根因分析与修复动作。
+- 修复内容与修复后重跑：无功能代码/测试修复；仅对 `docs/RISKS.md` 追加本包事实（顶部新增 WP-024 更新块 + `PLATFORM-L2-REGISTRY-1` 状态与详情追加 10/22 边界，未改写历史测试快照）。`docs/RISKS.md` 为纯文档，无运行时面，不影响上述七组测试计数。
+- self_review_manifest（七文件同序，`<sha256>  <path>`）：
+  - `8f110fc6df8dcace63d0bd0f30acf48c1bbdac617ac719c3428350971f1a15a4  src/runtime/descriptors/__init__.py`
+  - `5689b6a0236f0d975ebbeeb86765148206e4a443f754f54f236a5f6e27d59c20  src/runtime/descriptors/primitives.py`
+  - `d0bef682855fbc02af93e8fa0300dd1798b67f387c031fddbd4f81e6be7eb965  src/runtime/descriptors/representative.py`
+  - `4d1de88bc64f795a9adef356698c7f4e9b76f60e9210669078b74918021146ca  src/runtime/__init__.py`
+  - `0fe28c5e029f3fc61b0846181a1a39b3807f3018fd5ec968809b76929e670945  tests/test_runtime_descriptors.py`
+  - `80695181d340318deef7c95e6743bc60b61b807ef9790dfe53785e46be3769fa  tests/test_runtime_executor.py`
+  - `06ea98687320e171e2000293ad1d7fe1c8db1ebc130cfac15af34c63562ba3fb  docs/RISKS.md`
+- self_review_scope_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- 已知疑问：无阻塞性疑问。七个 Schema 默认值与状态字段均能从仓库源码（`src/primitives/*`）与锁定测试直接确定，无需猜测 CODESYS 语义；BLINK `ENABLE=FALSE` 冻结与跨相位余数保留、边沿冷启动上电边沿均为源类既有工程约定（源 docstring 明示），本包沿用未改。
+- 未验证边界：其余 12 个业务块 adapter、F2 块级 float32、参数装载校验、startup 计时、monitor/周期线程/watchdog 事件产生器、真实 HAL/驱动/I/O、可信反馈、ST/CFC 前端、持久化、AI worker，以及 BLINK/定时器与目标 SP16.1 真机对拍与现场安全均未验证；上述 Python 契约对照 ≠ 与 CODESYS/PLC 语义一致。
+- 是否满足交接条件: 是（自审 PASS；七组测试全部 OK；self_review_manifest 与实盘逐项一致且同序；`self_review_scope_sha256 == scope_sha256 == ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`）。
+
+### Claude 实施交接（Round 1）
+
+- 完成内容：以 WP-023 转入的七文件 partial checkpoint 为唯一开工内容，**核验（非重写）** 其余七个基础原语 TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK 的外挂 engineering `BlockSchema + RuntimeAdapter`，逐条比对源类真实 `step` 签名、初值与跨拍状态字段、OmitPolicy、输出访问、`state_vars` 与 `build_default_registry()` 十键注册，全部一致；直接调用与 Registry→Loader/Store/Executor 逐拍对照及同类型双实例隔离测试全绿。核验结论为**零源缺陷**，未触发最小修正条件，故七个 scope 代码/测试文件零改动。仅对 `docs/RISKS.md` 追加本包事实（顶部新增 WP-024 更新块 + `PLATFORM-L2-REGISTRY-1` 状态/详情追加），并按 v2 协议原子追加本包自审与本交接。
+- 修改文件：`docs/RISKS.md`（仅追加本包事实与 10/22 边界，未改写历史测试快照）。本交接文件 `docs/AI_REVIEW_HANDOFF.md` 为协议交接载体（自审 + 实施交接 + 原子状态转移），非 scope 工作文件。
+- 明确未修改：`src/runtime/descriptors/__init__.py`、`src/runtime/descriptors/primitives.py`、`src/runtime/descriptors/representative.py`、`src/runtime/__init__.py`、`tests/test_runtime_descriptors.py`、`tests/test_runtime_executor.py`（核验无缺陷，零改动）；`src/primitives/*`、`src/blocks/*`、Loader/Store/Executor/IR/OutputPolicy/CommitSupervisor/shadow、正式规格、`.cursor/rules/*`、`docs/PLATFORM_ROADMAP.md`、`docs/PROJECT_STATE.md`、协调器/自动化配置、`.git` 均未触碰。Claude 未执行任何 Git/GitHub 写操作（含暂存、提交、推送、建分支、合并）。
+- 实际测试命令与结果（2026-07-24 亲自逐条运行，本宿主允许本地端口绑定）：
+  1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor` → Ran 118 tests, OK
+  2. `python -m unittest tests.test_primitives tests.test_primitives_blink` → Ran 51 tests, OK
+  3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor` → Ran 215 tests, OK
+  4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor` → Ran 240 tests, OK
+  5. `python -m unittest discover -s tests -t .` → Ran 1299 tests, OK
+  6. `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  7. `python -m unittest discover -s . -t .` → Ran 1367 tests, OK
+- 已知疑问：无阻塞性疑问；七个 Schema 默认值/状态字段均由仓库源码与锁定测试直接确定，未猜测 CODESYS 语义。
+- 诚实边界：engineering adapter 达 10/22（8 原语全齐 + 业务块 APCHSHLLIM/APCM），剩余 12 个业务块 adapter 未补，不得据本包把 L2 14+8 全目录标记为完成；Python 契约对照 ≠ 与 CODESYS SP16.1/真机/HAL/I/O/现场安全一致。
+- scope_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- handoff_to: codex
+- implementation_finished_at: 2026-07-24 23:14:30 +0800
+
+### v2 自审门禁拒绝与用户恢复裁决
+
+- Claude 进程于 2026-07-24 23:16:33 +0800 正常退出，并声明七组测试 118/118、51/51、215/215、240/240、1299/1299、68/68、1367/1367 全部 `OK`；scope 实盘聚合 SHA-256 与其声明值均为 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`。这些正文事实保留，但尚未通过 v2 机器门禁，不能触发 Codex 独立审核。
+- 协调器只读解析将自审判为 `v2-invalid` 并以 `rejected-self-review` 拒绝调度 Codex。直接原因不是功能测试失败，而是 Claude 把四组必需精确字段改写为带括号后缀或合并字段：`实际测试命令与结果（...）`、`self_review_manifest（...）`、`首次失败与根因`、`修复内容与修复后重跑`。解析结果中测试命令/计数/结果、manifest、首次失败、失败根因、修复内容、修复后重跑均为空；Codex 不得替 Claude 规范化或补写自审证据。
+- 用户于 2026-07-25 明确同意创建并启动极窄证据恢复包 `WP-20260724-025`。WP-024 据此诚实封存为 `BLOCKED / owner=user / handoff_to=user / round=1`，保留其成功测试正文、无功能代码再改的事实以及自审格式无效历史，不冒充有效交接或审核结论。
+- 封存前协调器已干净停止，`coordinator_live=false`、无故障告警、无活动执行租约；旧 Claude/Codex 30 分钟轮询继续暂停。未执行任何 Git/GitHub 写操作。
+
+## WP-20260724-025
+
+- title: WP-024 七原语 adapter v2 自审证据恢复
+- status: CLOSED
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 3
+- handoff_protocol: v2
+- base_commit: 4d7190ebc1d701cb92c41bc4433ee0558b9467ae
+- created_by: user
+- created_at: 2026-07-25 09:30:42 +0800
+- depends_on:
+  - WP-20260724-024 BLOCKED（功能核验与七组测试正文成功，但 v2 自审精确字段格式无效，未形成合法交接）
+  - WP-20260724-023 BLOCKED（七原语 adapter 首次部分实现中断历史）
+  - WP-20260724-022 CLOSED（L2 Registry 核心与三个代表性 adapter 已审核关闭）
+  - `docs/COMPONENT_CONTRACT.md` v2.1
+- scope:
+  - src/runtime/descriptors/__init__.py
+  - src/runtime/descriptors/primitives.py
+  - src/runtime/descriptors/representative.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_descriptors.py
+  - tests/test_runtime_executor.py
+  - docs/RISKS.md
+- scope_baseline_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- scope_baseline_manifest:
+  - `8f110fc6df8dcace63d0bd0f30acf48c1bbdac617ac719c3428350971f1a15a4  src/runtime/descriptors/__init__.py`
+  - `5689b6a0236f0d975ebbeeb86765148206e4a443f754f54f236a5f6e27d59c20  src/runtime/descriptors/primitives.py`
+  - `d0bef682855fbc02af93e8fa0300dd1798b67f387c031fddbd4f81e6be7eb965  src/runtime/descriptors/representative.py`
+  - `4d1de88bc64f795a9adef356698c7f4e9b76f60e9210669078b74918021146ca  src/runtime/__init__.py`
+  - `0fe28c5e029f3fc61b0846181a1a39b3807f3018fd5ec968809b76929e670945  tests/test_runtime_descriptors.py`
+  - `80695181d340318deef7c95e6743bc60b61b807ef9790dfe53785e46be3769fa  tests/test_runtime_executor.py`
+  - `06ea98687320e171e2000293ad1d7fe1c8db1ebc130cfac15af34c63562ba3fb  docs/RISKS.md`
+
+### 工作包创建与证据恢复边界
+
+- 用户授权本包只恢复由 Claude 自己生成、可机器解析的 v2 自审与原子交接；Codex 不把 WP-024 无效字段改名后继续审核，也不代 Claude 补测试或 manifest。
+- 创建时 `main == origin/main == 4d7190ebc1d701cb92c41bc4433ee0558b9467ae`；七文件逐项实盘哈希与上列 manifest 一致，聚合为 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`，`git diff --check` 通过。该基线包含 WP-023 七原语实现、测试和 WP-024 RISKS 收口，但仍不是 Codex 审核结论。
+- Claude 必须先确认当前实现与 WP-024 声明的功能边界一致，再亲自重跑下列七组测试。若全部通过，功能 scope 应保持逐字节不变；只有测试实际暴露缺陷时才可在本包七文件 scope 内做必要最小修正，并如实记录首次失败、根因、修复与重跑。
+- 创建前协调器为 `stopped / coordinator_live=false / execution_failure_alert=null`，无活动租约或执行残留，8765 无监听；旧 30 分钟轮询保持暂停。本包使用全新幂等键 `WP-20260724-025:1:start_claude_implementation`，不复用 WP-024 的已完成执行键。
+- Claude 禁止读取或解析 `.git`，禁止执行 `git` / `gh` / `shasum` / `rm` / `sudo` 或以 Python `subprocess` 绕过；不得创建 scope 外辅助文件。`git diff --check` 和最终独立审核由 Codex 在合法交接后执行。
+
+### 精确目标与验收条件
+
+1. 不重复开发七原语 adapter，不重写 WP-024 历史，不扩大至剩余 12 个业务块、F2、参数装载、monitor/watchdog、HAL、真实 I/O 或现场证明。
+2. 亲自重跑七组测试并记录本轮真实计数；不得复制 WP-024 数字冒充本轮执行。正式 tests 与全仓的正常增长应按本轮实际计数记录，不得回写历史快照。
+3. 在 `CLAUDE_WORKING` 内生成新的 `### Claude 交接前自审（Round 1）`。以下字段名必须逐字精确、单独成行，冒号前后不得增加括号、后缀、合并名称或改为小标题：
+   - `self_review_round`
+   - `self_review_started_at`
+   - `self_review_finished_at`
+   - `self_review_verdict`
+   - `实际测试命令与结果`
+   - `首次失败`
+   - `失败根因`
+   - `修复内容`
+   - `修复后重跑结果`
+   - `self_review_manifest`
+   - `self_review_scope_sha256`
+   - `已知疑问`
+   - `未验证边界`
+   - `是否满足交接条件`
+4. `self_review_manifest` 必须覆盖七个 scope 文件，按 scope 声明顺序逐项使用规范 ``<64位小写 SHA-256>  <path>``；`self_review_scope_sha256` 必须等于该 manifest 聚合实盘值。
+5. `是否满足交接条件` 的值必须精确为 `是`，不得在值后追加解释。只有解析器确认 `self_review_state=v2-ok`、七组测试成功且实盘无漂移后，才允许追加实施交接并原子转移给 Codex。
+
+### 测试计划
+
+1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor`
+2. `python -m unittest tests.test_primitives tests.test_primitives_blink`
+3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor`
+4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor`
+5. `python -m unittest discover -s tests -t .`
+6. `python -m unittest discover -s prototype_05 -t .`
+7. `python -m unittest discover -s . -t .`
+
+### v2 原子交接要求
+
+- Claude 必须在自审段中按以下精确骨架提供结构化字段；字段内容可按真实结果展开，但字段名不得变化：
+  - `- self_review_round: 1`
+  - `- self_review_started_at: <带时区时间>`
+  - `- self_review_finished_at: <带时区时间>`
+  - `- self_review_verdict: PASS`
+  - `- 实际测试命令与结果: <七组本轮真实命令、计数与 OK>`
+  - `- 首次失败: <真实情况；无则写无>`
+  - `- 失败根因: <真实情况；无则写不适用>`
+  - `- 修复内容: <真实情况；无则写无>`
+  - `- 修复后重跑结果: <真实情况；无则写不适用>`
+  - `- self_review_manifest:` 后接七条同序 manifest
+  - `- self_review_scope_sha256: <64位小写十六进制>`
+  - `- 已知疑问: <真实情况>`
+  - `- 未验证边界: <真实情况>`
+  - `- 是否满足交接条件: 是`
+- 通过自审门禁后，追加标题精确为 `### Claude 实施交接（Round 1）`，并至少提供独立字段 `- scope_sha256: <与自审相同>`、`- handoff_to: codex`、`- implementation_finished_at: <带时区时间>`；一次性原子更新为 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`。
+- Claude 交接后停止修改 scope。协调器只有在 `self_review_state=v2-ok` 且当前实盘哈希等于实施哈希时才可启动 Codex；Codex 随后独立复算开始/结束哈希、静态检查七原语实现与测试、设计反证、复跑七组测试和 `git diff --check`，给出三值 verdict。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-25 09:35:12 +0800
+- self_review_finished_at: 2026-07-25 09:36:10 +0800
+- self_review_verdict: PASS
+- 实际测试命令与结果: 本轮（2026-07-25）在允许本地端口绑定的本宿主上亲自逐条运行七组测试，全部成功，均为本轮真实执行计数，无任何用例未通过：(1) `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor` → Ran 118 tests, OK；(2) `python -m unittest tests.test_primitives tests.test_primitives_blink` → Ran 51 tests, OK；(3) `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor` → Ran 215 tests, OK；(4) `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor` → Ran 240 tests, OK；(5) `python -m unittest discover -s tests -t .` → Ran 1299 tests, OK；(6) `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK；(7) `python -m unittest discover -s . -t .` → Ran 1367 tests, OK。
+- 首次失败: 无
+- 失败根因: 不适用
+- 修复内容: 无（七组测试全部通过，未暴露缺陷，未触发七文件 scope 内任何最小修正；功能 scope 保持逐字节不变）
+- 修复后重跑结果: 不适用
+- self_review_manifest:
+  - `8f110fc6df8dcace63d0bd0f30acf48c1bbdac617ac719c3428350971f1a15a4  src/runtime/descriptors/__init__.py`
+  - `5689b6a0236f0d975ebbeeb86765148206e4a443f754f54f236a5f6e27d59c20  src/runtime/descriptors/primitives.py`
+  - `d0bef682855fbc02af93e8fa0300dd1798b67f387c031fddbd4f81e6be7eb965  src/runtime/descriptors/representative.py`
+  - `4d1de88bc64f795a9adef356698c7f4e9b76f60e9210669078b74918021146ca  src/runtime/__init__.py`
+  - `0fe28c5e029f3fc61b0846181a1a39b3807f3018fd5ec968809b76929e670945  tests/test_runtime_descriptors.py`
+  - `80695181d340318deef7c95e6743bc60b61b807ef9790dfe53785e46be3769fa  tests/test_runtime_executor.py`
+  - `06ea98687320e171e2000293ad1d7fe1c8db1ebc130cfac15af34c63562ba3fb  docs/RISKS.md`
+- self_review_scope_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- 已知疑问: 无阻塞性疑问。本包为纯证据恢复：七个 scope 文件的实盘逐项 SHA-256 与工作包头 `scope_baseline_manifest` 及 WP-024 声明值逐字节一致（聚合 `ed4779ee...`），十键默认注册表（TON/APCHSHLLIM/APCM + 七原语 TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK）与 `build_default_registry()` 一致，七组测试本轮全绿，故功能 scope 零改动。本包只补齐 WP-024 缺失的、可机器解析的 v2 自审精确字段，未改名、未合并、未加括号后缀。
+- 未验证边界: 剩余 12 个业务块 adapter、F2 块级 float32、参数装载校验、startup 计时、monitor/周期线程/watchdog 事件产生器、真实 HAL/驱动/I/O、可信反馈、ST/CFC 前端、持久化、AI worker，以及七原语/定时器与目标 SP16.1 真机对拍、现场安全均未验证；上述 Python 契约与测试通过 ≠ 与 CODESYS/PLC 语义一致。本包不把 L2 14+8 全目录标记完成。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容：以 WP-024 转入的七文件基线为唯一开工内容，先核验当前实现与 WP-024 声明的功能边界一致（`src/runtime/descriptors` 十键 engineering 注册表：三代表性块 TON/APCHSHLLIM/APCM + 七原语 TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK），再亲自重跑本工作包「测试计划」列出的全部七组测试，全部 OK。七组均全绿、未暴露任何缺陷，故未触发七文件 scope 内的最小修正，功能 scope 逐字节不变。本轮唯一工作是在 `CLAUDE_WORKING` 内补齐 WP-024 缺失的、可机器解析的 v2 自审精确字段并原子交接——修复 WP-024 因把 `实际测试命令与结果`/`self_review_manifest`/`首次失败`/`失败根因`/`修复内容`/`修复后重跑结果` 改写成带括号后缀或合并字段而被判 `v2-invalid` 的问题。
+- 修改文件：仅 `docs/AI_REVIEW_HANDOFF.md`（协议交接载体，用于承载自审、实施交接与原子状态转移，**非 scope 工作文件**）。七个 scope 工作文件本轮零改动。
+- 明确未修改：`src/runtime/descriptors/__init__.py`、`src/runtime/descriptors/primitives.py`、`src/runtime/descriptors/representative.py`、`src/runtime/__init__.py`、`tests/test_runtime_descriptors.py`、`tests/test_runtime_executor.py`、`docs/RISKS.md` 全部逐字节不变（交接前后实盘 SHA-256 均与 `scope_baseline_manifest` 一致，聚合 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`）；`src/primitives/*`、`src/blocks/*`、Loader/Store/Executor/IR/OutputPolicy/CommitSupervisor/shadow、正式规格、`.cursor/rules/*`、`docs/PLATFORM_ROADMAP.md`、`docs/PROJECT_STATE.md`、协调器/自动化配置、`.git` 均未触碰。Claude 未执行任何 Git/GitHub 写操作（含暂存、提交、推送、建分支、合并），未运行 `git`/`gh`/`shasum`/`rm`/`sudo`，SHA-256 均由 Python `hashlib` 直接计算，未经 subprocess 绕过，未创建 scope 外辅助文件。
+- 实际测试命令与结果（2026-07-25 本轮亲自逐条运行，全部 OK）：
+  1. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_executor` → Ran 118 tests, OK
+  2. `python -m unittest tests.test_primitives tests.test_primitives_blink` → Ran 51 tests, OK
+  3. `python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor` → Ran 215 tests, OK
+  4. `python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor` → Ran 240 tests, OK
+  5. `python -m unittest discover -s tests -t .` → Ran 1299 tests, OK
+  6. `python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  7. `python -m unittest discover -s . -t .` → Ran 1367 tests, OK
+- 已知疑问：无阻塞性疑问；七个 Schema 默认值/状态字段均由仓库源码与锁定测试直接确定，未猜测 CODESYS 语义。
+- 诚实边界：engineering adapter 达 10/22，剩余 12 个业务块 adapter 未补，不得据本包把 L2 14+8 全目录标记为完成；Python 契约对照与测试通过 ≠ 与 CODESYS SP16.1/真机/HAL/I/O/现场安全一致。
+- scope_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- handoff_to: codex
+- implementation_finished_at: 2026-07-25 09:36:10 +0800
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实：v2 交接门禁完整有效。接手五字段精确为 `WP-20260724-025 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，`1 <= max_rounds=3`，`handoff_protocol=v2`；仓库解析器报告 `self_review_state=v2-ok`、九项门禁无错误/警告，Claude 自审、实施交接与 Codex 独立实盘三方 scope 证据均为同序七文件 manifest，聚合 SHA-256 均为 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`。静态审核确认 TOF/TP 的 `dt_ms=Task.cycle_ms` 注入与 tuple 输出回收、R_TRIG/F_TRIG/SR/RS 的真实无 `dt_ms` 签名与属性输出回收、BLINK 的 `dt_ms` 注入/disable 冻结/跨相位余数状态，均与 `src/primitives` 源类一致；输入 `use_default`、真实跨拍 `state_vars`、十个 engineering 注册键、缺失 F2 变体加载期失败及公开导出均与 `COMPONENT_CONTRACT v2.1` 和本包边界一致。既有测试覆盖 TOF 断开延时与双实例隔离、TP 不可重触发/重新武装、边沿冷启动、SR/RS 同拍优先级、BLINK 冻结/续跑/跨相位余数；Codex 另以七组“先驱动、下一拍省略”反证独立确认全部七原语均回落 Schema 默认并与直接调用的输出/状态一致。
+- 项目工程约定：engineering adapter 使用现有 Python 块、`use_default` 省略语义、BLINK `ENABLE=FALSE` 同步冻结 `_elapsed_ms` 与单拍跨多相位余数保留，均按当前项目契约审核；BLINK 冻结/余数行为属于项目工程约定，不包装成 CODESYS 官方已证实语义。R_TRIG/F_TRIG 冷启动上一拍初值与 SR/RS 优先级沿用当前源类及项目契约，本包未改写原语实现。
+- 待真机验证假设：当前静态核对、直接调用对照、Registry→Loader/Store/Executor 回归只证明 Python 契约；TOF/TP/BLINK 与目标 CODESYS SP16.1 的真实时序、边沿上电行为、真实 HAL/I/O、可信反馈和现场安全仍无本包真机证据，不得据此宣称 PLC 语义或现场安全一致。
+- 延后实现项：其余 12 个业务块 adapter、F2 块级 float32、参数装载总闸门、startup 计时、monitor/周期线程/watchdog 事件产生器、真实 HAL/驱动/I/O、ST/CFC 前端、持久化与 AI worker 均继续排除；L2 当前为 engineering adapter 10/22，不得标记 22/22 完成。
+- 必须返修：无。
+- 非阻塞建议：无。
+- 审核证据：Codex 独立运行七组原计划命令：descriptors+executor 118/118、primitives+blink 51/51、descriptors+IR+Store+Executor 215/215、安全运行时相关 240/240、prototype_05 68/68，均 `OK`。正式 discover 实际发现 1299 项、全仓 discover 1367 项；两组各只有同 9 个 `tests.test_ai_handoff` 面板用例因本审核沙箱禁止绑定本地 HTTP 端口而报 `PermissionError`，其余分别 1290 与 1358 项无失败；完整排除该 scope 外模块后正式测试 1155/1155 `OK`。该环境限制与仓库既有 Codex 审核记录一致，不冒充 1299/1299 或 1367/1367 全绿。`git diff --check` 通过；另对包含未跟踪新文件 `src/runtime/descriptors/primitives.py` 在内的七文件执行尾随空白扫描，无命中。审核开始/结束逐文件 SHA-256 完全一致，协调器心跳两端均 live 且未过期；审核期间 scope 无漂移。只读取 Git 状态/差异用于核验，未执行任何 Git 写操作。
+- review_started_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- review_finished_sha256: ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3
+- handoff_to: user
+- reviewed_at: 2026-07-25 09:46:34 +0800
+
+### 审核后主机环境补充验证
+
+- Codex 根会话在协调器与审核子进程均停止后，于 2026-07-25 09:49～09:50 +0800 在允许绑定本机临时端口的主机环境复跑：协作基础设施 144/144、正式 tests 1299/1299、`prototype_05` 68/68、全仓 1367/1367，全部 `OK`；`git diff --check` 通过。该复跑仅消除独立审核沙箱中同 9 项面板端口权限假失败，不改变审核 scope、哈希、verdict 或 PLC/现场证据边界。
+- 补充验证后协调器投影保持 `state=stopped / coordinator_live=false`，无 Claude/Codex/测试残留进程，旧 30 分钟轮询继续暂停。WP-025 保持 `APPROVED`，等待用户确认是否关闭及授权 Git/GitHub 收尾；本节未执行任何 Git/GitHub 写操作。
+
+### 用户关闭确认与 Git/GitHub 收尾授权
+
+- 用户于 2026-07-25 明确同意关闭 WP-025，并授权 Codex 将 WP-023～025 累计的七原语 adapter、测试、RISKS/ROADMAP/PROJECT_STATE 行政同步及完整三阶段审计记录作为一个独立 Git/GitHub 变更收尾。
+- 关闭状态规范更新为 `CLOSED / owner=user / handoff_to=user / round=1`。最终主机验证保持协作 144/144、正式 tests 1299/1299、`prototype_05` 68/68、全仓 1367/1367 全部 `OK`，scope 哈希保持 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`。
+- 本包关闭只代表七原语 engineering adapter 的 Python 契约与 v2 协作闭环完成；剩余 12 个业务块 adapter、F2、参数装载、monitor/watchdog、真实 HAL/I/O、CODESYS SP16.1 对拍和现场安全证明继续作为独立后续范围。

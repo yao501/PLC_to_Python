@@ -66,7 +66,10 @@ from src.licensing.providers import (
     ManualDateTimeProvider,
     StaticSerialTextProvider,
 )
-from src.primitives.timers import TON
+from src.primitives.timers import TON, TOF, TP
+from src.primitives.edges import R_TRIG, F_TRIG
+from src.primitives.latches import SR, RS
+from src.primitives.blink import BLINK
 
 
 _APCM_SERIAL = "PYPLC|TEST|MACHINE-0001"
@@ -1981,6 +1984,284 @@ class TestUseDefaultRealQuantization(unittest.TestCase):
             ex.execute_programs(layout.store.snapshot())
         self.assertIsInstance(cm.exception.cause, LibraryRuntimeError)
         self.assertIn("结构不匹配", str(cm.exception))
+
+
+# ---------------------------------------------------------------------------
+# WP-20260724-023：其余七个基础原语 Registry/Executor vs 直接调用行为对照
+#
+# 每个原语经 build_default_registry()→Store→Executor 驱动，与直接调用原块逐
+# 拍对照可观察输出/跨拍状态；有状态原语覆盖多拍序列与实例隔离。dt_ms 由
+# adapter 注入 Task.cycle_ms=500（TOF/TP/BLINK）；边沿/锁存真实 step 不接
+# dt_ms，adapter 不臆造该参数。这些 Python 对照 **不构成** 与 CODESYS 一致。
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryTofBehavior(unittest.TestCase):
+    """TOF：断开延时、tuple 输出回收、dt_ms=500。"""
+
+    def _tof_task(self):
+        main = _prog("Main",
+                     [LoadVar("Start", "BOOL"), StoreVar("T1.IN", "BOOL"),
+                      LoadConst(1000, "TIME"), StoreVar("T1.PT_ms", "TIME"),
+                      CallFb("T1")],
+                     instances=[InstanceDecl("T1", "TOF", kind="library")])
+        return _task(pous=[main])
+
+    def test_tof_off_delay_matches_direct(self):
+        reg = build_default_registry()
+        task = self._tof_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = TOF()
+        qk = persistent_key("PLC_PRG.T1", "Q")
+        ek = persistent_key("PLC_PRG.T1", "ET_ms")
+        # IN=True 段 Q=True/ET=0；IN=False 触发断开延时 ET 累加到 PT 后 Q=False
+        seq = [True, True, False, False, False, True, False]
+        for in_val in seq:
+            layout.store.write("Start", in_val)
+            ex.execute_programs(layout.store.snapshot())
+            q, et = ref.step(500, IN=in_val, PT_ms=1000)
+            self.assertEqual(layout.store.read(qk), q, in_val)   # tuple[0]
+            self.assertEqual(layout.store.read(ek), et, in_val)  # tuple[1]
+        # 锁定断开延时确曾发生：IN 落 False 后 Q 保持 True 直到延时到点才落
+        r3 = TOF()
+        self.assertEqual(r3.step(500, IN=True, PT_ms=1000), (True, 0))
+        self.assertEqual(r3.step(500, IN=False, PT_ms=1000), (True, 500))
+        self.assertEqual(r3.step(500, IN=False, PT_ms=1000), (False, 1000))
+
+    def test_tof_two_instances_isolated(self):
+        # 同类型双实例交错推进，状态不串扰
+        reg = build_default_registry()
+        main = _prog(
+            "Main",
+            [LoadVar("A_in", "BOOL"), StoreVar("T1.IN", "BOOL"),
+             LoadConst(1000, "TIME"), StoreVar("T1.PT_ms", "TIME"),
+             CallFb("T1"),
+             LoadVar("B_in", "BOOL"), StoreVar("T2.IN", "BOOL"),
+             LoadConst(1000, "TIME"), StoreVar("T2.PT_ms", "TIME"),
+             CallFb("T2")],
+            instances=[InstanceDecl("T1", "TOF", kind="library"),
+                       InstanceDecl("T2", "TOF", kind="library")])
+        gvl = _gvl() + [VarDecl("A_in", "BOOL", section="VAR_GLOBAL"),
+                        VarDecl("B_in", "BOOL", section="VAR_GLOBAL")]
+        task = _task(pous=[main], gvl=gvl)
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        r1, r2 = TOF(), TOF()
+        q1k = persistent_key("PLC_PRG.T1", "Q")
+        e1k = persistent_key("PLC_PRG.T1", "ET_ms")
+        q2k = persistent_key("PLC_PRG.T2", "Q")
+        e2k = persistent_key("PLC_PRG.T2", "ET_ms")
+        # T1 早落 False 先计时，T2 晚落 False：两实例 ET 相位不同、互不影响
+        diverged = False
+        for a, b in [(True, True), (False, True), (False, True),
+                     (False, False), (False, False)]:
+            layout.store.write("A_in", a)
+            layout.store.write("B_in", b)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertEqual(layout.store.read(q1k), r1.step(500, IN=a, PT_ms=1000)[0])
+            self.assertEqual(layout.store.read(e1k), r1.ET_ms)
+            self.assertEqual(layout.store.read(q2k), r2.step(500, IN=b, PT_ms=1000)[0])
+            self.assertEqual(layout.store.read(e2k), r2.ET_ms)
+            if layout.store.read(e1k) != layout.store.read(e2k):
+                diverged = True
+        # 至少一拍两实例 ET 相位不同 → 状态未串扰（各自独立跨拍演化）
+        self.assertTrue(diverged)
+
+
+class TestRegistryTpBehavior(unittest.TestCase):
+    """TP：不可重触发脉冲、重新武装、tuple 输出回收、dt_ms=500。"""
+
+    def _tp_task(self):
+        main = _prog("Main",
+                     [LoadVar("Start", "BOOL"), StoreVar("P1.IN", "BOOL"),
+                      LoadConst(1000, "TIME"), StoreVar("P1.PT_ms", "TIME"),
+                      CallFb("P1")],
+                     instances=[InstanceDecl("P1", "TP", kind="library")])
+        return _task(pous=[main])
+
+    def test_tp_non_retrigger_and_rearm_matches_direct(self):
+        reg = build_default_registry()
+        task = self._tp_task()
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = TP()
+        qk = persistent_key("PLC_PRG.P1", "Q")
+        ek = persistent_key("PLC_PRG.P1", "ET_ms")
+        # 上升沿触发脉冲；脉冲期内 IN 变化被忽略（不可重触发）；IN 回低后重新武装
+        seq = [True, False, True, True, False, True]
+        for in_val in seq:
+            layout.store.write("Start", in_val)
+            ex.execute_programs(layout.store.snapshot())
+            q, et = ref.step(500, IN=in_val, PT_ms=1000)
+            self.assertEqual(layout.store.read(qk), q, in_val)
+            self.assertEqual(layout.store.read(ek), et, in_val)
+        # 锁定不可重触发：首个上升沿后拍 1 Q=True/ET=500
+        r2 = TP()
+        self.assertEqual(r2.step(500, IN=True, PT_ms=1000), (True, 500))
+        # 脉冲仍在时再次拉高 IN 不重启计时
+        self.assertEqual(r2.step(500, IN=True, PT_ms=1000), (False, 1000))
+
+
+class TestRegistryEdgeBehavior(unittest.TestCase):
+    """R_TRIG / F_TRIG：真实 step(CLK) 无 dt_ms；attr:Q 回收；IEC 冷启动上一拍。"""
+
+    def _edge_task(self, block_type):
+        main = _prog("Main",
+                     [LoadVar("Clk", "BOOL"), StoreVar("E1.CLK", "BOOL"),
+                      CallFb("E1")],
+                     instances=[InstanceDecl("E1", block_type, kind="library")])
+        gvl = _gvl() + [VarDecl("Clk", "BOOL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def test_r_trig_coldstart_and_edges_match_direct(self):
+        reg = build_default_registry()
+        task = self._edge_task("R_TRIG")
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = R_TRIG()                       # 冷启动 _CLK_prev=False
+        qk = persistent_key("PLC_PRG.E1", "Q")
+        # 首拍 CLK=True → 上电上升沿 Q=True；随后仅在 False→True 那拍 Q=True
+        seq = [True, True, False, True, False]
+        for i, clk in enumerate(seq):
+            layout.store.write("Clk", clk)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(qk), ref.step(CLK=clk), (i, clk))
+        self.assertIs(R_TRIG().step(CLK=True), True)   # 冷启动首拍上升沿
+
+    def test_f_trig_coldstart_and_edges_match_direct(self):
+        reg = build_default_registry()
+        task = self._edge_task("F_TRIG")
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = F_TRIG()                       # 冷启动 _CLK_prev=True（IEC 约定）
+        qk = persistent_key("PLC_PRG.E1", "Q")
+        # 首拍 CLK=False → 上电下降沿 Q=True；随后仅在 True→False 那拍 Q=True
+        seq = [False, True, True, False, True]
+        for i, clk in enumerate(seq):
+            layout.store.write("Clk", clk)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(qk), ref.step(CLK=clk), (i, clk))
+        self.assertIs(F_TRIG().step(CLK=False), True)  # 冷启动首拍下降沿
+
+
+class TestRegistryLatchBehavior(unittest.TestCase):
+    """SR / RS：真实 step 无 dt_ms；attr:Q1 回收；同时置位/复位优先级。"""
+
+    def _latch_task(self, block_type, set_pin, reset_pin):
+        main = _prog(
+            "Main",
+            [LoadVar("S_in", "BOOL"), StoreVar("L1.%s" % set_pin, "BOOL"),
+             LoadVar("R_in", "BOOL"), StoreVar("L1.%s" % reset_pin, "BOOL"),
+             CallFb("L1")],
+            instances=[InstanceDecl("L1", block_type, kind="library")])
+        gvl = _gvl() + [VarDecl("S_in", "BOOL", section="VAR_GLOBAL"),
+                        VarDecl("R_in", "BOOL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def test_sr_set_priority_matches_direct(self):
+        reg = build_default_registry()
+        task = self._latch_task("SR", "SET1", "RESET")
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = SR()
+        q1k = persistent_key("PLC_PRG.L1", "Q1")
+        # 含同时 SET1=RESET=True 一拍：SR set 优先 → Q1=True
+        seq = [(True, False), (False, False), (True, True), (False, True),
+               (False, False)]
+        for s, r in seq:
+            layout.store.write("S_in", s)
+            layout.store.write("R_in", r)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(q1k), ref.step(SET1=s, RESET=r), (s, r))
+        self.assertIs(SR().step(SET1=True, RESET=True), True)   # set 优先
+
+    def test_rs_reset_priority_matches_direct(self):
+        reg = build_default_registry()
+        task = self._latch_task("RS", "SET", "RESET1")
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = RS()
+        q1k = persistent_key("PLC_PRG.L1", "Q1")
+        # 先置位再同时 SET=RESET1=True：RS reset 优先 → Q1=False
+        seq = [(True, False), (True, True), (False, False), (True, False)]
+        for s, r in seq:
+            layout.store.write("S_in", s)
+            layout.store.write("R_in", r)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(q1k), ref.step(SET=s, RESET1=r), (s, r))
+        # reset 优先：先置位后同时置位/复位 → 复位
+        r2 = RS()
+        r2.step(SET=True, RESET1=False)
+        self.assertIs(r2.step(SET=True, RESET1=True), False)
+
+
+class TestRegistryBlinkBehavior(unittest.TestCase):
+    """BLINK：dt_ms 注入、disable 冻结、重新启用续跑、跨多相位余数保留。"""
+
+    def _blink_task(self, low_ms, high_ms):
+        main = _prog(
+            "Main",
+            [LoadVar("En", "BOOL"), StoreVar("B1.ENABLE", "BOOL"),
+             LoadConst(low_ms, "TIME"), StoreVar("B1.TIMELOW_ms", "TIME"),
+             LoadConst(high_ms, "TIME"), StoreVar("B1.TIMEHIGH_ms", "TIME"),
+             CallFb("B1")],
+            instances=[InstanceDecl("B1", "BLINK", kind="library")])
+        gvl = _gvl() + [VarDecl("En", "BOOL", section="VAR_GLOBAL")]
+        return _task(pous=[main], gvl=gvl)
+
+    def test_blink_disable_freeze_and_reenable_matches_direct(self):
+        # TIMELOW=TIMEHIGH=1000、dt=500：两拍翻一次；disable 冻结 _elapsed_ms，
+        # 重新启用从冻结点续跑（BLINK-B1 工程约定）
+        reg = build_default_registry()
+        task = self._blink_task(1000, 1000)
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = BLINK()
+        ok = persistent_key("PLC_PRG.B1", "OUT")
+        rt = ex._adapters["PLC_PRG.B1"].instance
+        seq = [True, True, False, False, True, True]
+        for en in seq:
+            layout.store.write("En", en)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(ok), ref.step(500, ENABLE=en,
+                          TIMELOW_ms=1000, TIMEHIGH_ms=1000), en)
+            self.assertEqual(rt._elapsed_ms, ref._elapsed_ms, en)  # 相位同步/冻结
+
+    def test_blink_multi_phase_remainder_retained_matches_direct(self):
+        # TIMELOW=TIMEHIGH=200、dt=500：单拍跨多个相位，余数保留（100）
+        reg = build_default_registry()
+        task = self._blink_task(200, 200)
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ref = BLINK()
+        ok = persistent_key("PLC_PRG.B1", "OUT")
+        rt = ex._adapters["PLC_PRG.B1"].instance
+        for _ in range(4):
+            layout.store.write("En", True)
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(ok),
+                          ref.step(500, ENABLE=True, TIMELOW_ms=200,
+                                   TIMEHIGH_ms=200))
+            self.assertEqual(rt._elapsed_ms, ref._elapsed_ms)      # 余数逐拍一致
+        # 首拍 dt=500 跨 200(low)+200(high) 两相位，余数 100 保留
+        probe = BLINK()
+        probe.step(500, ENABLE=True, TIMELOW_ms=200, TIMEHIGH_ms=200)
+        self.assertEqual(probe._elapsed_ms, 100)
+
+    def test_blink_omitted_inputs_use_schema_default(self):
+        # 从不驱动任何输入 → use_default：ENABLE=False → OUT 冷启动保持 False
+        reg = build_default_registry()
+        main = _prog("Main", [CallFb("B1")],
+                     instances=[InstanceDecl("B1", "BLINK", kind="library")])
+        task = _task(pous=[main])
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        ok = persistent_key("PLC_PRG.B1", "OUT")
+        for _ in range(3):
+            ex.execute_programs(layout.store.snapshot())
+            self.assertIs(layout.store.read(ok), False)   # ENABLE 默认 False
+        self.assertEqual(ex._adapters["PLC_PRG.B1"].instance._elapsed_ms, 0)
 
 
 if __name__ == "__main__":
