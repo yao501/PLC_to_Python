@@ -4337,3 +4337,8 @@ Claude 交接前必须亲自逐条运行，并在精确字段 `实际测试命�
 - 用户于 2026-07-25 明确同意关闭 WP-025，并授权 Codex 将 WP-023～025 累计的七原语 adapter、测试、RISKS/ROADMAP/PROJECT_STATE 行政同步及完整三阶段审计记录作为一个独立 Git/GitHub 变更收尾。
 - 关闭状态规范更新为 `CLOSED / owner=user / handoff_to=user / round=1`。最终主机验证保持协作 144/144、正式 tests 1299/1299、`prototype_05` 68/68、全仓 1367/1367 全部 `OK`，scope 哈希保持 `ed4779ee62adb58f09055138866ad8a78cd1e172c9383d840166d7f6da8fcae3`。
 - 本包关闭只代表七原语 engineering adapter 的 Python 契约与 v2 协作闭环完成；剩余 12 个业务块 adapter、F2、参数装载、monitor/watchdog、真实 HAL/I/O、CODESYS SP16.1 对拍和现场安全证明继续作为独立后续范围。
+
+### 关闭后 Git/GitHub 收尾完成记录
+
+- PR #22（`Add seven primitive runtime adapters`）已于 2026-07-25 合并到 `main`，合并提交为 `da6ff139c32baead628ce5050db79c9752af52a9`；2026-07-27 行政同步开工复核时，本地 `HEAD == main == origin/main == da6ff139c32baead628ce5050db79c9752af52a9`，工作区干净。
+- 该记录只补充 WP-025 关闭后已经完成的 Git/GitHub 行政事实，不修改 WP-023/024 的 `BLOCKED` 历史、WP-025 的 `CLOSED` 状态、既有 scope 哈希或任何历史测试计数。七原语收尾完成后 L2 当前仍为 10/22；剩余 12 个业务块 adapter 继续按独立工作包推进。
