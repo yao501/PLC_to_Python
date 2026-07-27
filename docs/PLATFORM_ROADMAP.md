@@ -54,7 +54,7 @@
 | **L7 I/O 与 HAL** | 驱动/协议、GVL↔物理点映射、实时循环驱动 | 🟥 未做（接现场必需） |
 | **L8 持久化** | RETAIN / PERSISTENT 变量的断电恢复 | 🟨 IR/Schema 已预留声明与 serializer 边界，真实快照/恢复未做 |
 | **L9 AI / Python 集成** | 控制逻辑与 AI/Python 程序同平台协作（**分进程** + 共享内存/IPC，D-AI；本平台的核心价值） | 🟥 未做 |
-| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 本地 unittest 最新全仓快照 1349 项；GitHub CI、覆盖率、lint/type-check 仍未建立 |
+| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 最新完整主机快照：正式 tests 1299/1299、`prototype_05` 68/68、全仓 1367/1367；GitHub CI、覆盖率、lint/type-check 仍未建立 |
 
 ### 1.1 一拍执行时序（引擎核心，泛化自 `00a` 五步式）
 
@@ -83,7 +83,7 @@
 - **授权**：`src/licensing/` 一机一码 + `src/globals/LicenseContext`（每实例全局量容器，**可泛化成通用 GVL 容器**）。
 - **基建**：`config.py`（CYCLE_MS / STARTUP_INHIBIT_MS）、`validation.py`（PT_ms / TB 校验）、`compat/conversions.py`（REAL_TO_INT / REAL_TO_TIME）。
 - **契约**：`.cursor/rules/00 / 00a / 01 / 02 / 03`，其中 `00a` 已把运行时与安全机制规定齐全。
-- **测试**：2026-07-24 最近记录的全仓 Python 发现集为 1349/1349；历史 690 项是阶段 0.5 前后的旧快照，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
+- **测试**：2026-07-25 最新完整主机快照为正式 tests 1299/1299、`prototype_05` 68/68、全仓 Python 发现集 1367/1367；1349、1290、1250、1176、690 等均为对应历史工作包时间点的真实快照，不回写冒充当时结果，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
 
 **映射关系**：L1 已就绪；L2 把这些块补元数据即可；`LicenseContext`→L3 的 GVL 容器雏形；`00a`→L4/L5 的规格来源；`validation.py`→L5 的参数校验来源。
 
