@@ -256,8 +256,10 @@ class _LibraryRuntime:
       同样传 Schema 声明默认（使首拍值由 Schema 契约而非块构造器偶然初值
       决定），**此后**省略才不传、由块保持内部上次值；``none_means_no_write``
       未驱动即从首拍起一律不传（块保持内部值 / 不覆盖）——再组装
-      ``VAR_IN_OUT`` 引用，转调 ``call_adapter``，回收输出与 VAR_IN_OUT 写回
-      Store（经 ``on_store`` + 结构复检）；无论成功或异常，都在 ``finally``
+      ``VAR_IN_OUT`` 引用，转调 ``call_adapter``，把全部 VAR_IN_OUT 与声明输出
+      候选值（经结构复检 + ``on_store``）暂存后经 ``Store.write_batch`` **一次性
+      原子提交**（任一候选失败或提交异常时全部目标管脚保持调用前值，不半写）；
+      无论成功或异常，都在 ``finally``
       清空本拍驱动记录（失败调用残留的驱动标记会污染下一拍的 required 判定）；
     - ``read_pin``：从输出/VAR_IN_OUT/输入管脚 Store 键读回（供 ``LOAD_VAR``）；
     - ``pin_type``：报出 Schema 管脚 IEC 类型（供 ``LOAD_VAR``/``STORE_VAR``
@@ -300,14 +302,18 @@ class _LibraryRuntime:
         self.store.write(self._key(pin), value)
         self._driven.add(pin)
 
-    def _store_output(self, pin: str, iec_type: str, value) -> None:
-        """输出/VAR_IN_OUT 回收：结构检查先于 on_store，再写回 Store 键。"""
+    def _convert_output(self, pin: str, iec_type: str, value):
+        """输出/VAR_IN_OUT 候选值：结构检查先于 on_store，返回转换后候选值。
+
+        **只做检查与数值转换、不触碰 Store**——由 ``step`` 把全部候选集完整
+        物化成功后再经 ``Store.write_batch`` 一次性原子提交，杜绝逐项可见半写
+        （WP-035 反证：逐项 `Store.write` 会在后续管脚失败时残留已写管脚）。"""
         if not check_value_type(iec_type, value):
             raise StoreTypeError(
                 "库块 '%s' 管脚 '%s' 输出值 %r 与声明类型 %s 结构不匹配"
                 "（检查先于数值钩子，F1 量化不得洗白）"
                 % (self.path, pin, value, iec_type))
-        self.store.write(self._key(pin), self.mode.on_store(value, iec_type))
+        return self.mode.on_store(value, iec_type)
 
     def _default_input(self, pin):
         """管脚**省略拍取 Schema 声明默认**的统一取值（COMPONENT_CONTRACT §3）。
@@ -362,23 +368,33 @@ class _LibraryRuntime:
                           for p in schema.inouts}
             outputs = self.adapter.call_adapter(self.instance, dt_ms, resolved,
                                                 inout_refs)
-            # VAR_IN_OUT 写透回收
-            for p in schema.inouts:
-                self._store_output(p.name, p.iec_type, inout_refs[p.name].value)
-            # 输出管脚回收（Schema 声明的全部 VAR_OUTPUT 必须齐备，否则 KeyError
-            # 被上层 CALL_FB 包成带上下文的 IRExecutionError）
+            # 输出 Store 提交必须是**原子单元**：本次成功回收的全部 VAR_IN_OUT
+            # 与全部 Schema 声明 VAR_OUTPUT 要么一起可见、要么一个都不写
+            # （WP-035 反证：旧实现逐项 `Store.write` 会在后续管脚结构/数值/
+            # 未知键失败时残留已写管脚，形成 ZLOUT 半写回）。
+            # 步骤：① 先完整检查所有声明输出存在；② 对所有 inout/output 原始值
+            # 先做结构检查再 on_store，把候选值全部暂存；③ 候选集完整成功后才
+            # 调用 Store 原子批量写。任一步失败时全部目标 Store 键保持调用前值。
             out_by_name = {p.name: p for p in schema.outputs}
             for name in out_by_name:
                 if name not in outputs:
                     raise LibraryRuntimeError(
                         "库块 '%s' step 未回收声明输出管脚 '%s'"
                         % (self.path, name))
-                self._store_output(name, out_by_name[name].iec_type,
-                                   outputs[name])
+            batch: list = []
+            for p in schema.inouts:
+                batch.append((self._key(p.name),
+                              self._convert_output(p.name, p.iec_type,
+                                                   inout_refs[p.name].value)))
+            for name, p in out_by_name.items():
+                batch.append((self._key(name),
+                              self._convert_output(name, p.iec_type,
+                                                   outputs[name])))
+            self.store.write_batch(batch)
             # 块已被成功驱动一次：置于 call_adapter **与**全部 VAR_IN_OUT / 声明
             # 输出回收均成功之后——required 缺失、adapter 异常、或任一 VAR_IN_OUT
-            # /输出回收失败（缺声明输出、_store_output 结构错误）时保持 False，
-            # 下一拍 keep_previous 仍按首拍取 Schema 默认。Codex WP-021 Round 2
+            # /输出回收失败（缺声明输出、候选转换结构错误、Store 原子提交失败）时
+            # 保持 False，下一拍 keep_previous 仍按首拍取 Schema 默认。Codex WP-021 Round 2
             # 复现：把该赋值放在 call_adapter 之后、回收之前，一次整体失败的
             # CALL_FB 会错误推进"首次完整成功"状态，使下一拍省略不再取默认。
             self._stepped = True

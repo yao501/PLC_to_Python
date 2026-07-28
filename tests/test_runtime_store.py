@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest import mock
 
 from src.runtime import (
     DuplicateStoreKeyError,
@@ -148,6 +149,130 @@ class TestStoreBasics(unittest.TestCase):
         self.assertEqual(snap.read("x"), 1)      # 导出副本修改不回渗
         with self.assertRaises(UnknownStoreKeyError):
             snap.read("ghost")
+
+
+# ---------------------------------------------------------------------------
+# WP-20260728-036：原子批量写（全部生效或全部保持旧值）
+# ---------------------------------------------------------------------------
+#
+# `Store.write_batch` 为库块输出 Store 提交提供最小、通用的原子写能力：**单线程
+# 调用内**整批要么全部生效、要么全部目标键保持调用前值。采用提交前全量校验 +
+# 提交故障回滚——任何 Store 变更都在全部校验通过之后，故校验中途失败时 Store
+# 零变化；提交阶段逐单元切换（**非**跨线程单一可见切换、无并发读隔离），注入式
+# 提交故障由逆序回滚兜底并原样上抛（不静默冒充成功）。这些断言只验证 Python 侧
+# 单线程运行时内存底座，不构成与 CODESYS 语义、跨线程可见性或现场安全一致的证据。
+
+class TestStoreWriteBatch(unittest.TestCase):
+    def _store(self):
+        s = Store()
+        s.declare("a", "REAL", 1.0, retain=True)
+        s.declare("b", "INT", 2, persistent=True)
+        s.declare("c", "BOOL", False)
+        return s
+
+    def test_multi_key_batch_all_applied_and_metadata_kept(self):
+        s = self._store()
+        n = s.write_batch([("a", 10.0), ("b", 20), ("c", True)])
+        self.assertEqual(n, 3)
+        self.assertEqual(s.read("a"), 10.0)
+        self.assertEqual(s.read("b"), 20)
+        self.assertIs(s.read("c"), True)
+        # 元数据（iec_type/retain/persistent）不被批量写破坏
+        self.assertEqual(s.declared_type("a"), "REAL")
+        self.assertEqual(s.declared_type("b"), "INT")
+        self.assertEqual(s.retain_flags("a"), (True, False))
+        self.assertEqual(s.retain_flags("b"), (False, True))
+
+    def test_empty_batch_is_noop(self):
+        s = self._store()
+        self.assertEqual(s.write_batch([]), 0)
+        self.assertEqual(s.read("a"), 1.0)
+
+    def test_later_unknown_key_keeps_all_old(self):
+        s = self._store()
+        with self.assertRaises(UnknownStoreKeyError):
+            s.write_batch([("a", 10.0), ("ghost", 1.0)])
+        self.assertEqual(s.read("a"), 1.0)          # 第一项未残留
+        self.assertNotIn("ghost", s)                # 未声明键不被静默创建
+
+    def test_later_type_error_keeps_all_old(self):
+        s = self._store()
+        with self.assertRaises(StoreTypeError):
+            s.write_batch([("a", 10.0), ("b", 3.5)])   # b 是 INT，float 非法
+        self.assertEqual(s.read("a"), 1.0)
+        self.assertEqual(s.read("b"), 2)
+
+    def test_duplicate_target_key_rejected_keeps_all_old(self):
+        s = self._store()
+        with self.assertRaises(DuplicateStoreKeyError):
+            s.write_batch([("a", 10.0), ("a", 11.0)])   # 同键顺序覆盖歧义
+        self.assertEqual(s.read("a"), 1.0)
+
+    def test_illegal_key_rejected_keeps_all_old(self):
+        s = self._store()
+        with self.assertRaises(StoreTypeError):
+            s.write_batch([("a", 10.0), ("", 1)])
+        self.assertEqual(s.read("a"), 1.0)
+
+    def test_injected_commit_fault_on_second_rolls_back_first(self):
+        # 反证「提交故障回滚不静默冒充成功」：在第二项提交时注入故障，
+        # 第一项必须回滚到旧值、全部目标键保持旧值、异常原样上抛（不被吞）。
+        s = self._store()
+        calls = {"n": 0}
+        real = s._commit_cell
+
+        def flaky(cell, value):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("injected commit fault")
+            real(cell, value)
+
+        with mock.patch.object(s, "_commit_cell", side_effect=flaky):
+            with self.assertRaises(RuntimeError):
+                s.write_batch([("a", 10.0), ("b", 20)])
+        self.assertEqual(s.read("a"), 1.0)          # 已切换的第一项回滚
+        self.assertEqual(s.read("b"), 2)
+        # 回滚后 Store 未损坏：单键写仍正常
+        s.write("a", 5.0)
+        self.assertEqual(s.read("a"), 5.0)
+
+    def test_injected_commit_fault_on_last_rolls_back_all_priors(self):
+        # 反证「任意注入提交故障后**全部**旧值可恢复」：三项批次在最后一项
+        # 提交时注入故障 → 前两项已切换单元全部按逆序回滚、末项从未切换，
+        # 三个目标键均保持调用前值（覆盖多前项回滚，而不仅单个前项）。
+        s = self._store()
+        calls = {"n": 0}
+        real = s._commit_cell
+
+        def flaky(cell, value):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("injected commit fault on last")
+            real(cell, value)
+
+        with mock.patch.object(s, "_commit_cell", side_effect=flaky):
+            with self.assertRaises(RuntimeError):
+                s.write_batch([("a", 10.0), ("b", 20), ("c", True)])
+        self.assertEqual(s.read("a"), 1.0)          # 前两项均回滚
+        self.assertEqual(s.read("b"), 2)
+        self.assertIs(s.read("c"), False)           # 末项未切换
+        # 回滚后 Store 未损坏：后续整批写仍全部生效
+        s.write_batch([("a", 7.0), ("b", 8), ("c", True)])
+        self.assertEqual((s.read("a"), s.read("b"), s.read("c")),
+                         (7.0, 8, True))
+
+    def test_single_key_ops_not_degraded(self):
+        # 既有单键 declare/read/write/snapshot 行为与异常类型不退化
+        s = self._store()
+        s.write_batch([("a", 3.0)])
+        snap = s.snapshot()
+        s.write("a", 9.0)
+        self.assertEqual(snap.read("a"), 3.0)       # 快照隔离仍成立
+        self.assertEqual(s.read("a"), 9.0)
+        with self.assertRaises(StoreTypeError):
+            s.write("b", 1.5)
+        with self.assertRaises(UnknownStoreKeyError):
+            s.write("ghost", 1)
 
 
 # ---------------------------------------------------------------------------

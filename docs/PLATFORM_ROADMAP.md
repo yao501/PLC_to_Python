@@ -46,7 +46,7 @@
 | 层 | 职责 | 现状 |
 |---|---|---|
 | **L1 标准库** | 可被程序引用的功能块与原语（TON/TOF/.../APCM 等） | ✅ 已迁移 14 块 + 8 原语 + 授权 |
-| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心及 10/22 个 engineering adapter 已审核收口（TON/APCHSHLLIM/APCM + TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK）；其余 12 个业务块 adapter 待分批补齐 |
+| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心 + **22/22 个 engineering adapter 目录已完成独立验收**（8 原语 TON/TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK + 14 业务块 APCHSHLLIM/APCM/APCHSACCUM/APCHSFOP/APCHSRATELIM/APCHXHCL/APCSTATISTICS/APCCD/APCGCQ/APCMAUTOPARA/APCPID/APCPIDZZD/APCRSFNAUTOPARA/APCSPFINDER），`WP-20260728-040` 目录级验收全绿、待 Codex 审核；F2 变体、参数装载、真实 HAL/monitor、CODESYS 对拍仍未完成 |
 | **L3 程序模型（IR）** | 实例集 + 连接(out→in) + GVL 声明(含 RETAIN) + I/O 映射 + 执行顺序 | 🟨 正式 IR、静态校验、Store、实例布局已实现；RETAIN/PERSISTENT 仅建模，断电恢复仍属阶段 8 |
 | **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟨 显式顺序 Executor 与确定性五步单拍引擎已实现；CFC 图定序编译器仍属阶段 2 |
 | **L5 运行时安全服务** | system_ready / 输出门控 / 启动抑制 / watchdog / 安全默认值 / shadow mode | 🟨 OutputPolicy、故障安全外层运行器、提交监督器和 Python shadow 核心已实现；startup 计时、实时 monitor/watchdog 事件源、真实 HAL/现场证明未完成 |
@@ -54,7 +54,7 @@
 | **L7 I/O 与 HAL** | 驱动/协议、GVL↔物理点映射、实时循环驱动 | 🟥 未做（接现场必需） |
 | **L8 持久化** | RETAIN / PERSISTENT 变量的断电恢复 | 🟨 IR/Schema 已预留声明与 serializer 边界，真实快照/恢复未做 |
 | **L9 AI / Python 集成** | 控制逻辑与 AI/Python 程序同平台协作（**分进程** + 共享内存/IPC，D-AI；本平台的核心价值） | 🟥 未做 |
-| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 最新完整主机快照：正式 tests 1299/1299、`prototype_05` 68/68、全仓 1367/1367；GitHub CI、覆盖率、lint/type-check 仍未建立 |
+| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 最新完整主机快照（`WP-20260728-040` 实跑）：正式 tests 1383/1383、`prototype_05` 68/68、全仓 1451/1451；GitHub CI、覆盖率、lint/type-check 仍未建立 |
 
 ### 1.1 一拍执行时序（引擎核心，泛化自 `00a` 五步式）
 
@@ -83,7 +83,7 @@
 - **授权**：`src/licensing/` 一机一码 + `src/globals/LicenseContext`（每实例全局量容器，**可泛化成通用 GVL 容器**）。
 - **基建**：`config.py`（CYCLE_MS / STARTUP_INHIBIT_MS）、`validation.py`（PT_ms / TB 校验）、`compat/conversions.py`（REAL_TO_INT / REAL_TO_TIME）。
 - **契约**：`.cursor/rules/00 / 00a / 01 / 02 / 03`，其中 `00a` 已把运行时与安全机制规定齐全。
-- **测试**：2026-07-25 最新完整主机快照为正式 tests 1299/1299、`prototype_05` 68/68、全仓 Python 发现集 1367/1367；1349、1290、1250、1176、690 等均为对应历史工作包时间点的真实快照，不回写冒充当时结果，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
+- **测试**：2026-07-28（`WP-20260728-040`）最新完整主机快照为正式 tests 1383/1383、`prototype_05` 68/68、全仓 Python 发现集 1451/1451（本包前已审核基线为 1371/1439）；1367、1349、1299、1290、1250、1176、690 等均为对应历史工作包时间点的真实快照，不回写冒充当时结果，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
 
 **映射关系**：L1 已就绪；L2 把这些块补元数据即可；`LicenseContext`→L3 的 GVL 容器雏形；`00a`→L4/L5 的规格来源；`validation.py`→L5 的参数校验来源。
 
@@ -312,4 +312,4 @@
 
 ---
 
-> **下一步建议（2026-07-25 状态再基线）**：阶段 0/0.5 已冻结，阶段 1 的 IR、显式顺序引擎与安全核心已具 Python 实现；L2 当前已审核收口 10/22 个 engineering adapter。先把剩余 12 个业务块分为“5 个相对简单块”和“7 个复杂/组合/授权块”两个独立工作包，再做 22/22 目录验收；参数装载校验、软件 monitor/watchdog 事件源与阶段 1 端到端验收继续分别立项，不得把 F2、真实 HAL、现场 I/O 或现场安全证明混入这些工作包。
+> **下一步建议（2026-07-28 状态再基线）**：阶段 0/0.5 已冻结，阶段 1 的 IR、显式顺序引擎与安全核心已具 Python 实现；L2 的 **22/22 engineering adapter 目录候选已由 `WP-20260728-040` 完成本包目录级独立验收（8 原语 + 14 业务块），待本包最终 Codex 审核收口**（本包最终结论以 `docs/AI_REVIEW_HANDOFF.md` 最新 Codex verdict 为准，审核前不表述为已批准或已关闭）。当前工作区含 `WP-026`～`039` 已审核但未 Git/GitHub 收尾的累积改动加本包测试，其 **Git 提交 / GitHub 推送收尾另需用户授权、尚未执行**（由 Codex 审核并执行，Claude 不做任何 Git 写操作）。收尾之后首个工程工作包为**参数装载与启动校验**，其后依次为**软件 monitor / 周期超时 / watchdog 事件源**、**阶段 1 端到端验收**；**F2 块级 float32 仅在用户裁决需要时独立立项**，真实 HAL / 现场 I/O / CODESYS SP16.1 对拍 / 现场安全证明继续后置，不得混入上述工作包。
