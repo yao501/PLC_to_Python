@@ -46,7 +46,7 @@
 | 层 | 职责 | 现状 |
 |---|---|---|
 | **L1 标准库** | 可被程序引用的功能块与原语（TON/TOF/.../APCM 等） | ✅ 已迁移 14 块 + 8 原语 + 授权 |
-| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心 + **22/22 个 engineering adapter 目录已完成独立验收**（8 原语 TON/TOF/TP/R_TRIG/F_TRIG/SR/RS/BLINK + 14 业务块 APCHSHLLIM/APCM/APCHSACCUM/APCHSFOP/APCHSRATELIM/APCHXHCL/APCSTATISTICS/APCCD/APCGCQ/APCMAUTOPARA/APCPID/APCPIDZZD/APCRSFNAUTOPARA/APCSPFINDER），`WP-20260728-040` 目录级验收全绿、待 Codex 审核；F2 变体、参数装载、真实 HAL/monitor、CODESYS 对拍仍未完成 |
+| **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心 + **22/22 个 engineering adapter 目录已审核关闭**（8 原语 + 14 业务块），`WP-20260728-040 CLOSED` 已通过 [PR #24](https://github.com/yao501/PLC_to_Python/pull/24) 合并；F2 变体、参数装载、真实 HAL/monitor、CODESYS 对拍仍未完成 |
 | **L3 程序模型（IR）** | 实例集 + 连接(out→in) + GVL 声明(含 RETAIN) + I/O 映射 + 执行顺序 | 🟨 正式 IR、静态校验、Store、实例布局已实现；RETAIN/PERSISTENT 仅建模，断电恢复仍属阶段 8 |
 | **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟨 显式顺序 Executor 与确定性五步单拍引擎已实现；CFC 图定序编译器仍属阶段 2 |
 | **L5 运行时安全服务** | system_ready / 输出门控 / 启动抑制 / watchdog / 安全默认值 / shadow mode | 🟨 OutputPolicy、故障安全外层运行器、提交监督器和 Python shadow 核心已实现；startup 计时、实时 monitor/watchdog 事件源、真实 HAL/现场证明未完成 |
@@ -312,4 +312,4 @@
 
 ---
 
-> **下一步建议（2026-07-28 状态再基线）**：阶段 0/0.5 已冻结，阶段 1 的 IR、显式顺序引擎与安全核心已具 Python 实现；L2 的 **22/22 engineering adapter 目录候选已由 `WP-20260728-040` 完成本包目录级独立验收（8 原语 + 14 业务块），待本包最终 Codex 审核收口**（本包最终结论以 `docs/AI_REVIEW_HANDOFF.md` 最新 Codex verdict 为准，审核前不表述为已批准或已关闭）。当前工作区含 `WP-026`～`039` 已审核但未 Git/GitHub 收尾的累积改动加本包测试，其 **Git 提交 / GitHub 推送收尾另需用户授权、尚未执行**（由 Codex 审核并执行，Claude 不做任何 Git 写操作）。收尾之后首个工程工作包为**参数装载与启动校验**，其后依次为**软件 monitor / 周期超时 / watchdog 事件源**、**阶段 1 端到端验收**；**F2 块级 float32 仅在用户裁决需要时独立立项**，真实 HAL / 现场 I/O / CODESYS SP16.1 对拍 / 现场安全证明继续后置，不得混入上述工作包。
+> **下一步建议（2026-07-28 状态再基线）**：阶段 0/0.5 已冻结，阶段 1 的 IR、显式顺序引擎与安全核心已具 Python 实现；L2 **22/22 engineering adapter 目录已由 `WP-20260728-040` 审核关闭并通过 PR #24 合并**。首个后续工程工作包为**参数装载与启动校验**，其后依次为**软件 monitor / 周期超时 / watchdog 事件源**、**阶段 1 端到端验收**；**F2 块级 float32 仅在用户裁决需要时独立立项**，真实 HAL / 现场 I/O / CODESYS SP16.1 对拍 / 现场安全证明继续后置，不得混入上述工作包。
