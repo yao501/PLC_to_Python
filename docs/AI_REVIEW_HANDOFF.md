@@ -6458,3 +6458,11 @@ Claude 必须亲自逐条运行以下九条命令，分别记录每条真实 `Ra
 - 本次行政关闭不改写 Round 1/2 的实施、自审、阻塞、返修、测试计数或审核历史；工作包最终 Codex verdict 保持 `APPROVED`。
 - closed_by: user
 - closed_at: 2026-07-28 15:47:00 +0800
+
+### Git/GitHub 收尾记录
+
+- 用户于 2026-07-28 授权 Codex 执行 `WP-026`～`WP-040` 累积改动的 Git/GitHub 收尾。
+- 功能收尾分支：`codex/l2-adapters-22-catalog`；本地审核提交 `765c3d3c43b52c217fa79e50b5375a925ea6c1c2` 与 GitHub 连接器生成的远端提交 `74d87a0e362c6926488f4919010034c8adc68dc5` 具有相同 tree SHA-1 `c08b2fe30e39a56ef141f29f183fc26e374b6422`，即 17 个文件内容树逐字节一致。
+- [PR #24](https://github.com/yao501/PLC_to_Python/pull/24) 已以 merge commit 方式合并；合并提交为 `8351fdf475efdd933c8bec22c4617056b5a4d1c2`。合并前 GitHub 确认 `mergeable=true`、head SHA 无漂移，仓库未配置该提交的 CI workflow/status checks；主机发布前复跑 `test_ai_handoff` 147/147、正式 tests 1383/1383、`prototype_05` 68/68、全仓 1451/1451，均 `OK`，`git diff --check` 通过。
+- 本地 Git 智能 HTTP 两次因 GitHub 空响应/443 不可达失败；未重试已知失效的 `gh` 令牌。Codex 改用已连接 GitHub Git Data API 创建精确相同 tree 和提交并完成 PR；随后依据 GitHub 官方 Git commit 元数据重建远端 head 与带有效 GitHub 签名的 merge commit 对象，两个对象 SHA 均逐字匹配远端，再把本地 `main` 与 `origin/main` 快进到 `8351fdf…`。本机缺少 `gpg` 可执行文件，故本地 `git verify-commit` 不能运行；GitHub API 对 merge commit 的 verification 结果为 `verified=true / reason=valid`。
+- 本段只记录真实 Git/GitHub 行政收尾，不改写任何历史工作包的原始测试计数、失败、返修或审核结论。
