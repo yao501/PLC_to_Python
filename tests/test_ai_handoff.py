@@ -1322,6 +1322,35 @@ class ClaudeNamingTests(unittest.TestCase):
             plan.environment,
         )
 
+    def test_claude_execution_plan_defaults_to_eighty_max_turns_once(self):
+        adapter = ClaudeEndpointAdapter(
+            executable=sys.executable, project_root="/tmp/project", authenticated=True,
+        )
+        self.assertEqual(80, adapter.max_turns)
+        plan = adapter.command_for(self.package())
+        self.assertEqual(1, plan.command.count("--max-turns"))
+        idx = plan.command.index("--max-turns")
+        self.assertEqual("80", plan.command[idx + 1])
+        # 80 turns 与 1800 秒进程超时相互独立，默认超时不得随之改变。
+        self.assertEqual(1800, plan.timeout_seconds)
+
+    def test_claude_max_turns_injection_is_used_verbatim(self):
+        adapter = ClaudeEndpointAdapter(
+            executable=sys.executable, project_root="/tmp/project",
+            authenticated=True, max_turns=17,
+        )
+        plan = adapter.command_for(self.package())
+        idx = plan.command.index("--max-turns")
+        self.assertEqual("17", plan.command[idx + 1])
+
+    def test_claude_max_turns_rejects_invalid_values_at_construction(self):
+        for bad in (True, False, 0, -1, 1.5, "80", None):
+            with self.subTest(max_turns=bad), self.assertRaises(ValueError):
+                ClaudeEndpointAdapter(
+                    executable=sys.executable, project_root="/tmp/project",
+                    authenticated=True, max_turns=bad,
+                )
+
     def test_claude_proxy_rejects_credentials_and_socks(self):
         for proxy in ("socks5://127.0.0.1:6789", "http://user:secret@127.0.0.1:6789"):
             with self.subTest(proxy=proxy), self.assertRaises(ValueError):

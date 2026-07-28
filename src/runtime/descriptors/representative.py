@@ -21,6 +21,8 @@ from src.blocks.apchshllim import APCHSHLLIM
 from src.blocks.apcm import APCM, RealRef
 from src.primitives.timers import TON
 
+from src.runtime.descriptors.business_basic import BUSINESS_BASIC_DESCRIPTORS
+from src.runtime.descriptors.business_complex import BUSINESS_COMPLEX_DESCRIPTORS
 from src.runtime.descriptors.model import (
     BlockSchema,
     Pin,
@@ -157,19 +159,27 @@ APCM_ADAPTER = RuntimeAdapter(cls=APCM, call_adapter=_apcm_call,
 # ---------------------------------------------------------------------------
 
 def build_default_registry() -> Registry:
-    """构造含 10 个 engineering 变体的默认注册表。
+    """构造含 22 个 engineering 变体的默认注册表。
 
     三个代表性异构块（TON / APCHSHLLIM / APCM）+ 其余七个基础原语
-    （TOF / TP / R_TRIG / F_TRIG / SR / RS / BLINK，见 ``primitives.py``），
-    合计精确 10 个 ``(block_type, "engineering")`` 键。仅 engineering 变体
-    （E/F1 共用）；fidelity_f2 变体属独立按需立项，本包不注册（F2 解析时
-    注册表将按 §5 加载期失败）。**仍不代表** L2 14+8 全目录完成——剩余 12
-    个业务块 adapter 待后继独立工作包。
+    （TOF / TP / R_TRIG / F_TRIG / SR / RS / BLINK，见 ``primitives.py``）+
+    五个基础业务块（APCHSACCUM / APCHSFOP / APCHSRATELIM / APCHXHCL /
+    APCSTATISTICS，见 ``business_basic.py``）+ 七个复杂业务块（APCGCQ /
+    APCCD / APCPIDZZD / APCPID / APCSPFINDER / APCRSFNAUTOPARA /
+    APCMAUTOPARA，见 ``business_complex.py``），合计精确 22 个
+    ``(block_type, "engineering")`` 键。仅 engineering 变体（E/F1 共用）；
+    fidelity_f2 变体属独立按需立项，本包不注册（F2 解析时注册表将按 §5 加载期
+    失败）。22 键只是目录实现状态，仍须后继独立工作包做完整目录验收；
+    参数装载、F2 与真机对拍也未在此完成。
     """
     registry = Registry()
     registry.register(TON_SCHEMA, TON_ADAPTER)
     registry.register(APCHSHLLIM_SCHEMA, APCHSHLLIM_ADAPTER)
     registry.register(APCM_SCHEMA, APCM_ADAPTER)
     for schema, adapter in PRIMITIVE_DESCRIPTORS:
+        registry.register(schema, adapter)
+    for schema, adapter in BUSINESS_BASIC_DESCRIPTORS:
+        registry.register(schema, adapter)
+    for schema, adapter in BUSINESS_COMPLEX_DESCRIPTORS:
         registry.register(schema, adapter)
     return registry

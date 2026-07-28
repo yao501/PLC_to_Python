@@ -923,6 +923,7 @@ class ClaudeEndpointAdapter:
         authenticated: bool | None = None,
         proxy_url: str | None = None,
         enabled: bool = False,
+        max_turns: int = 80,
     ):
         self.executable = _resolved_executable(
             executable,
@@ -931,6 +932,7 @@ class ClaudeEndpointAdapter:
         )
         self.project_root = Path(project_root or Path.cwd()).resolve()
         self.timeout_seconds = timeout_seconds
+        self.max_turns = self._validated_max_turns(max_turns)
         self.model = model
         self.authenticated = authenticated
         self.proxy_url = self._validated_proxy_url(proxy_url)
@@ -946,6 +948,17 @@ class ClaudeEndpointAdapter:
             self.reason = "Claude Code CLI 已安装并登录；生产执行生命周期安全门尚未打开"
         else:
             self.reason = "Claude Code CLI 已发现；启动时不读取凭据，生产执行生命周期安全门尚未打开"
+
+    @staticmethod
+    def _validated_max_turns(max_turns: int) -> int:
+        # 单个 Claude CLI 外部进程允许的最大 turns；与 timeout_seconds、工作包
+        # max_rounds 相互独立，任一先到即停止。必须是真正的正整数，构造期失败关闭，
+        # 不静默取整、字符串转数或回退默认值。
+        if isinstance(max_turns, bool) or not isinstance(max_turns, int):
+            raise ValueError("Claude max_turns 必须是 int 正整数，禁止 bool 或非整数类型")
+        if max_turns <= 0:
+            raise ValueError("Claude max_turns 必须是正整数（> 0）")
+        return max_turns
 
     @staticmethod
     def _validated_proxy_url(proxy_url: str | None) -> str | None:
@@ -1006,7 +1019,7 @@ class ClaudeEndpointAdapter:
             action=action,
             command=[
                 self.executable, "-p", prompt,
-                "--output-format", "json", "--max-turns", "40",
+                "--output-format", "json", "--max-turns", str(self.max_turns),
                 "--model", self.model, "--permission-mode", "dontAsk",
                 "--allowedTools",
                 "Read,Edit,Write,Glob,Grep,Bash(python *),Bash(python3 *),"

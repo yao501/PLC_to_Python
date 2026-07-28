@@ -224,8 +224,14 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 - Codex 使用 ChatGPT App 内置的非交互 CLI。执行计划固定项目目录、
   `workspace-write` 沙箱和临时会话；不使用跳过沙箱的危险参数。
 - Claude 使用官方 Claude Code CLI，安装位置为 `~/.local/bin/claude`。计划采用
-  `-p` 非交互模式、JSON 输出、固定 `opus` 模型、最大轮次、超时、`dontAsk` 失败关闭，
-  并显式禁止 `git`、`gh`、`rm`、`sudo` 命令。
+  `-p` 非交互模式、JSON 输出、固定 `opus` 模型、`--max-turns` 默认 `80`、超时、`dontAsk`
+  失败关闭，并显式禁止 `git`、`gh`、`rm`、`sudo` 命令。
+- 必须区分四个互不等价的上限，任一先到即停止：① `--max-turns`（单个 Claude CLI 外部进程内
+  agent 允许的最大 turns，默认 `80`，由 adapter 构造参数锁定并做正整数校验）；
+  ② 工作包协议 `max_rounds=3`（实施—审核自动往返轮次）；③ 进程 `timeout_seconds=1800`
+  （30 分钟墙钟超时）；④ Anthropic 账户订阅额度（五小时/每周）。把 40 提升为 80 只放宽 ①，
+  不改变 ②③④，也不消除所有 Claude 中断，更不允许绕过订阅限制：达到 30 分钟超时、账户额度、
+  权限拒绝、连接错误或协议门禁失败时仍必须失败关闭。
 - 普通启动时两个 adapter 均为 `available=True, enabled=False`，`DryRunScheduler` 永不调用
   `adapter.execute()`；只有 `--enable-external-processes` 创建的 `EventDrivenScheduler`
   才会把合法状态交给异步执行协调器。

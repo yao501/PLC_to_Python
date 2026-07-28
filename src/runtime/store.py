@@ -229,6 +229,69 @@ class Store:
             )
         cell.value = value
 
+    def write_batch(self, items) -> int:
+        """**单线程调用内**的原子批量写：整批要么全部生效、要么全部目标键
+        保持调用前值。
+
+        通用能力（非任何具体块的特例）：``items`` 为 ``(key, value)`` 序列。
+        实现采用**提交前全量校验 + 提交故障回滚**——先完整物化本批次并逐项
+        校验（拒绝重复目标键、拒绝未声明键、值须符合声明 IEC 结构类型），
+        **任何 Store 变更都发生在全部校验通过之后**；故校验阶段任一步失败时
+        Store 零变化（第一项及其余目标键都未被触碰）。
+
+        提交阶段**逐单元**先记旧值再赋值（``_commit_cell``）；正常路径下
+        ``_Cell.value`` 赋值不会失败，提交阶段的回滚仅为对**注入式提交故障**
+        的兜底：任一提交异常时把已切换的单元按逆序回滚到旧值并**原样上抛**
+        （不吞异常、不静默冒充成功）。回滚本身是普通 ``_Cell.value`` 赋值、
+        不会自身失败，故不残留不可诊断半写。
+
+        **并发边界（诚实声明，不过度承诺）**：本方法**不提供跨线程并发读隔离**
+        ——提交是逐单元顺序赋值，**不是**“跨线程单一可见切换”；另一线程若在
+        提交循环中途读取，可观察到部分已切换的值。全成功 / 全回滚的原子性仅在
+        **单线程扫描执行域内**（提交期间无并发读）成立。整拍事务、块对象内部
+        状态回滚、持久化与真机语义均不由本方法承担（见
+        ``PLATFORM-EXEC-STORE-ATOMICITY-1``）。
+
+        与 ``write`` 同口径：不做隐式转换、不静默创建未声明键、不删除声明、
+        不弱化 ``check_value_type`` 检查；空批次是合法 no-op。返回提交项数。
+        """
+        materialized = list(items)
+        seen: set = set()
+        resolved: list = []          # [(cell, value)]，全部校验通过后才提交
+        for key, value in materialized:
+            if not key or not isinstance(key, str):
+                raise StoreTypeError("原子批量写非法键：%r" % (key,))
+            if key in seen:
+                raise DuplicateStoreKeyError(
+                    "原子批量写目标键 '%s' 重复（同键顺序覆盖歧义，拒绝）" % key)
+            seen.add(key)
+            cell = self._cells.get(key)
+            if cell is None:
+                raise UnknownStoreKeyError(
+                    "原子批量写未声明键 '%s'（未声明键不得被静默创建）" % key)
+            if not check_value_type(cell.iec_type, value):
+                raise StoreTypeError(
+                    "原子批量写键 '%s' 写入值 %r 与声明类型 %s 不匹配"
+                    "（不做隐式转换）" % (key, value, cell.iec_type))
+            resolved.append((cell, value))
+        # 提交：以上校验全部通过后才逐单元切换（非跨线程单一可见切换——
+        # 无并发读隔离）。逐项先记旧值再切换，任一提交异常时按逆序回滚
+        # 已切换单元并原样上抛。
+        committed: list = []
+        try:
+            for cell, value in resolved:
+                committed.append((cell, cell.value))
+                self._commit_cell(cell, value)
+        except BaseException:
+            for cell, old in reversed(committed):
+                cell.value = old
+            raise
+        return len(resolved)
+
+    def _commit_cell(self, cell, value) -> None:
+        """单元格可见切换的唯一落点（供提交故障注入测试覆盖回滚路径）。"""
+        cell.value = value
+
     # ---- 元数据 ----
     def declared_type(self, key: str) -> str:
         cell = self._cells.get(key)
