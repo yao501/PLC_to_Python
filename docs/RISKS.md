@@ -135,6 +135,8 @@
 
 > **RUNTIME-PARAM-VALIDATION 当前收口叠加（WP-20260729-042，2026-07-29）**：上表状态与 (C)/(D) 中的“待 Codex 审核”分别是 WP-041 实施交接、WP-042 Round 1 交接时点的历史表述，原文和测试数字保留不回写；当前 WP-042 已由 Claude 完成 Round 2 v2 自审/原子交接、Codex 独立审核 `APPROVED`，并由用户确认 `CLOSED`。当前静态启动装配子范围已审核关闭，最新完整主机快照为正式 tests 1441/1441、`prototype_05` 68/68、全仓 1509/1509；但本风险总项继续 `blocker / in-progress`，剩余边界以 (D-R2) 末段为准，不外推为 PLC/CODESYS、HAL/I/O、watchdog、持久化或现场安全证明。
 
+> **RUNTIME-PARAM-VALIDATION Git/GitHub 收口叠加（PR #26，2026-07-29）**：上述 WP-041/042 静态启动装配子范围已通过 [PR #26](https://github.com/yao501/PLC_to_Python/pull/26) 合并（merge `495ebb1e3dc7ae457e4986f3024d0bf266d0278a`）；这只完成已审核子范围的版本库收口，不改变本风险总项 `blocker / in-progress` 状态，也不扩大其验证边界。
+
 ---
 
 ## 三-A、平台演进相关（Platform 系列）
