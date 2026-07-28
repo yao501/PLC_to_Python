@@ -489,10 +489,32 @@ class TestBusinessBasicDescriptors(unittest.TestCase):
             "AV", "SS", "IV", "MS", "MC", "LR", "preRS", "bPositiveAccum"}))
         # IV/MS/MC 是实例级配置，不冒充 step 输入或 ctor_args 共享依赖
         self.assertEqual(a.ctor_args, ())
-        # 非默认构造配置留给后续参数装载工作包：本包不声明 init_overridable/hmi
-        self.assertEqual(s.init_overridable, frozenset())
+        # WP-20260728-041：本包把 IV/MS/MC 声明为 init_overridable（仅上电/装载
+        # 时可覆盖的实例状态字段，⊆ state_vars），供启动装配层按 InstanceDecl.
+        # ctor_args 关键字构造覆盖；hmi_writable 保持空集（本包不实现在线写），
+        # 两集合正交。
+        self.assertEqual(s.init_overridable, frozenset({"IV", "MS", "MC"}))
+        self.assertTrue(s.init_overridable <= s.state_vars)
         self.assertEqual(s.hmi_writable, frozenset())
         self.assertIs(a.cls, APCHSACCUM)
+
+    def test_all_other_schemas_declare_empty_init_overridable(self):
+        # WP-20260728-041：仅 APCHSACCUM 开放构造覆盖；其余 21 个默认 Registry
+        # Schema 的 init_overridable/hmi_writable 均为空——不把普通 step 输入或
+        # 内部状态误当构造配置。to_json 两集合分别序列化且严格 JSON 可序列化。
+        reg = build_default_registry()
+        for block_type in reg.block_types():
+            schema, _ = reg.resolve(block_type, "engineering")
+            js = json.loads(json.dumps(schema.to_json()))
+            self.assertIn("init_overridable", js)
+            self.assertIn("hmi_writable", js)
+            self.assertEqual(js["hmi_writable"], [])
+            if block_type == "APCHSACCUM":
+                self.assertEqual(js["init_overridable"], ["IV", "MC", "MS"])
+            else:
+                self.assertEqual(
+                    js["init_overridable"], [],
+                    "%s 不应声明 init_overridable" % block_type)
 
     def test_apchsaccum_av_lreal_survives_json_serialization(self):
         # AV:LREAL 必须原样穿过纯数据 Schema 序列化；Python float 的共同

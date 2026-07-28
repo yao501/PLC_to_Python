@@ -95,8 +95,15 @@ from src.runtime.commit_supervisor import (
     CommitSupervisorError, CommitSupervisorConfigError,
     CommitSupervisorReentryError, PartialCommitError,
 )
+from src.runtime.parameters import (
+    build_runtime, RuntimeAssembly, StartupWarning,
+    StartupError, StartupValidationError,
+)
 
 __all__ = [
+    # 启动期参数装载核心与失败关闭装配入口（WP-20260728-041）
+    "build_runtime", "RuntimeAssembly", "StartupWarning",
+    "StartupError", "StartupValidationError",
     # 提交监督器：驱动确认提交证据 + 逐通道 commit_fault/channel_fault（WP-20260721-009）
     "CommitSupervisor", "CommitReceipt", "ChannelCommitStatus", "CommitOutcome",
     "CommitSupervisorError", "CommitSupervisorConfigError",
