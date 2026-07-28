@@ -37,8 +37,8 @@ class InstanceDecl:
     name: str
     block_type: str           # 库块查 COMPONENT_CONTRACT 的 REGISTRY；用户 FB 查 pou_lib
     kind: str = "library"     # "library"（标准库块→CALL_FB）/ "user_fb"（用户 FB→CALL_FB_INSTANCE），lowering 据此选指令
-    ctor_args: dict = {}
-    init_overrides: dict = {}
+    ctor_args: dict = {}       # 单实例关键字构造配置（见下）；≠ RuntimeAdapter.ctor_args（共享依赖名）
+    init_overrides: dict = {}  # Store 管脚**装载初值**覆盖；不代表"该输入本拍已驱动"
     retain: set[str] = set()   # RETAIN 状态变量名（§9）
 
 @dataclass
@@ -57,6 +57,16 @@ class IOMap:                   # GVL 变量 ↔ 物理点（含 OutputPolicy，�
     direction: str            # "IN" / "OUT"
     policy: "OutputPolicy" = None   # OUT 方向必填
 ```
+
+> **`InstanceDecl.ctor_args` 语义澄清（WP-20260728-041）**：`InstanceDecl.ctor_args`
+> 是**单个实例的关键字构造配置** `dict[str, value]`，只能命中该实例
+> `BlockSchema.init_overridable` 且须再过参数类型/值校验；它与
+> `RuntimeAdapter.ctor_args`（`tuple[str, ...]`，从任务 `dependencies` 注入的
+> **共享**构造依赖名，如 `license_context`）是两个不同层，不得互相覆盖、位置
+> 传递或以 Python 签名猜测（详见 `COMPONENT_CONTRACT.md §3.2`）。
+> `init_overrides` 是 Store 管脚**装载初值**通道，`required` 仍须真实连线/驱动，
+> 某个初值不得被解释为"该输入本拍已驱动"。启动装配（`src/runtime/parameters.py`）
+> 先纯校验汇总硬错误再构建，任一硬错误一次性失败关闭、不返回半构造运行时。
 
 ## 3. POU 模型（阶段 0.5 扩展）
 

@@ -28,9 +28,11 @@
   默认，**非** keep_previous）；输出 ``AV:REAL`` / ``SS:BOOL`` 分别
   ``return:AV`` / ``return:SS``。跨拍状态
   ``AV/SS/IV/MS/MC/LR/preRS/bPositiveAccum``——``IV/MS/MC`` 是 VAR RETAIN
-  配置（**非** step 输入、**不**借 ctor_args 冒充共享依赖），``bPositiveAccum``
-  源 ST 保留字段不增行为。``init_overridable/hmi_writable`` 本包留空，非默认
-  构造配置留给后续参数装载工作包。
+  配置（**非** step 输入、**不**借共享 ctor 依赖冒充），``bPositiveAccum``
+  源 ST 保留字段不增行为。``init_overridable={"IV","MS","MC"}``（仅上电/装载
+  可覆盖的实例状态字段，⊆ state_vars；WP-20260728-041 起由启动装配层按
+  ``InstanceDecl.ctor_args`` 关键字覆盖，值级校验属 parameters.py）；
+  ``hmi_writable`` 仍留空（本包不实现运行期在线写）。
 - ``APCHXHCL``：故障检测 + 最近一分钟均值 + 一阶惯性滤波 + 故障均值冻结。
   内部 ``TOF1/TOF2/R_TRIG3`` 由源块自身构造，adapter 只调用一次顶层 ``step``
   （不重复推进内部原语）。``EN:BOOL / PV:REAL / FV:REAL`` ``required``；
@@ -188,10 +190,16 @@ APCHSACCUM_SCHEMA = BlockSchema(
     descriptor_version="1.0",
     # 跨拍状态：公开输出 AV/SS + VAR RETAIN 配置 IV/MS/MC + 内部 LR/preRS +
     # 源 ST 保留但 body 未用的 bPositiveAccum（保留字段不增行为，AC4）。
-    # IV/MS/MC 是实例级配置（非 step 输入、非 ctor_args 共享依赖）；本包只用
-    # 默认构造，非默认配置留给后续参数装载工作包（init_overridable 留空）。
+    # IV/MS/MC 是实例级 VAR RETAIN 配置（非 step 输入、非共享 ctor 依赖）。
     state_vars=frozenset({"AV", "SS", "IV", "MS", "MC", "LR", "preRS",
                           "bPositiveAccum"}),
+    # WP-20260728-041：IV/MS/MC 声明为“仅上电/装载时可覆盖的实例状态字段”
+    # （init_overridable，须 ⊆ state_vars），供启动装配层按 InstanceDecl.ctor_args
+    # 关键字构造覆盖。值级校验（有限实数、拒绝 bool/NaN/±Inf、默认
+    # IV=0.0/MS=1.797693134862e38/MC=1.0）由 src/runtime/parameters.py 负责；
+    # 本包不新增源码没有的 MS>0/MC>0/IV 关系约束。hmi_writable 保持空集（本包
+    # 不实现运行期在线写）；其余 21 个 Schema 的 init_overridable 仍为空。
+    init_overridable=frozenset({"IV", "MS", "MC"}),
     output_access={"AV": "return:AV", "SS": "return:SS"},
 )
 

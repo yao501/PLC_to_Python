@@ -4017,5 +4017,124 @@ class TestCatalog22CoverageMatrix(unittest.TestCase):
                     self.assertIn(key, layout.store, (block_type, pin.name))
 
 
+# ---------------------------------------------------------------------------
+# WP-20260729-042：绕过 build_runtime 的直连路径也对 APCHSACCUM 构造值失败关闭
+#
+# build_runtime_store(task, registry) → Executor(..., registry=registry) 是既有
+# 直连路径。启动装配层（parameters.build_runtime）之外，该路径同样必须拒绝
+# APCHSACCUM 已授权 IV/MS/MC 的非法构造值（bool/字符串/NaN/±Inf），错误为带
+# 实例路径/块类型/参数名的稳定 LibraryRuntimeError，且在块实例构造前失败。
+# 值判定与 build_runtime 同源（executor.check_ctor_value），值集合不漂移。
+# 这些 Python 对照 **不构成** 与 CODESYS 语义一致的证据。
+# ---------------------------------------------------------------------------
+
+class TestExecutorDirectCtorValueGate(unittest.TestCase):
+    _BAD_VALUES = [True, "1.0", float("nan"), float("inf"), float("-inf")]
+
+    def _accum_task(self, ctor_args=None, name="A1"):
+        inst = InstanceDecl(name, "APCHSACCUM", kind="library",
+                            ctor_args=dict(ctor_args or {}))
+        return _task(pous=[_prog("Main", [], instances=[inst])])
+
+    def test_direct_path_rejects_illegal_ctor_values_before_construct(self):
+        # 逐项覆盖 True/字符串/NaN/±Inf：每项都在 adapter.construct 前失败，
+        # 错误含实例路径/块类型/参数名，Registry 未被修改。
+        for bad in self._BAD_VALUES:
+            with self.subTest(bad=bad):
+                reg = build_default_registry()
+                before_keys = reg.keys()
+                task = self._accum_task(ctor_args={"IV": bad})
+                layout = build_runtime_store(task, reg)
+                # patch 类级 construct：若闸门未先失败，mock 会被调用 → 断言失败。
+                with mock.patch.object(RuntimeAdapter, "construct") as m_ctor:
+                    with self.assertRaises(LibraryRuntimeError) as cm:
+                        Executor(task, layout, registry=reg)
+                m_ctor.assert_not_called()          # 在 construct 前失败
+                msg = str(cm.exception)
+                self.assertIn("PLC_PRG.A1", msg)    # 实例路径
+                self.assertIn("APCHSACCUM", msg)    # 块类型
+                self.assertIn("IV", msg)            # 参数名
+                self.assertEqual(reg.keys(), before_keys)   # Registry 未被修改
+
+    def test_direct_path_does_not_mutate_deps_or_caller_config(self):
+        # 传入 dependencies 与调用方配置映射（InstanceDecl.ctor_args）不被修改。
+        reg = build_default_registry()
+        before_keys = reg.keys()
+        sentinel = object()
+        deps = {"unused": sentinel}
+        cfg = {"MS": "1.0"}                 # 非 NaN，便于精确等值比较
+        cfg_snapshot = dict(cfg)
+        task = self._accum_task(ctor_args=cfg)
+        layout = build_runtime_store(task, reg)
+        with self.assertRaises(LibraryRuntimeError):
+            Executor(task, layout, registry=reg, dependencies=deps)
+        self.assertEqual(reg.keys(), before_keys)
+        self.assertEqual(deps, {"unused": sentinel})
+        self.assertIs(deps["unused"], sentinel)
+        self.assertEqual(task.pou_lib["Main"].instances[0].ctor_args,
+                         cfg_snapshot)
+
+    def test_direct_path_accepts_legal_int_and_float_no_invented_constraints(self):
+        # 合法有限 int/float（含负有限、有限大值）继续被接受；不臆造
+        # MS>0/MC>0/IV-MS 关系约束；非零 IV 冷启动 AV=0.0 不变。
+        reg = build_default_registry()
+        cfg = {"IV": 7, "MS": -3.5, "MC": 1.0e30}      # int 与 float 混用
+        task = self._accum_task(ctor_args=cfg)
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        rt = ex._adapters["PLC_PRG.A1"].instance
+        self.assertEqual((rt.IV, rt.MS, rt.MC), (7, -3.5, 1.0e30))
+        self.assertEqual(rt.AV, 0.0)                    # 非零 IV 冷启动 AV=0.0
+
+    def test_direct_path_accepts_zero_ctor_values(self):
+        reg = build_default_registry()
+        cfg = {"IV": 0, "MS": 0.0, "MC": 0}
+        task = self._accum_task(ctor_args=cfg)
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)
+        rt = ex._adapters["PLC_PRG.A1"].instance
+        self.assertEqual((rt.IV, rt.MS, rt.MC), (0, 0.0, 0))
+        self.assertEqual(rt.AV, 0.0)
+
+    def test_direct_path_accepts_large_finite_int_no_overflow(self):
+        # 任务书声明合法：有限大 Python int（如 10**1000）。直连闸门在
+        # adapter.construct 前对其调用 check_ctor_value 时不得泄漏 OverflowError
+        # （Python 任意精度 int 恒为有限、无 NaN/±Inf，不得先转 C double），
+        # 须接受并透传，非零 IV 冷启动 AV=0.0 不变。
+        reg = build_default_registry()
+        big = 10 ** 1000
+        task = self._accum_task(ctor_args={"IV": big})
+        layout = build_runtime_store(task, reg)
+        ex = Executor(task, layout, registry=reg)   # 不抛 OverflowError
+        rt = ex._adapters["PLC_PRG.A1"].instance
+        self.assertEqual(rt.IV, big)
+        self.assertIsInstance(rt.IV, int)
+        self.assertEqual(rt.AV, 0.0)
+
+    def test_same_source_rule_as_build_runtime(self):
+        # 值判定同源：同一非法值集合，build_runtime 与直连路径都拒绝
+        # （层级分别为 StartupValidationError 与 LibraryRuntimeError）；合法值
+        # 两路径都接受。check_ctor_value 是唯一判定口径，值集合不漂移。
+        from src.runtime.parameters import (
+            build_runtime, StartupValidationError)
+        from src.runtime.executor import check_ctor_value
+        for bad in self._BAD_VALUES:
+            with self.subTest(bad=bad):
+                self.assertFalse(check_ctor_value(bad)[0])
+                with self.assertRaises(StartupValidationError):
+                    build_runtime(self._accum_task(ctor_args={"MC": bad}),
+                                  build_default_registry())
+                reg = build_default_registry()
+                t = self._accum_task(ctor_args={"MC": bad})
+                layout = build_runtime_store(t, reg)
+                with self.assertRaises(LibraryRuntimeError):
+                    Executor(t, layout, registry=reg)
+        # 合法有限值两路径都接受，含有限大 int 10**1000（check_ctor_value 对整数
+        # 不调用 math.isfinite，故不泄漏 OverflowError）。
+        for good in (0, -3.5, 1.0e30, 7, 10 ** 1000):
+            with self.subTest(good=good):
+                self.assertTrue(check_ctor_value(good)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -66,6 +66,7 @@ Python 侧行为不构成与目标 PLC 语义一致的证据（一致性属阶�
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
@@ -113,6 +114,34 @@ from src.runtime.store import (
     check_value_type,
     persistent_key,
 )
+
+
+# ---------------------------------------------------------------------------
+# 库块实例构造覆盖值的纯校验（无副作用；两个入口共用同源规则）
+# ---------------------------------------------------------------------------
+
+def check_ctor_value(value):
+    """库块实例**单实例关键字构造覆盖**取值的纯校验（当前仅 APCHSACCUM
+    IV/MS/MC）：须为**有限的 int/float 实数**，拒绝 ``bool``、字符串、``NaN``、
+    ``±Inf``。返回 ``(ok: bool, why: str)``，**无副作用、不触碰 Store/Registry**。
+
+    本函数是**唯一**值判定口径，供启动装配层
+    （``parameters.build_runtime`` 纯校验汇总）与 ``Executor`` 直连闸门
+    （``_build_library_runtimes`` 在 ``adapter.construct`` 前失败关闭）共同复用，
+    杜绝两套易漂移规则（源码依赖裁决：``parameters → executor`` 单向依赖，
+    值级校验收口在 ``executor``，``Executor`` 不反向导入 ``parameters``）。
+    不依赖 ``bool`` 是 ``int`` 子类放宽 IEC 类型。"""
+    if isinstance(value, bool):
+        return False, "值不得为 bool（bool 是 int 子类，不放宽 IEC 类型）：%r" % (value,)
+    if not isinstance(value, (int, float)):
+        return False, ("值必须是有限的 int/float 实数，得到 %r（类型 %s）"
+                       % (value, type(value).__name__))
+    # Python 任意精度 int 恒为有限，且没有 NaN/±Inf；对其调用 math.isfinite 会先把
+    # 大整数转成 C double，超范围时反而抛 OverflowError（例如 10**1000）。故整数直接
+    # 接受，只有 float 才需 NaN/±Inf 判定（任务书未设整数位宽/binary64 上界）。
+    if isinstance(value, float) and not math.isfinite(value):
+        return False, "值必须有限，拒绝 NaN/±Inf：%r" % (value,)
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -486,10 +515,43 @@ class Executor:
         runtimes: dict = {}
         for path, inst in self.layout.library_instances:
             schema, adapter = registry.resolve(inst.block_type, variant)
-            instance = adapter.construct(dependencies)
+            # 纵向失败关闭（WP-20260728-041）：单实例关键字构造配置
+            # （`InstanceDecl.ctor_args`）必须已由 Schema `init_overridable`
+            # 授权、且不得与共享构造依赖同名。此为独立于启动装配层的防御闸门
+            # ——未授权/未知/冲突配置一律拒绝，绝不臆测块构造签名自动开放参数。
+            self._check_instance_ctor_args(path, inst, schema, adapter)
+            instance = adapter.construct(dependencies, inst.ctor_args)
             runtimes[path] = _LibraryRuntime(path, schema, adapter, instance,
                                              self.store, self.mode)
         return runtimes
+
+    @staticmethod
+    def _check_instance_ctor_args(path, inst, schema, adapter) -> None:
+        """库块实例关键字构造配置的授权/冲突/取值闸门（纵向失败关闭）。
+
+        本闸门是**独立于启动装配层**（``parameters.build_runtime``）的防御纵深
+        ——绕过 ``build_runtime`` 的既有直连路径
+        ``build_runtime_store(task, registry) → Executor(..., registry=registry)``
+        同样在此拒绝未授权/冲突键**以及**非法构造取值（``bool``/字符串/``NaN``/
+        ``±Inf``）。取值判定复用同源纯校验 :func:`check_ctor_value`（值集合不漂移）。
+        键按确定顺序遍历，报错稳定；本方法在 ``adapter.construct`` **之前**调用，
+        非法配置在块实例构造前失败。"""
+        shared = set(adapter.ctor_args)
+        for key in sorted(inst.ctor_args):
+            if key in shared:
+                raise LibraryRuntimeError(
+                    "库块实例 '%s'（%s）构造配置 '%s' 与共享构造依赖同名，"
+                    "不能遮蔽任务依赖" % (path, inst.block_type, key))
+            if key not in schema.init_overridable:
+                raise LibraryRuntimeError(
+                    "库块实例 '%s'（%s）构造配置 '%s' 未被 Schema "
+                    "init_overridable 授权（未声明的构造覆盖一律拒绝，"
+                    "不臆测块构造签名）" % (path, inst.block_type, key))
+            ok, why = check_ctor_value(inst.ctor_args[key])
+            if not ok:
+                raise LibraryRuntimeError(
+                    "库块实例 '%s'（%s）构造配置 '%s' %s"
+                    % (path, inst.block_type, key, why))
 
     # ------------------------------------------------------------------
     # 公开入口

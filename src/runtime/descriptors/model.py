@@ -237,6 +237,16 @@ class BlockSchema:
             raise SchemaValidationError(
                 "retainable 必须是 state_vars 的子集，越界项：%s"
                 % sorted(self.retainable - self.state_vars))
+        # init_overridable（COMPONENT_CONTRACT §3.1，WP-20260728-041）：仅“上电/
+        # 装载时允许覆盖的实例状态字段”，必须是 state_vars 的子集——普通 step
+        # 输入管脚或未声明状态不得冒充装载配置。与 hmi_writable 正交（后者为
+        # 运行期在线写候选，本包保持空集、不实现运行期写入）：两集合是相互
+        # 独立的分类轴，不共用授权，也不因一方声明而放宽另一方。
+        if not self.init_overridable <= self.state_vars:
+            raise SchemaValidationError(
+                "init_overridable 必须是 state_vars 的子集（仅上电/装载时可覆盖的"
+                "实例状态字段，与 hmi_writable 正交），越界项：%s"
+                % sorted(self.init_overridable - self.state_vars))
 
         # output_access：键须为已声明输出管脚，规则合法，且覆盖全部输出
         out_names = {p.name for p in outputs}
@@ -305,8 +315,11 @@ class RuntimeAdapter:
     """块的进程内运行绑定（COMPONENT_CONTRACT v2.1 §3.1 ``RuntimeAdapter``）。
 
     - ``cls``：已迁移的 Python 块类（**零改动**，D1）。
-    - ``ctor_args``：构造依赖名（如 ``("license_context",)``）；由运行时从
-      注入的共享依赖解析，保持"同任务内共享同一 context"语义。
+    - ``ctor_args``：**共享构造依赖名** tuple（如 ``("license_context",)``）；
+      由运行时从任务注入的共享依赖按声明顺序**位置**解析，保持"同任务内共享
+      同一 context"语义。**注意**与 ``InstanceDecl.ctor_args``（单实例关键字
+      构造配置 dict）是两个不同概念，二者不得互相遮蔽（``construct`` 对名称
+      冲突 fail-closed）。
     - ``call_adapter(instance, dt_ms, resolved_inputs, inout_refs) ->
       outputs_dict``：唯一与块打交道的函数——按真实签名调用 ``step``、注入
       ``VAR_IN_OUT`` 引用、按 ``output_access`` 收集输出。
@@ -330,8 +343,20 @@ class RuntimeAdapter:
         if self.serializer is not None and not callable(self.serializer):
             raise AdapterBindingError("serializer 若提供必须可调用")
 
-    def construct(self, dependencies: Mapping[str, Any]) -> Any:
-        """按 ``ctor_args`` 从注入依赖构造块实例（缺依赖 fail-closed）。"""
+    def construct(self, dependencies: Mapping[str, Any],
+                  ctor_kwargs: Optional[Mapping[str, Any]] = None) -> Any:
+        """构造块实例：共享依赖按 ``ctor_args`` 位置注入 + 单实例关键字配置。
+
+        - ``dependencies``：任务级共享构造依赖映射（如 ``license_context``），
+          按 ``self.ctor_args`` 声明顺序**位置**送入；缺依赖 fail-closed。
+        - ``ctor_kwargs``（可选，来自 IR ``InstanceDecl.ctor_args``）：单实例
+          **关键字**构造配置，只按关键字送入块构造器；与共享依赖名称冲突时
+          fail-closed（不得位置/关键字遮蔽任务依赖）。``None`` 时退化为旧的
+          纯共享依赖构造，保持既有无参配置调用兼容。授权（键是否属该块
+          ``BlockSchema.init_overridable``）与值类型/范围校验属启动装配层
+          （``src/runtime/parameters.py``），本方法只做依赖解析、名称冲突
+          闸门并把关键字透传给块构造器（未知关键字由块构造器自身拒绝）。
+        """
         args = []
         for name in self.ctor_args:
             if name not in dependencies:
@@ -339,4 +364,10 @@ class RuntimeAdapter:
                     "构造依赖 '%s' 未注入（%s 无法实例化）"
                     % (name, self.cls.__name__))
             args.append(dependencies[name])
-        return self.cls(*args)
+        kwargs = dict(ctor_kwargs) if ctor_kwargs else {}
+        conflict = set(kwargs) & set(self.ctor_args)
+        if conflict:
+            raise AdapterBindingError(
+                "实例构造配置 %s 与共享构造依赖同名，不能遮蔽任务依赖"
+                "（fail-closed）" % sorted(conflict))
+        return self.cls(*args, **kwargs)

@@ -79,6 +79,18 @@ class BlockDescriptor:
 - **`RuntimeAdapter`**（进程内绑定）：`cls`/`call_adapter`/`serializer`/`ctor_args` 解析。
 - 注册表存 `(schema, adapter)` 对；文档/工具/导入导出只依赖 `BlockSchema`。本文件的 `BlockDescriptor` 视为两者的逻辑合并视图。
 
+### 3.2 两个 `ctor_args` 层与启动装配失败关闭（WP-20260728-041 澄清）
+
+本包起启动装配层（`src/runtime/parameters.py::build_runtime`）实际落地以下语义，做**最小契约澄清**（不改阶段路线、不改历史版本结论）：
+
+- **两个同名 `ctor_args` 永久区分**：
+  - `RuntimeAdapter.ctor_args: tuple[str, ...]` 只表示从任务 `dependencies` 注入的**共享**构造依赖名（如 `license_context`），按声明顺序位置解析，保持"同任务共享同一 context"（`APCM`/`APCPID`/`APCPIDZZD` 共享 `LicenseContext`）；
+  - `InstanceDecl.ctor_args: dict[str, value]`（IR_SPEC §2）只表示**单实例关键字**构造配置，只能命中该实例 `BlockSchema.init_overridable` 且须再过参数类型/值校验；
+  - 两者不得互相覆盖/遮蔽/位置传递/静默丢弃；实例配置与共享依赖同名时**失败关闭**（不得遮蔽任务依赖）。不得用 `inspect.signature` 自动开放构造参数——Python 签名只作已授权后的二次一致性反证，Schema 未声明的构造覆盖一律拒绝。
+- **`init_overridable` ⊥ `hmi_writable`**（承接 v2.1 拆分）：`init_overridable` 是"仅上电/装载时可覆盖的实例状态字段"，须 ⊆ `state_vars`；两集合是相互独立的分类轴，不共用授权、不因一方声明放宽另一方。本包只 `APCHSACCUM` 声明 `init_overridable={"IV","MS","MC"}`，其余 21 个 Schema 保持空集；`hmi_writable` 全部保持空集（本包不实现运行期在线写）。
+- **`init_overrides` 不代表每拍驱动**：它是 Store 管脚**装载初值**通道，`required` 仍须真实连线/驱动，`use_default`/`keep_previous`/`none_means_no_write` 语义不变；某个初值不得被解释为"该输入本拍已驱动"。
+- **启动装配失败关闭**：先纯校验并以确定顺序汇总硬错误 → 若有错误一次性失败（不返回半构造 Store/Executor、不改传入 `dependencies`/配置映射、不污染 Registry）→ 全部通过后才构建布局/Store、构造全部 library runtime 并一次性返回；重试同一合法输入必得全新 Store/Executor/块实例。显式时间参数目录只对**实际出现在** `init_overrides`/启动配置中的装载值发结构化 warning（不升级为失败、不 round/coerce）。
+
 ### 2.x fidelity 模式与"零改动"的取舍（对齐 TARGET_PROFILE §4）
 
 - **engineering / F1**：用现有 64 位块，描述符 `variant="engineering"`，**零改动**；F1 的边界 REAL32/整数回绕由可执行 IR 在边界处施加（不进块，边界清单见 `IR_SPEC §5.3`）。
