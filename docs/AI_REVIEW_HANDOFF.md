@@ -8547,3 +8547,14 @@ Codex 独立复跑上述九条、未预告反证与 `git diff --check`。Python 
 - review_finished_sha256: 5ef72feb8768b594813d5f1279b1eaec487e742891b3c22581d9d337596fa55b
 - handoff_to: user
 - reviewed_at: 2026-07-29 22:01:10 +0800
+
+### 用户关闭确认与 Git/GitHub 收尾记录
+
+- closure_basis: Codex Round 2 `APPROVED`，必须返修与非阻塞建议均为无；用户于 2026-07-29 明确确认关闭 WP-048，并授权后续 Git/GitHub 收尾与行政状态同步。
+- git_branch: `codex/software-monitor-watchdog-event-source`
+- git_local_commit: `b2bee0275136c3af0507cf90870ba3035eef1d2d`（本地审核提交；与远端发布提交共享精确 tree `331cd179e1dc3e6dc13520883167136c41e6604f`）
+- git_remote_commit: `bb249aef54ef537f68965fd7433c46ebc6ad42b9`
+- git_pull_request: https://github.com/yao501/PLC_to_Python/pull/28
+- git_merge_commit: `c5031fff9a35fbf724ea74f680bc3a1276af2555`
+- git_finalized_at: 2026-07-29 23:25:13 +0800
+- git_notes: 本地 smart-HTTP push/fetch 因 GitHub 空响应失败，未重试已知失效的 `gh` 令牌；Codex 改用已连接 GitHub Git Data API 发布与本地提交精确相同的 tree，并以预期 head SHA 锁定合并。GitHub merge commit `verification=verified / reason=valid`；随后按 GitHub 原始 Git Data 元数据重建远端 head 与签名 merge 对象，本地 `main` / `origin/main` 精确同步到上述 merge commit。Python 主机测试结果不构成 PLC/CODESYS、HAL、硬件 watchdog 或现场安全证明。
