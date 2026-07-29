@@ -8969,3 +8969,13 @@ Codex 独立复跑上述十条、未预告反证与 `git diff --check`。本包�
 - accepted_host_evidence: Claude 宿主正式 tests 1560/1560、`prototype_05` 68/68、全仓 1628/1628，十条计划均通过；Codex 受限审核环境的三组 9 项端口权限错误与功能结果分开保留。
 - boundary: 关闭只接受当前 Python 单任务对象图与手搭 TON 端到端范围，不构成 PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog、执行机构或现场安全证明。
 - closed_at: 2026-07-30 03:34:00 +0800
+
+### Codex Git/GitHub 收尾（2026-07-30）
+
+- branch: `codex/wp-050-task-runtime`
+- commit: `1037ae2d2fe38311ce9558fe506557764a9a1d2e`
+- pull_request: [PR #30](https://github.com/yao501/PLC_to_Python/pull/30)
+- merge_commit: `73b462b5b0838e5826cbcd59db0b37a1893e44ad`
+- merged_scope: WP-050 八文件产物；提交前显式暂存范围与审核范围一致。
+- host_validation_before_publish: 23/23、74/74、119/119、263/263、377/377、`test_ai_handoff` 147/147、正式 1560/1560、`prototype_05` 68/68、全仓 1628/1628、导入冒烟与 `git diff --check` 全部通过。
+- boundary: Git/GitHub 收尾只把已审核 Python 产物落入主线，不改变任何 PLC/CODESYS、实时调度、HAL/物理 I/O、硬件 watchdog 或现场安全验证状态。
