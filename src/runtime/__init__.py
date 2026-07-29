@@ -99,8 +99,17 @@ from src.runtime.parameters import (
     build_runtime, RuntimeAssembly, StartupWarning,
     StartupError, StartupValidationError,
 )
+from src.runtime.monitor import (
+    SoftwareCycleMonitor, CycleToken, CycleObservation, WatchdogTimeoutEvent,
+    MonitorError, MonitorConfigError, MonitorStateError, MonitorClockError,
+)
 
 __all__ = [
+    # 软件周期监视器与一次性 watchdog 超时事件源（WP-20260729-043）
+    "SoftwareCycleMonitor", "CycleToken", "CycleObservation",
+    "WatchdogTimeoutEvent",
+    "MonitorError", "MonitorConfigError", "MonitorStateError",
+    "MonitorClockError",
     # 启动期参数装载核心与失败关闭装配入口（WP-20260728-041）
     "build_runtime", "RuntimeAssembly", "StartupWarning",
     "StartupError", "StartupValidationError",
