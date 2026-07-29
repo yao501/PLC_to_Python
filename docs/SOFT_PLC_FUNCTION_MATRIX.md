@@ -2,8 +2,8 @@
 
 > **用途**：一份详细、可检索、可长期维护的功能矩阵，把“有没有代码 / 工作包是否通过 / 是否已合并 / Python 测试到哪 / 是否做过 CODESYS·HAL·现场验证”拆成互不推导的独立状态轴。它服务于用户按需选取下一工作、日常了解项目状态和 Claude/Codex 工作包规划。
 > **本文件不是**新的技术规格或风险登记簿：不覆盖 `PLATFORM_ROADMAP.md`、各主题规格与 `RISKS.md`；只引用它们的结论并给一行边界。发现冲突时，本矩阵**降级标注并回查权威源**，绝不反向用矩阵改写历史或规格。
-> **最后只读核验日期**：2026-07-29。**核验主线 commit**：`04e0050541b6210345b574e0c32ea7216e928a6d`（`main == origin/main == HEAD`）。
-> **本次核验区分**：主线**已合并**能力，与 `WP-20260729-043` / `WP-20260729-044` 当前**未提交、未合并、未审核通过**的 `src/runtime/monitor.py` 候选（详见 §5）。
+> **最后只读核验日期**：2026-07-30。**核验主线 commit**：`73b462b5b0838e5826cbcd59db0b37a1893e44ad`（`main == origin/main == HEAD`）。
+> **本次核验结论**：软件 monitor 已通过 PR #28 合并；单任务运行栈装配 `L34-11` 已由 `WP-20260730-050 CLOSED` 收口并通过 PR #30 合并。Python、PLC/CODESYS、HAL、现场四级验证仍永久分离。
 
 ---
 
@@ -25,7 +25,7 @@
 |---|---|---|
 | **实现状态** | 代码写到什么程度？ | `已实现` / `部分实现` / `候选未提交` / `仅建模` / `未实现` |
 | **WP 审核状态** | 承接工作包的协作状态？ | `CLOSED` / `APPROVED` / `CHANGES_REQUESTED` / `READY_FOR_CODEX` / `BLOCKED` / `无 WP`（附 WP 号） |
-| **Git 状态** | 版本库里到什么程度？ | `已合并（主线 04e0050）` / `未提交候选` / `工作区未收尾` / `未涉及` |
+| **Git 状态** | 版本库里到什么程度？ | `已合并（主线 73b462b）` / `未提交候选` / `工作区未收尾` / `未涉及` |
 | **Python 验证** | Python 主机测试覆盖到哪？ | `已覆盖`（附测试文件） / `部分覆盖` / `无` |
 | **PLC/CODESYS 验证** | 有没有 SP16.1 导入/编译/仿真/对拍证据？ | `未验证`（当前**全部**为未验证） |
 | **HAL/现场验证** | 有没有真实 HAL/物理 I/O/现场安全证据？ | `未验证`（当前**全部**为未验证） |
@@ -86,12 +86,12 @@
 | PRM 原语（8） | 8 | 已实现 + 22/22 adapter 已接入 | 已合并（主线，PR #24） | 已覆盖 | 迁移块 + L2 adapter 目录已审核关闭 |
 | BLK 业务块（14） | 14 | 已实现 + 22/22 adapter 已接入 | 已合并（主线，PR #24） | 已覆盖 | 同上；APCM 整理原子性 Python 已修，CODESYS 未验 |
 | L2 组件模型 | 8 | 已实现（22/22 目录级验收） | 已合并（主线，PR #24） | 已覆盖 | F2 变体一律 fail-closed；参数装载见 L5 |
-| L34 IR/执行引擎 | 11 | 已实现（headless 核心）；L34-11 单任务纵向装配已由 WP-050 审核关闭 | 10 已合并（主线）；L34-11 工作区未收尾 | 已覆盖 | CFC 图定序编译器属阶段 2 未做；L34-11 已审核关闭，待 Git/GitHub 收尾 |
+| L34 IR/执行引擎 | 11 | 已实现（headless 核心）；L34-11 单任务纵向装配已由 WP-050 审核关闭 | 已合并（主线，PR #30） | 已覆盖 | CFC 图定序编译器属阶段 2 未做；L34-11 已审核关闭并合并 |
 | L5 运行时安全 | 14 | 软件安全核心与确定性 monitor 已实现；真实调度/硬件 watchdog 未实现 | monitor 经 PR #28 合并 | 已覆盖（Python） | shadow/OutputPolicy/提交监督/软件 monitor 已关闭；PLC、HAL、硬件与现场未验证 |
 | USR 用户入口/后续平台 | 13 | 多数未实现 | 未涉及/试验已合并 | 无/局部 | ST/CFC 前端、导入器、HAL、AI 集成等均未做 |
 | ENG 工程支持 | 4 | 已实现（协作机制） | 已合并（主线） | 部分覆盖 | 非软 PLC 产品功能，属协作基建 |
 
-**最新已合并且已关闭的完整主线基线**（唯一权威主机快照）：`WP-20260729-048` 的正式 tests **1537/1537**、`prototype_05` **68/68**、全仓 **1605/1605**（经 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并，merge `c5031fff…`）。WP-043/044 的 1480/1548、WP-046 的 1504/1572 等仍是各历史检查点计数，不回写为当前主线。
+**最新已合并且已关闭的完整主线基线**（唯一权威主机快照）：`WP-20260730-050` 的正式 tests **1560/1560**、`prototype_05` **68/68**、全仓 **1628/1628**（经 [PR #30](https://github.com/yao501/PLC_to_Python/pull/30) 合并，merge `73b462b5…`）。WP-043/044 的 1480/1548、WP-046 的 1504/1572、WP-048 的 1537/1605 等仍是各历史检查点计数，不回写为当前主线。
 
 ---
 
@@ -103,13 +103,13 @@
 
 | ID | 大类 | 小类/功能点 | 目的与作用 | 主要源码/权威入口 | 实现状态 | WP 状态 | Git 状态 | Python 验证 | PLC/CODESYS 验证 | HAL/现场验证 | 主要风险 ID/边界 | 依赖 | 下一步 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| SEM-01 | 规格/语义 | 阶段 0 设计基线（IR/扫描/组件契约概念设计） | 锁定平台地基字段与一拍时序概念，避免上层返工 | [PLATFORM_ROADMAP.md](PLATFORM_ROADMAP.md) 阶段 0 | 已实现（文档） | `无 WP`（阶段 0 里程碑） | 已合并（主线 04e0050） | 无（设计稿） | 未验证 | 未验证 | 概念设计，未证明与 PLC 一致 | — | 已被 0.5 取代为可冻结基线 |
+| SEM-01 | 规格/语义 | 阶段 0 设计基线（IR/扫描/组件契约概念设计） | 锁定平台地基字段与一拍时序概念，避免上层返工 | [PLATFORM_ROADMAP.md](PLATFORM_ROADMAP.md) 阶段 0 | 已实现（文档） | `无 WP`（阶段 0 里程碑） | 已合并（主线 73b462b） | 无（设计稿） | 未验证 | 未验证 | 概念设计，未证明与 PLC 一致 | — | 已被 0.5 取代为可冻结基线 |
 | SEM-02 | 规格/语义 | 阶段 0.5 语义基线冻结（写回权威文档） | 把“改起来贵”的语义夯成可冻结工程基线并生效 | [PLATFORM_ROADMAP.md](PLATFORM_ROADMAP.md) 阶段 0.5 | 已实现（冻结生效） | `CLOSED`（WP-20260712-001） | 已合并（主线；PR #1 merge 3bff318 + PR #2） | 无（纯文档轮） | 未验证 | 未验证 | 项目工程约定≠CODESYS 官方语义 | SEM-01 | 维持冻结；变更须走评审 |
-| SEM-03 | 规格/语义 | 目标画像 + 一致性等级 E/F1/F2 | 锁定 SP16.1/CPU·OS/任务配置与容差/位级两档一致性 | [TARGET_PROFILE.md](TARGET_PROFILE.md) | 已实现（v1.3） | `CLOSED`（随 SEM-02） | 已合并（主线 04e0050） | 无 | 未验证 | 未验证 | `PLATFORM-TARGET-PROFILE-1`（in-progress）；是否要 F2 待用户裁决 | SEM-02 | 生产环境与样本一致性复核 |
-| SEM-04 | 规格/语义 | 可执行 IR 规格（类型化指令/POU 模型/lowering） | 语言无关 IR，ST/CFC 合流的地基 | [IR_SPEC.md](IR_SPEC.md) v2.2.4 | 已实现（规格冻结 v2.2.2 + 阶段 1 写回） | `CLOSED` | 已合并（主线 04e0050） | 原型双路径合流已测（见 SEM-07） | 未验证 | 未验证 | `PLATFORM-IR-1`/`PLATFORM-EXEC-IR-1`（resolved=仅 0.5 规格冻结） | SEM-02 | 阶段 6 对拍量化漂移 |
-| SEM-05 | 规格/语义 | 一拍时序 / OutputPolicy 规格 | 五步扫描与分类型输出安全策略的权威定义 | [ENGINE_SCAN_SPEC.md](ENGINE_SCAN_SPEC.md) v2.2.2 | 已实现（规格冻结） | `CLOSED` | 已合并（主线 04e0050） | 见 L5 实现行 | 未验证 | 未验证 | `PLATFORM-OUTPUT-POLICY-1`/`-BASELINE-1`（工程约定） | SEM-02 | HAL 可信反馈接口（阶段 7） |
-| SEM-06 | 规格/语义 | 组件描述符契约 / 一致性等级映射 | 块描述符、注册方式、省略语义规格 | [COMPONENT_CONTRACT.md](COMPONENT_CONTRACT.md) v2.1 | 已实现（规格） | `CLOSED` | 已合并（主线 04e0050） | 见 L2 实现行 | 未验证 | 未验证 | 见 L2 系列 | SEM-02 | 随 L2 演进 |
-| SEM-07 | 规格/语义 | 黄金轨迹格式 + 采集清单 + 0.5 可执行原型 | 对拍数据格式就绪 + 双前端合流可执行证明 | [GOLDEN_TRACE_FORMAT.md](GOLDEN_TRACE_FORMAT.md) v1.2.1；[../prototype_05/](../prototype_05/) | 部分实现（格式+原型已成，真机实采未做） | `CLOSED`（原型两轮返修） | 已合并（主线 04e0050） | 已覆盖（`prototype_05` 68/68） | 未验证（真机实采外部阻塞） | 未验证 | `PLATFORM-GOLDEN-EARLY-1`（in-progress，外部阻塞） | SEM-04/05 | 用户提供 SP16.1 环境实采 |
+| SEM-03 | 规格/语义 | 目标画像 + 一致性等级 E/F1/F2 | 锁定 SP16.1/CPU·OS/任务配置与容差/位级两档一致性 | [TARGET_PROFILE.md](TARGET_PROFILE.md) | 已实现（v1.3） | `CLOSED`（随 SEM-02） | 已合并（主线 73b462b） | 无 | 未验证 | 未验证 | `PLATFORM-TARGET-PROFILE-1`（in-progress）；是否要 F2 待用户裁决 | SEM-02 | 生产环境与样本一致性复核 |
+| SEM-04 | 规格/语义 | 可执行 IR 规格（类型化指令/POU 模型/lowering） | 语言无关 IR，ST/CFC 合流的地基 | [IR_SPEC.md](IR_SPEC.md) v2.2.4 | 已实现（规格冻结 v2.2.2 + 阶段 1 写回） | `CLOSED` | 已合并（主线 73b462b） | 原型双路径合流已测（见 SEM-07） | 未验证 | 未验证 | `PLATFORM-IR-1`/`PLATFORM-EXEC-IR-1`（resolved=仅 0.5 规格冻结） | SEM-02 | 阶段 6 对拍量化漂移 |
+| SEM-05 | 规格/语义 | 一拍时序 / OutputPolicy 规格 | 五步扫描与分类型输出安全策略的权威定义 | [ENGINE_SCAN_SPEC.md](ENGINE_SCAN_SPEC.md) v2.2.2 | 已实现（规格冻结） | `CLOSED` | 已合并（主线 73b462b） | 见 L5 实现行 | 未验证 | 未验证 | `PLATFORM-OUTPUT-POLICY-1`/`-BASELINE-1`（工程约定） | SEM-02 | HAL 可信反馈接口（阶段 7） |
+| SEM-06 | 规格/语义 | 组件描述符契约 / 一致性等级映射 | 块描述符、注册方式、省略语义规格 | [COMPONENT_CONTRACT.md](COMPONENT_CONTRACT.md) v2.1 | 已实现（规格） | `CLOSED` | 已合并（主线 73b462b） | 见 L2 实现行 | 未验证 | 未验证 | 见 L2 系列 | SEM-02 | 随 L2 演进 |
+| SEM-07 | 规格/语义 | 黄金轨迹格式 + 采集清单 + 0.5 可执行原型 | 对拍数据格式就绪 + 双前端合流可执行证明 | [GOLDEN_TRACE_FORMAT.md](GOLDEN_TRACE_FORMAT.md) v1.2.1；[../prototype_05/](../prototype_05/) | 部分实现（格式+原型已成，真机实采未做） | `CLOSED`（原型两轮返修） | 已合并（主线 73b462b） | 已覆盖（`prototype_05` 68/68） | 未验证（真机实采外部阻塞） | 未验证 | `PLATFORM-GOLDEN-EARLY-1`（in-progress，外部阻塞） | SEM-04/05 | 用户提供 SP16.1 环境实采 |
 
 ### 3.2 PRM — 8 个原语
 
@@ -164,31 +164,31 @@
 
 | ID | 大类 | 小类/功能点 | 目的与作用 | 主要源码/权威入口 | 实现状态 | WP 状态 | Git 状态 | Python 验证 | PLC/CODESYS 验证 | HAL/现场验证 | 主要风险 ID/边界 | 依赖 | 下一步 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| L34-01 | L3 IR | IR 值 / 类型化指令集 | 全类型化指令 + TypedValue 栈 | [../src/runtime/ir.py](../src/runtime/ir.py) | 已实现 | `CLOSED`（WP-002） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_ir`） | 未验证 | 未验证 | `PLATFORM-EXEC-IR-1`（0.5 冻结） | SEM-04 | — |
-| L34-02 | L3 IR | POU / 实例模型（定义与实例分离） | `POUDefinition/ProgramInstance/FBInstance` | [../src/runtime/ir.py](../src/runtime/ir.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-POU-MODEL-1`（in-progress） | L34-01 | 随语言前端推进 |
-| L34-03 | L3 IR | Loader 装载期静态校验 | 加载期类型/结构错误聚合 fail-closed | [../src/runtime/loader.py](../src/runtime/loader.py) | 已实现 | `CLOSED`（WP-002） | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | 递归实例声明循环 fail-closed | L34-01 | — |
-| L34-04 | L4 引擎 | Store / 隔离快照 / 批量原子提交 | 声明制 Store、隔离快照、原子提交 | [../src/runtime/store.py](../src/runtime/store.py) | 已实现 | `CLOSED`（WP-003） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_store`） | 未验证 | 未验证 | `PLATFORM-EXEC-STORE-ATOMICITY-1`（局部 in-progress） | L34-01 | — |
-| L34-05 | L4 引擎 | 实例布局（装载期展开） | PROGRAM/用户 FB 实例按路径展开 | [../src/runtime/store.py](../src/runtime/store.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | 持久 Store 键为工程约定 | L34-02 | — |
-| L34-06 | L4 引擎 | 过程映像（输入锁存/输出映像） | 一拍输入原子锁存、输出待提交容器 | [../src/runtime/process_image.py](../src/runtime/process_image.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | — | L34-04 | — |
-| L34-07 | L4 引擎 | Executor 显式顺序执行 | 按显式顺序逐条执行指令 + 求值栈 | [../src/runtime/executor.py](../src/runtime/executor.py) | 已实现 | `CLOSED`（WP-004/005） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_executor`） | 未验证 | 未验证 | `StackSlot.index` 工程约定 | L34-01 | — |
-| L34-08 | L4 引擎 | FUNCTION / 用户 FB / VAR_IN_OUT | 调用帧、`ValueRef` 别名引用语义 | [../src/runtime/executor.py](../src/runtime/executor.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | VAR_IN_OUT 写透调用方 | L34-07 | — |
-| L34-09 | L4 引擎 | E/F1 数值边界 | engineering/F1 量化边界与失败关闭 | [../src/runtime/numeric.py](../src/runtime/numeric.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-REAL-FIDELITY-1`/`-INT-WIDTH-1`（in-progress） | SEM-03 | 阶段 6 量化漂移裁决 |
-| L34-10 | L4 引擎 | 五步 ScanEngine（确定性单拍） | 输入锁存→执行→策略→提交的可重复单拍编排 | [../src/runtime/engine.py](../src/runtime/engine.py) | 已实现 | `CLOSED`（WP-006） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_engine`） | 未验证 | 未验证 | `RUNTIME-5-STEPS`（resolved=Python 核心）；CFC 图定序编译器属阶段 2 未做 | L34-07 | 阶段 2 CFC 定序编译器 |
-| L34-11 | L4 引擎 | 单任务运行栈纵向装配（阶段 1 E2E） | 把 `build_runtime`→安全状态→OutputPolicy→CommitSupervisor→默认 shadow CommitPort→ScanEngine→OuterScanRunner→软件 monitor 连成**同一对象图**的受支持单任务装配入口（Python 内部/测试入口，非最终用户编程入口） | [../src/runtime/task_runtime.py](../src/runtime/task_runtime.py) | 已实现（Python 单任务对象图 + 手搭 TON 最小程序 E2E；默认 shadow、冷启动失败关闭） | `CLOSED`（WP-20260730-050 Round 3；承接 WP-049 检查点） | 工作区未收尾 | 已覆盖（`test_runtime_task_runtime` 23；宿主正式 1560/1560、全仓 1628/1628；尚未合并，不回写主线 1537/1605） | 未验证 | 未验证 | `RUNTIME-TASK-ASSEMBLY`（in-progress）；继承 `RUNTIME-SAFETY-DEFAULT`/`RUNTIME-SHADOW-MODE`/`RUNTIME-WATCHDOG`/`RUNTIME-PARAM-VALIDATION` 边界，不因本包 resolved | L34-10, L5-04, L5-08, L5-10, L5-12 | Git/GitHub 收尾；真实调度/多任务/startup inhibit 计时/外部信号源/HAL 属后续独立立项 |
+| L34-01 | L3 IR | IR 值 / 类型化指令集 | 全类型化指令 + TypedValue 栈 | [../src/runtime/ir.py](../src/runtime/ir.py) | 已实现 | `CLOSED`（WP-002） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_ir`） | 未验证 | 未验证 | `PLATFORM-EXEC-IR-1`（0.5 冻结） | SEM-04 | — |
+| L34-02 | L3 IR | POU / 实例模型（定义与实例分离） | `POUDefinition/ProgramInstance/FBInstance` | [../src/runtime/ir.py](../src/runtime/ir.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-POU-MODEL-1`（in-progress） | L34-01 | 随语言前端推进 |
+| L34-03 | L3 IR | Loader 装载期静态校验 | 加载期类型/结构错误聚合 fail-closed | [../src/runtime/loader.py](../src/runtime/loader.py) | 已实现 | `CLOSED`（WP-002） | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | 递归实例声明循环 fail-closed | L34-01 | — |
+| L34-04 | L4 引擎 | Store / 隔离快照 / 批量原子提交 | 声明制 Store、隔离快照、原子提交 | [../src/runtime/store.py](../src/runtime/store.py) | 已实现 | `CLOSED`（WP-003） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_store`） | 未验证 | 未验证 | `PLATFORM-EXEC-STORE-ATOMICITY-1`（局部 in-progress） | L34-01 | — |
+| L34-05 | L4 引擎 | 实例布局（装载期展开） | PROGRAM/用户 FB 实例按路径展开 | [../src/runtime/store.py](../src/runtime/store.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | 持久 Store 键为工程约定 | L34-02 | — |
+| L34-06 | L4 引擎 | 过程映像（输入锁存/输出映像） | 一拍输入原子锁存、输出待提交容器 | [../src/runtime/process_image.py](../src/runtime/process_image.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | — | L34-04 | — |
+| L34-07 | L4 引擎 | Executor 显式顺序执行 | 按显式顺序逐条执行指令 + 求值栈 | [../src/runtime/executor.py](../src/runtime/executor.py) | 已实现 | `CLOSED`（WP-004/005） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_executor`） | 未验证 | 未验证 | `StackSlot.index` 工程约定 | L34-01 | — |
+| L34-08 | L4 引擎 | FUNCTION / 用户 FB / VAR_IN_OUT | 调用帧、`ValueRef` 别名引用语义 | [../src/runtime/executor.py](../src/runtime/executor.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | VAR_IN_OUT 写透调用方 | L34-07 | — |
+| L34-09 | L4 引擎 | E/F1 数值边界 | engineering/F1 量化边界与失败关闭 | [../src/runtime/numeric.py](../src/runtime/numeric.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-REAL-FIDELITY-1`/`-INT-WIDTH-1`（in-progress） | SEM-03 | 阶段 6 量化漂移裁决 |
+| L34-10 | L4 引擎 | 五步 ScanEngine（确定性单拍） | 输入锁存→执行→策略→提交的可重复单拍编排 | [../src/runtime/engine.py](../src/runtime/engine.py) | 已实现 | `CLOSED`（WP-006） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_engine`） | 未验证 | 未验证 | `RUNTIME-5-STEPS`（resolved=Python 核心）；CFC 图定序编译器属阶段 2 未做 | L34-07 | 阶段 2 CFC 定序编译器 |
+| L34-11 | L4 引擎 | 单任务运行栈纵向装配（阶段 1 E2E） | 把 `build_runtime`→安全状态→OutputPolicy→CommitSupervisor→默认 shadow CommitPort→ScanEngine→OuterScanRunner→软件 monitor 连成**同一对象图**的受支持单任务装配入口（Python 内部/测试入口，非最终用户编程入口） | [../src/runtime/task_runtime.py](../src/runtime/task_runtime.py) | 已实现（Python 单任务对象图 + 手搭 TON 最小程序 E2E；默认 shadow、冷启动失败关闭） | `CLOSED`（WP-20260730-050 Round 3；承接 WP-049 检查点） | 已合并（主线，PR #30） | 已覆盖（`test_runtime_task_runtime` 23；宿主正式 1560/1560、全仓 1628/1628） | 未验证 | 未验证 | `RUNTIME-TASK-ASSEMBLY`（in-progress）；继承 `RUNTIME-SAFETY-DEFAULT`/`RUNTIME-SHADOW-MODE`/`RUNTIME-WATCHDOG`/`RUNTIME-PARAM-VALIDATION` 边界，不因本包 resolved | L34-10, L5-04, L5-08, L5-10, L5-12 | 真实调度/多任务/startup inhibit 计时/外部信号源/HAL 属后续独立立项 |
 
 ### 3.6 L5 — 运行时安全服务
 
 | ID | 大类 | 小类/功能点 | 目的与作用 | 主要源码/权威入口 | 实现状态 | WP 状态 | Git 状态 | Python 验证 | PLC/CODESYS 验证 | HAL/现场验证 | 主要风险 ID/边界 | 依赖 | 下一步 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| L5-01 | L5 安全 | SafetySnapshot（原子安全状态） | 一拍原子消费 ready/safety/interlock 等信号 | [../src/runtime/output_policy.py](../src/runtime/output_policy.py) | 已实现 | `CLOSED`（WP-007） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_output_policy`） | 未验证 | 未验证 | `RUNTIME-GATE`（in-progress，信号源现场未做） | L34-10 | — |
-| L5-02 | L5 安全 | OutputPolicy（分类型/分原因策略） | 按通道类型+故障原因生成 final，安全优先 | [../src/runtime/output_policy.py](../src/runtime/output_policy.py) | 已实现 | `CLOSED`（WP-007） | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-OUTPUT-POLICY-1`（工程约定） | L5-01 | HAL 可信反馈 |
-| L5-03 | L5 安全 | SafeImageTicket（两阶段安全映像事务） | staging + 提交后确认的一次性两阶段事务 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-008） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_scan_runner`） | 未验证 | 未验证 | 结构化失败信号 | L5-02 | — |
-| L5-04 | L5 安全 | OuterScanRunner（故障安全外层运行器） | 扫描异常/watchdog 事件绕过损坏 request、单次安全提交 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-008） | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `RUNTIME-SAFETY-DEFAULT`（in-progress） | L5-03 | 真实事件源接入 |
-| L5-05 | L5 安全 | CommitSupervisor（提交监督器） | 驱动确认回执、逐通道 commit_fault/channel_fault | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED`（WP-009/010） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_commit_supervisor`） | 未验证 | 未验证 | 安全值重试、三条件显式复位 | L5-04 | — |
-| L5-06 | L5 安全 | commit_fault / channel_fault 锁存与复位 | 瞬时故障与锁存故障区分、三条件复位 | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-OUTPUT-BASELINE-1`（工程约定） | L5-05 | HAL 现场复位接口 |
-| L5-07 | L5 安全 | last_physical_committed / 驱动回执类型信任 | LPC 两层状态 + 不可信回执子类失败关闭 | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED`（WP-011） | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-DRIVER-RECEIPT-TYPE-1`（resolved=Python 契约） | L5-05 | 真实驱动/HAL |
-| L5-08 | L5 安全 | 默认 shadow / write-disable 栈 | 零配置只算不写；诊断不冒充成功 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-012..015） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_shadow_mode`） | 未验证 | 未验证 | `RUNTIME-SHADOW-MODE`（in-progress；不防语言级反射） | L5-04 | — |
-| L5-09 | L5 安全 | shadow→实写边界 | 切实写先全通道 safe_value 重建，首拍限速 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-015） | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | 预存 fault 不因切换清除 | L5-08 | — |
+| L5-01 | L5 安全 | SafetySnapshot（原子安全状态） | 一拍原子消费 ready/safety/interlock 等信号 | [../src/runtime/output_policy.py](../src/runtime/output_policy.py) | 已实现 | `CLOSED`（WP-007） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_output_policy`） | 未验证 | 未验证 | `RUNTIME-GATE`（in-progress，信号源现场未做） | L34-10 | — |
+| L5-02 | L5 安全 | OutputPolicy（分类型/分原因策略） | 按通道类型+故障原因生成 final，安全优先 | [../src/runtime/output_policy.py](../src/runtime/output_policy.py) | 已实现 | `CLOSED`（WP-007） | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-OUTPUT-POLICY-1`（工程约定） | L5-01 | HAL 可信反馈 |
+| L5-03 | L5 安全 | SafeImageTicket（两阶段安全映像事务） | staging + 提交后确认的一次性两阶段事务 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-008） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_scan_runner`） | 未验证 | 未验证 | 结构化失败信号 | L5-02 | — |
+| L5-04 | L5 安全 | OuterScanRunner（故障安全外层运行器） | 扫描异常/watchdog 事件绕过损坏 request、单次安全提交 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-008） | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `RUNTIME-SAFETY-DEFAULT`（in-progress） | L5-03 | 真实事件源接入 |
+| L5-05 | L5 安全 | CommitSupervisor（提交监督器） | 驱动确认回执、逐通道 commit_fault/channel_fault | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED`（WP-009/010） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_commit_supervisor`） | 未验证 | 未验证 | 安全值重试、三条件显式复位 | L5-04 | — |
+| L5-06 | L5 安全 | commit_fault / channel_fault 锁存与复位 | 瞬时故障与锁存故障区分、三条件复位 | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED` | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-OUTPUT-BASELINE-1`（工程约定） | L5-05 | HAL 现场复位接口 |
+| L5-07 | L5 安全 | last_physical_committed / 驱动回执类型信任 | LPC 两层状态 + 不可信回执子类失败关闭 | [../src/runtime/commit_supervisor.py](../src/runtime/commit_supervisor.py) | 已实现 | `CLOSED`（WP-011） | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-DRIVER-RECEIPT-TYPE-1`（resolved=Python 契约） | L5-05 | 真实驱动/HAL |
+| L5-08 | L5 安全 | 默认 shadow / write-disable 栈 | 零配置只算不写；诊断不冒充成功 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-012..015） | 已合并（主线 73b462b） | 已覆盖（`test_runtime_shadow_mode`） | 未验证 | 未验证 | `RUNTIME-SHADOW-MODE`（in-progress；不防语言级反射） | L5-04 | — |
+| L5-09 | L5 安全 | shadow→实写边界 | 切实写先全通道 safe_value 重建，首拍限速 | [../src/runtime/scan_runner.py](../src/runtime/scan_runner.py) | 已实现 | `CLOSED`（WP-015） | 已合并（主线 73b462b） | 已覆盖 | 未验证 | 未验证 | 预存 fault 不因切换清除 | L5-08 | — |
 | L5-10 | L5 安全 | 启动装配 / 参数校验（build_runtime） | 启动期 IR/L2/构造/Store/时间/inhibit 校验一次性失败关闭 | [../src/runtime/parameters.py](../src/runtime/parameters.py) | 部分实现（静态启动装配子范围） | `CLOSED`（WP-20260729-042） | 已合并（主线，[PR #26](https://github.com/yao501/PLC_to_Python/pull/26) merge 495ebb1） | 已覆盖（`test_runtime_parameters`） | 未验证 | 未验证 | `RUNTIME-PARAM-VALIDATION`（**in-progress**，动态值/外部配置/持久化未做） | L34-03 | 外部配置源/优先级立项 |
 | L5-11 | L5 安全 | startup inhibit（配置校验） | `startup_inhibit_ms` 非 bool 整数≥0 配置校验 | [../src/runtime/parameters.py](../src/runtime/parameters.py) | 部分实现（仅配置校验，不驱动计时） | `CLOSED`（WP-042） | 已合并（主线，PR #26） | 已覆盖 | 未验证 | 未验证 | `RUNTIME-STARTUP-INHIBIT`（deferred；计时/释放条件未做） | L5-10 | 计时行为+释放条件 |
 | L5-12 | L5 安全 | 软件 monitor（周期/超时/watchdog 事件源） | 可注入整数纳秒时钟、无后台线程的一次性超时事件源 | [../src/runtime/monitor.py](../src/runtime/monitor.py) | **已实现并审核关闭（Python 确定性事件源范围）**：周期观测、阈值锁存、一次性派发、exact-int 边界；公开 `CycleToken` / `WatchdogTimeoutEvent` 字段一律视为不可信，内部以 `_seq` / `_active_start_ns` / `_latched_seq` 保证零观察、状态原子性与防重放 | `CLOSED`（WP-20260729-048 Round 2；WP-043/044/046/047 保留为后续承接前的历史检查点） | 已合并（[PR #28](https://github.com/yao501/PLC_to_Python/pull/28)，merge `c5031fff…`） | 已覆盖（monitor 96；正式 tests 1537；全仓 1605；均为当前已合并主线证据） | 未验证 | 未验证 | `RUNTIME-WATCHDOG`/`RUNTIME-SAFETY-DEFAULT`（deferred/in-progress，不 resolved）；仅软件事件源，不含真实调度/硬件 watchdog | L5-04 | 阶段 1 真实任务装配；真实调度/硬件 watchdog 后续独立立项 |
@@ -219,10 +219,10 @@
 
 | ID | 大类 | 小类/功能点 | 目的与作用 | 主要源码/权威入口 | 实现状态 | WP 状态 | Git 状态 | Python 验证 | PLC/CODESYS 验证 | HAL/现场验证 | 主要风险 ID/边界 | 依赖 | 下一步 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ENG-01 | 工程支持 | v2 三阶段协作（自审/交接/独立审核） | 实施方不审核自己的交接；九项交接门禁 | [AI_REVIEW_HANDOFF.md](AI_REVIEW_HANDOFF.md) 协议区 | 已实现 | `无 WP`（机制本身） | 已合并（主线 04e0050） | 部分覆盖（`test_ai_handoff`） | 未验证 | 未验证 | 非产品功能；受限环境端口权限假失败见 §5 | — | — |
+| ENG-01 | 工程支持 | v2 三阶段协作（自审/交接/独立审核） | 实施方不审核自己的交接；九项交接门禁 | [AI_REVIEW_HANDOFF.md](AI_REVIEW_HANDOFF.md) 协议区 | 已实现 | `无 WP`（机制本身） | 已合并（主线 73b462b） | 部分覆盖（`test_ai_handoff`） | 未验证 | 未验证 | 非产品功能；受限环境端口权限假失败见 §5 | — | — |
 | ENG-02 | 工程支持 | 工作包状态机 + 协调器 | 事件协调器串行唤醒；WP-048 起新包默认最多 5 轮（历史 3 轮原样保留） | [AI_REVIEW_HANDOFF.md](AI_REVIEW_HANDOFF.md) | 已实现 | 用户协议裁决（2026-07-29） | 协议说明已随 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并；状态机继续按每包显式 `max_rounds` 通用执行 | 部分覆盖（`test_ai_handoff`；状态机无需为 3→5 改码） | 未验证 | 未验证 | 全局执行租约边界；轮次增加不扩大 scope/外部授权；非产品功能 | ENG-01 | 新包显式写 `max_rounds: 5` |
-| ENG-03 | 工程支持 | Git / GitHub 收尾（Codex 执行） | 提交/推送由 Codex 审核并执行；Claude 不写 Git | [CODEX_GUIDE.md](../CODEX_GUIDE.md) §6 | 已实现（分工纪律） | `无 WP` | 已合并（主线 04e0050） | 无（流程约定） | 未验证 | 未验证 | Git 列只在实际操作成功后更新 | ENG-01 | — |
-| ENG-04 | 工程支持 | 测试快照纪律 | 历史测试数字原样保留，不回写冒充当前 | [PROJECT_STATE.md](PROJECT_STATE.md) | 已实现（纪律） | `无 WP` | 已合并（主线 04e0050） | 无 | 未验证 | 未验证 | 环境差异不等于功能矛盾 | — | — |
+| ENG-03 | 工程支持 | Git / GitHub 收尾（Codex 执行） | 提交/推送由 Codex 审核并执行；Claude 不写 Git | [CODEX_GUIDE.md](../CODEX_GUIDE.md) §6 | 已实现（分工纪律） | `无 WP` | 已合并（主线 73b462b） | 无（流程约定） | 未验证 | 未验证 | Git 列只在实际操作成功后更新 | ENG-01 | — |
+| ENG-04 | 工程支持 | 测试快照纪律 | 历史测试数字原样保留，不回写冒充当前 | [PROJECT_STATE.md](PROJECT_STATE.md) | 已实现（纪律） | `无 WP` | 已合并（主线 73b462b） | 无 | 未验证 | 未验证 | 环境差异不等于功能矛盾 | — | — |
 
 ---
 
@@ -244,7 +244,7 @@
 
 ## 5. monitor 历史检查点与当前测试证据
 
-> **阅读规则**：第 1～5 项保留各工作包当时的历史检查点；第 6 项是当前口径。工作包关闭、Git 合并、PLC 验证和现场验证是互不推导的状态轴。
+> **阅读规则**：第 1～5 项保留各工作包当时的历史检查点；第 6 项是 WP-048 收口口径，第 7 项是当前口径。工作包关闭、Git 合并、PLC 验证和现场验证是互不推导的状态轴。
 
 1. **WP-20260729-043 候选**：产生 `src/runtime/monitor.py`、`src/runtime/__init__.py` 导出、`tests/test_runtime_monitor.py` 39 项定向测试和 `docs/RISKS.md` 叠加，均为**工作区候选**——**未提交、未合并、未审核通过**。该轮实施交接因结构化测试字段写成 `OK，Ran N`（而非 `Ran N tests, OK`）被项目解析器判定 `v2-invalid / handoff_gate_ok=false`。
 2. **WP-20260729-044 状态**：已恢复合法 v2 测试证据（`Ran N tests, OK` 格式），但 **Codex Round 1 verdict = `CHANGES_REQUESTED`**（当前 `owner=claude / handoff_to=claude / round=1`）。两个**必须返修**项：
@@ -254,9 +254,10 @@
    - **Claude 候选环境**（WP-043/044 实施轮）：`Ran 39 / 157 / 240 / 192 / 147 / 1480 / 68 / 1548 tests, OK`——**只能**作为该轮实施证据。
    - **Codex 受限审核环境**：本机随机端口被禁，`tests.test_ai_handoff` 147 项中同一组 **9 项**报 `PermissionError: Operation not permitted`；因此正式 `discover` 为 1480 中 9 errors（1471 通过）、全仓 `discover` 为 1548 中 9 errors（1539 通过）。
    - **不得**把 `1548` 写成最新已批准主线基线。
-4. **最新已合并且已关闭的完整主机基线**：仍为 **`WP-20260729-042`** 的正式 tests **1441/1441**、`prototype_05` **68/68**、全仓 **1509/1509**（经 [PR #26](https://github.com/yao501/PLC_to_Python/pull/26) 合并）。
+4. **该时点已合并且已关闭的完整主机基线**：为 **`WP-20260729-042`** 的正式 tests **1441/1441**、`prototype_05` **68/68**、全仓 **1509/1509**（经 [PR #26](https://github.com/yao501/PLC_to_Python/pull/26) 合并）。
 5. **WP-20260729-046 返修候选（已创建、已实施至 Round 3=max_rounds，用户授权恢复最后一轮，待独立审核）**：本包**仅返修**契约缺陷，不新增功能、不改公开导出。**Round 1**（返修 WP-044 Codex 两项阻塞项）：① 同一 active sequence 事件二次生成 / callback 二次调用——已加**独立于 pending 槽**的 sequence 终态 `_latched_seq`，事件消费后同一序号不再生成 / 不再触发 callback，且不永久抑制后续合法周期；② `int` 子类信任边界——配置值与每次时钟返回值改为 **exact-int**（`type(value) is not int` 即失败关闭），先于任何数值比较 / 换算。**Round 2**（返修 Codex 本包 Round 1 阻塞项）：③ exact-int 拒绝路径 repr 反噬——原拒绝分支以 `%r` 格式化被拒的 `int` 子类，可重载 `__repr__` 在信任边界诊断阶段抛异常逃逸（`RuntimeError` 取代稳定的 `MonitorConfigError`/`MonitorClockError`）；已改为经 `_safe_type_name()` 只报告**可信类型名**、绝不 `repr` 不可信值（`bool` 分支不可继承故保留）。**Round 3**（返修 Codex 本包 Round 2 阻塞项）：④ 可信类型名经 metaclass 反噬——Round 2 的 `_safe_type_name()` 直接返回 `type(value).__name__`，自定义 metaclass 可重载类型对象 `__getattribute__`（或把 `__name__` 定义成数据描述符）令其返回 `__str__` 抛异常的恶意对象，诊断 `%s` 再次执行攻击者代码逃逸；已改为经 `type.__getattribute__` **绕过自定义 metaclass** 取候选类名、**仅当** `type(name) is str`（exact）才用、否则回退固定占位符 `"<unavailable>"`，`type(value)` 用单参内建 `type()`。`tests/test_runtime_monitor.py` 由 39 增至 **63**（Round 1 +11、Round 2 +6、Round 3 +7）。**Round 3 Claude 亲自宿主复跑真实计数（本机允许绑定本地端口，`test_ai_handoff` 全绿）**：`test_runtime_monitor` **63**、monitor+scan_runner+output_policy **181**、shadow+engine+scan_runner+output_policy+commit_supervisor **240**、parameters+executor **192**、`test_ai_handoff` **147**、`discover tests` **1504**、`prototype_05` **68**、`discover .` 全仓 **1572**，导入冒烟 `runtime-monitor-import-ok SoftwareCycleMonitor`，均 OK。此为**工作区候选**——**未提交、未合并、未经 Codex `APPROVED`、未经用户 `CLOSED`**；不得据本包升级实现/审核/Git/PLC/HAL 状态，`1572` 亦不得写成已批准主线基线。
-6. **当前口径（WP-20260729-048 / PR #28）**：WP-047 Round 3 暴露的 pending 公开事件别名读取已在 WP-048 收口；Claude Round 2 v2 自审/交接合法，Codex Round 2 独立审核 `APPROVED`，用户于 2026-07-29 确认 `CLOSED`。WP-043～048 累积 monitor、矩阵与 5 轮协议说明已通过 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并（merge `c5031fff…`），最终宿主证据 monitor **96/96**、monitor+runner+policy **214/214**、安全运行时组 **240/240**、parameters+executor **192/192**、`test_ai_handoff` **147/147**、正式 tests **1537/1537**、`prototype_05` **68/68**、全仓 **1605/1605** 现为主线快照，导入冒烟通过。PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog 与现场安全仍为未验证。
+6. **WP-048 收口口径（WP-20260729-048 / PR #28）**：WP-047 Round 3 暴露的 pending 公开事件别名读取已在 WP-048 收口；Claude Round 2 v2 自审/交接合法，Codex Round 2 独立审核 `APPROVED`，用户于 2026-07-29 确认 `CLOSED`。WP-043～048 累积 monitor、矩阵与 5 轮协议说明已通过 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并（merge `c5031fff…`），最终宿主证据 monitor **96/96**、monitor+runner+policy **214/214**、安全运行时组 **240/240**、parameters+executor **192/192**、`test_ai_handoff` **147/147**、正式 tests **1537/1537**、`prototype_05` **68/68**、全仓 **1605/1605** 现为主线快照，导入冒烟通过。PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog 与现场安全仍为未验证。
+7. **最新主线口径（WP-20260730-050 / PR #30）**：在上述 monitor 主线基础上，阶段 1 单任务运行栈装配与手搭 TON E2E 已由 Claude v2 自审、Codex Round 3 独立审核 `APPROVED`、用户授权关闭，并经 [PR #30](https://github.com/yao501/PLC_to_Python/pull/30) 合并（merge `73b462b5…`）。最新完整宿主证据为正式 **1560/1560**、`prototype_05` **68/68**、全仓 **1628/1628**；L34-11 的 Git 状态现为已合并。真实调度、多任务、startup inhibit 计时/释放、CFC 定序、HAL/I/O、硬件 watchdog、CODESYS 与现场安全仍未验证。
 
 ---
 
