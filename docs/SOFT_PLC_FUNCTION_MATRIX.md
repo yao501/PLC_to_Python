@@ -86,7 +86,7 @@
 | PRM 原语（8） | 8 | 已实现 + 22/22 adapter 已接入 | 已合并（主线，PR #24） | 已覆盖 | 迁移块 + L2 adapter 目录已审核关闭 |
 | BLK 业务块（14） | 14 | 已实现 + 22/22 adapter 已接入 | 已合并（主线，PR #24） | 已覆盖 | 同上；APCM 整理原子性 Python 已修，CODESYS 未验 |
 | L2 组件模型 | 8 | 已实现（22/22 目录级验收） | 已合并（主线，PR #24） | 已覆盖 | F2 变体一律 fail-closed；参数装载见 L5 |
-| L34 IR/执行引擎 | 10 | 已实现（headless 核心） | 已合并（主线） | 已覆盖 | CFC 图定序编译器属阶段 2，未做 |
+| L34 IR/执行引擎 | 11 | 已实现（headless 核心）；L34-11 单任务纵向装配已由 WP-050 审核关闭 | 10 已合并（主线）；L34-11 工作区未收尾 | 已覆盖 | CFC 图定序编译器属阶段 2 未做；L34-11 已审核关闭，待 Git/GitHub 收尾 |
 | L5 运行时安全 | 14 | 软件安全核心与确定性 monitor 已实现；真实调度/硬件 watchdog 未实现 | monitor 经 PR #28 合并 | 已覆盖（Python） | shadow/OutputPolicy/提交监督/软件 monitor 已关闭；PLC、HAL、硬件与现场未验证 |
 | USR 用户入口/后续平台 | 13 | 多数未实现 | 未涉及/试验已合并 | 无/局部 | ST/CFC 前端、导入器、HAL、AI 集成等均未做 |
 | ENG 工程支持 | 4 | 已实现（协作机制） | 已合并（主线） | 部分覆盖 | 非软 PLC 产品功能，属协作基建 |
@@ -174,6 +174,7 @@
 | L34-08 | L4 引擎 | FUNCTION / 用户 FB / VAR_IN_OUT | 调用帧、`ValueRef` 别名引用语义 | [../src/runtime/executor.py](../src/runtime/executor.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | VAR_IN_OUT 写透调用方 | L34-07 | — |
 | L34-09 | L4 引擎 | E/F1 数值边界 | engineering/F1 量化边界与失败关闭 | [../src/runtime/numeric.py](../src/runtime/numeric.py) | 已实现 | `CLOSED` | 已合并（主线 04e0050） | 已覆盖 | 未验证 | 未验证 | `PLATFORM-REAL-FIDELITY-1`/`-INT-WIDTH-1`（in-progress） | SEM-03 | 阶段 6 量化漂移裁决 |
 | L34-10 | L4 引擎 | 五步 ScanEngine（确定性单拍） | 输入锁存→执行→策略→提交的可重复单拍编排 | [../src/runtime/engine.py](../src/runtime/engine.py) | 已实现 | `CLOSED`（WP-006） | 已合并（主线 04e0050） | 已覆盖（`test_runtime_engine`） | 未验证 | 未验证 | `RUNTIME-5-STEPS`（resolved=Python 核心）；CFC 图定序编译器属阶段 2 未做 | L34-07 | 阶段 2 CFC 定序编译器 |
+| L34-11 | L4 引擎 | 单任务运行栈纵向装配（阶段 1 E2E） | 把 `build_runtime`→安全状态→OutputPolicy→CommitSupervisor→默认 shadow CommitPort→ScanEngine→OuterScanRunner→软件 monitor 连成**同一对象图**的受支持单任务装配入口（Python 内部/测试入口，非最终用户编程入口） | [../src/runtime/task_runtime.py](../src/runtime/task_runtime.py) | 已实现（Python 单任务对象图 + 手搭 TON 最小程序 E2E；默认 shadow、冷启动失败关闭） | `CLOSED`（WP-20260730-050 Round 3；承接 WP-049 检查点） | 工作区未收尾 | 已覆盖（`test_runtime_task_runtime` 23；宿主正式 1560/1560、全仓 1628/1628；尚未合并，不回写主线 1537/1605） | 未验证 | 未验证 | `RUNTIME-TASK-ASSEMBLY`（in-progress）；继承 `RUNTIME-SAFETY-DEFAULT`/`RUNTIME-SHADOW-MODE`/`RUNTIME-WATCHDOG`/`RUNTIME-PARAM-VALIDATION` 边界，不因本包 resolved | L34-10, L5-04, L5-08, L5-10, L5-12 | Git/GitHub 收尾；真实调度/多任务/startup inhibit 计时/外部信号源/HAL 属后续独立立项 |
 
 ### 3.6 L5 — 运行时安全服务
 

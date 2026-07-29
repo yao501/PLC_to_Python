@@ -48,7 +48,7 @@
 | **L1 标准库** | 可被程序引用的功能块与原语（TON/TOF/.../APCM 等） | ✅ 已迁移 14 块 + 8 原语 + 授权 |
 | **L2 组件模型** | 统一 FB 契约：跨周期状态 + `step(dt_ms, **in)->out`；管脚/类型元数据；库注册表 | 🟨 `BlockSchema` / `RuntimeAdapter` / Registry 核心 + **22/22 个 engineering adapter 目录已审核关闭**（8 原语 + 14 业务块），`WP-20260728-040 CLOSED` 已通过 [PR #24](https://github.com/yao501/PLC_to_Python/pull/24) 合并；F2 变体、参数装载、真实 HAL/monitor、CODESYS 对拍仍未完成 |
 | **L3 程序模型（IR）** | 实例集 + 连接(out→in) + GVL 声明(含 RETAIN) + I/O 映射 + 执行顺序 | 🟨 正式 IR、静态校验、Store、实例布局已实现；RETAIN/PERSISTENT 仅建模，断电恢复仍属阶段 8 |
-| **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟨 显式顺序 Executor 与确定性五步单拍引擎已实现；CFC 图定序编译器仍属阶段 2 |
+| **L4 执行引擎** | 变量空间 + 过程映像 + 连接解算 + 五步式扫描 + 顺序编译 | 🟨 显式顺序 Executor 与确定性五步单拍引擎已实现；`WP-20260730-050 CLOSED` 已把内核连成受支持单任务运行栈装配入口 `build_task_runtime` / `TaskRuntimeAssembly`（同一对象图 + 手搭 TON 最小程序 E2E、默认 shadow / 冷启动失败关闭），当前待 Git/GitHub 收尾；CFC 图定序编译器仍属阶段 2 |
 | **L5 运行时安全服务** | system_ready / 输出门控 / 启动抑制 / watchdog / 安全默认值 / shadow mode | 🟨 OutputPolicy、故障安全外层运行器、提交监督器、Python shadow 核心，以及 `WP-20260729-042` 审核关闭的静态启动装配/参数校验子范围已实现；startup 计时、实时 monitor/watchdog 事件源、真实 HAL/现场证明未完成 |
 | **L6 语言前端** | ST 解析执行；CFC 模型 + 编辑器；CODESYS 导入 | 🟥 未做 |
 | **L7 I/O 与 HAL** | 驱动/协议、GVL↔物理点映射、实时循环驱动 | 🟥 未做（接现场必需） |
@@ -143,6 +143,7 @@
 - **依赖**：**阶段 0.5（冻结闸门通过）**。
 - **验收**：最小程序（如 TON + 逻辑）确定性跑 N 拍；安全门控 / shadow / 启动抑制 / 参数非法硬停 / OutputPolicy 分原因故障策略（`ENGINE_SCAN_SPEC §4`）均有测试。
 - **风险**：把"引擎内部 Python 构造法"误当成最终编程入口对外暴露——必须明确它只是内部/测试用。
+- **当前状态（Python 单任务装配子范围已审核关闭，待 Git/GitHub 收尾）**：阶段 1 内核（L2 元数据 / L3 IR / L4 五步引擎 / L5 安全服务 + 参数校验）与“手搭最小程序跑通”验收已有 Python 实现。`WP-20260730-050 CLOSED`（承接已封存的 WP-049 检查点）新增 `src/runtime/task_runtime.py::build_task_runtime` / `TaskRuntimeAssembly`，把内核连成**同一对象图**并以手搭 TON（`Motor=TON.Q AND NOT Stop`、`cycle_ms=500`）跑通默认 shadow 冷启动 / N 拍确定性 / 显式实写恰一次提交 / monitor 一次性派发 / scan·commit fault 分层的 E2E（`tests/test_runtime_task_runtime.py` 23 条）；Codex Round 3 `APPROVED`，当前尚未提交/合并。该结论不代表阶段 1 全面关闭——真实调度 / 多任务 / startup inhibit 计时与释放 / 外部信号源 / HAL / CFC 定序 / CODESYS 对拍仍未实现。**下一步**：Git/GitHub 收尾 → 阶段 2 CFC 定序编译器。
 
 ### 阶段 2 — 数据流定序编译器（CFC 执行语义的运行时基础）
 
