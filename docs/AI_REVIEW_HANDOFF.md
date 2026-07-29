@@ -8558,3 +8558,414 @@ Codex 独立复跑上述九条、未预告反证与 `git diff --check`。Python 
 - git_merge_commit: `c5031fff9a35fbf724ea74f680bc3a1276af2555`
 - git_finalized_at: 2026-07-29 23:25:13 +0800
 - git_notes: 本地 smart-HTTP push/fetch 因 GitHub 空响应失败，未重试已知失效的 `gh` 令牌；Codex 改用已连接 GitHub Git Data API 发布与本地提交精确相同的 tree，并以预期 head SHA 锁定合并。GitHub merge commit `verification=verified / reason=valid`；随后按 GitHub 原始 Git Data 元数据重建远端 head 与签名 merge 对象，本地 `main` / `origin/main` 精确同步到上述 merge commit。Python 主机测试结果不构成 PLC/CODESYS、HAL、硬件 watchdog 或现场安全证明。
+
+## WP-20260730-049
+
+- title: 阶段 1 单任务运行栈装配与手搭 TON 最小程序端到端验收
+- status: BLOCKED
+- owner: user
+- handoff_to: user
+- round: 1
+- max_rounds: 5
+- handoff_protocol: v2
+- function_matrix_ids: L34-10, L5-04, L5-08, L5-10, L5-12, L34-11（本包新增）
+- base_commit: a57dbb5e9ef4c1e290ede308e19ce7afc1e8a572
+- scope:
+  - src/runtime/task_runtime.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_task_runtime.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - docs/PLATFORM_ROADMAP.md
+  - docs/PROJECT_STATE.md
+- scope_baseline_sha256: 37927b4a988f69d4322bf12ee03ab65c3ea3fd0e35b5c47af9cec11142281ff0
+
+### 创建依据、路线裁决与基线
+
+- 用户于 2026-07-30 明确要求先给出规划，再按既定 Claude 实施 → 结构化 v2 自审 → 原子交接 → Codex 独立审核工作流开始下一项任务；此前已明确不引入 ChatGPT Pro，继续使用 Claude 作为主要实施方、Codex 作为独立规划/审核方。本包不授权 Git/GitHub 写操作或用户关闭动作。
+- 路线裁决：阶段 1 已具备 22/22 engineering adapter、正式 IR/Loader/Store/Executor、五步 `ScanEngine`、OutputPolicy、安全外层 runner、CommitSupervisor、默认 shadow、静态 `build_runtime` 与确定性软件 monitor，但生产形态组件仍主要由测试逐件手工拼装，尚无一个受支持的**单任务纵向装配入口**把这些已审核组件连成同一对象图。故本包只补“装配 + 手搭最小任务 E2E”这一条缺口，不提前进入阶段 2 CFC 定序、阶段 7 实时/HAL 或阶段 8 持久化。
+- 创建前只读复核：`main == origin/main == HEAD == a57dbb5e9ef4c1e290ede308e19ce7afc1e8a572`，分支 `main`，工作区干净；`WP-20260729-048=CLOSED / user / user / round=2 / max_rounds=5`，PR #28 及后续行政同步已合并。项目内协调器投影为 `state=stopped / coordinator_live=false / execution_failure_alert=null`，8765 无监听；旧 Claude/Codex 30 分钟轮询仍为 `legacy_polling_must_remain_paused=true / legacy_polling_resume_authorized=false`。
+- 最新已合并且已关闭的完整主机基线为正式 tests **1537/1537**、`prototype_05` **68/68**、全仓 **1605/1605**。本包新增测试后的数字必须按实际运行记录，不回写或改造上述历史数字。
+- scope baseline manifest（按 scope 顺序；`ABSENT` 只在当前 `CLAUDE_WORKING` 基线合法）：
+  - `ABSENT  src/runtime/task_runtime.py`
+  - `6dc0b881a034dc731bc211ffbb0acf9668af501696a9e0a957c0d05cd52d54ed  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_task_runtime.py`
+  - `6ab429729e84cfa314f42e0bbf116a2eb7296411dbe6702f4868d5cfa7cab9cd  docs/RISKS.md`
+  - `b095887e6e47f3144dacbcdd87c3fc63d1023f2485f8b974b6ee367983cfe2e0  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `7d347f01be00ba1b55650a57924087a918725fddd282e5ff3c0802c73265b00f  docs/PLATFORM_ROADMAP.md`
+  - `6875e8ef754ae3f42b2199a7c9bd587c1e73616e663278ab6d134baeec3c3234  docs/PROJECT_STATE.md`
+- 冻结依赖（不在 scope，不得修改）：`parameters.py=ba6edd81…8719`、`engine.py=fb5eae2e…921`、`output_policy.py=b6289e8b…f495`、`commit_supervisor.py=45f8d21c…3d5`、`scan_runner.py=429b536e…0b0d`、`monitor.py=7e1265d5…ad9c`、`descriptors/representative.py=26b4b229…22b4`、`store.py=53dc8579…fba`、`executor.py=0a67459f…a973`；`src/blocks/**`、`src/primitives/**` 全部冻结。
+
+### 唯一目标与公开装配契约
+
+1. 新增 `src/runtime/task_runtime.py`，提供冻结值对象 `TaskRuntimeAssembly` 与公开工厂 `build_task_runtime(...)`，并从 `src.runtime` 明确导出。该入口仍是阶段 1 **Python 内部/测试装配入口**，不是最终 ST/CFC 用户编程入口，也不是工程文件解析器。
+2. 工厂签名与参数语义必须明确等价于：
+   `build_task_runtime(task, registry, *, driver, watchdog_timeout_ms, dependencies=None, numeric_mode=None, startup_inhibit_ms=None, initial_safety=None, clock_ns=time.monotonic_ns)`。
+   不得通过 `*args/**kwargs` 隐藏边界，不得自行读取环境变量、文件、数据库或全局驱动。
+3. 必须只复用既有生产组件并形成**同一对象图**：
+   `build_runtime → SafetyStateService → OutputPolicyService → CommitSupervisor → CommitPort（默认 WriteGate/shadow）→ ScanEngine → OuterScanRunner → SoftwareCycleMonitor`。
+   `TaskRuntimeAssembly` 至少只读暴露 `runtime / safety_state / output_policy / commit_supervisor / commit_port / engine / runner / monitor`，并可提供不复制状态的 `task/layout/store/executor/startup_inhibit_ms/warnings` 便捷属性；不得建立第二套 Store、策略、提交监督或安全状态。
+4. `initial_safety is None` 时使用本包冻结的冷启动失败关闭快照：
+   `system_ready=False / output_enable=False / comm_ok=False / safety_ok=False / interlock_ok=False / scan_ok=True / watchdog_ok=True`。含义只是“外部 ready/通信/安全/联锁尚未建立，内部扫描与 watchdog 尚无已知故障”，必须使所有输出走安全值；它**不**生成真实信号、不自动释放。调用方若传入 `SafetySnapshot`，原样交给既有 `SafetyStateService` 校验和持有；不得逐字段真值转换或宽松猜测。
+5. `watchdog_timeout_ms` 显式必填；`Task.cycle_ms` 原样作为 monitor `cycle_ms`，`clock_ns` 原样注入既有 `SoftwareCycleMonitor`。本包不私设 `timeout_ms >= cycle_ms` 关系，不把实际墙钟耗时写回 `dt_ms`，不自动 `begin/finish/poll/dispatch`。
+6. 默认物理写必须继续关闭：工厂只能构造 `CommitPort(supervisor)` 的默认 shadow 路径，禁止 `legacy_unshadowed=True`，禁止新增 `writes_enabled` 构造参数或自动调用 `runner.set_write_enabled(True)`。唯一放开写路径仍是既有运行器的显式、可审计 `set_write_enabled(True)`。
+7. monitor 与 runner 只做身份明确的装配：调用方显式执行 `monitor.dispatch_pending(assembly.runner.trigger_watchdog)` 时才消费事件。不得新增 `run_forever`、后台线程、sleep、自动轮询、自动重试或在途扫描异步抢占；也不得发明扫描异常与 monitor 时钟异常并发时的优先级。
+8. 任一装配阶段失败必须不返回 `TaskRuntimeAssembly`、不调用 `driver.commit()`、不修改传入 `task/registry/dependencies`；不得把半构造对象写入全局注册表或缓存。允许既有构造器按各自稳定异常类型失败，不新增宽泛 `except BaseException` 包装，不以诊断格式化观察不可信驱动回执。
+
+### 手搭最小程序与纵向验收
+
+1. 在 `tests/test_runtime_task_runtime.py` 由 Python 内存 IR 手搭一个单任务固定 `cycle_ms=500` 的最小程序：两个 BOOL 输入 `Start/Stop`、一个 BOOL request/output `Motor`、一个 Registry 中的 `TON` 实例；显式 IR 驱动 `TON.IN` 与 `PT_ms`，调用 `CallFb`，再以 `TON.Q AND NOT Stop` 生成 `Motor`。OUT 通道必须带生产 `OutputPolicy`，不得绕过策略直接复制 request。
+2. 冷启动/默认 shadow：先以 `Start=False` 执行至少一拍，证明默认安全快照使 `Motor` 为 `safe_value`、返回诚实 shadow 结果、驱动与 `CommitSupervisor` 零物理调用。不得用冷启动前已为真的 Start 冒充有效启动边沿。
+3. 显式以一次完整 `SafetySnapshot` 替换为 all-ok 后再产生新的 `Start=True`，按固定 500ms 推进 TON；对照直接 `TON.step(500, ...)` 或明确的逐拍期望，证明达到 `PT_ms` 前后 `Q/ET_ms/Motor`、Stop 抑制和 `prev` 前移确定且可重复。
+4. 显式退出 shadow 前必须先把 Start/输出请求回到安全状态；随后 `set_write_enabled(True)`，证明首个实写拍只经同一 CommitSupervisor/驱动提交恰一次并得到确认回执。不得把该测试描述成真实 HAL 或现场写入证明。
+5. monitor E2E 使用手工 exact-int 纳秒时钟：正常 begin→runner.scan_cycle→finish 不产生事件；超时在 runner 空闲后锁存并以 `dispatch_pending(runner.trigger_watchdog)` 恰消费一次，得到既有结构化 `WatchdogSafeCommit`，锁存 `watchdog_ok=False`、业务 IR/prev 不因事件推进、shadow 下驱动零调用；第二次 dispatch 不得重放。
+6. 扫描前输入映像错误/IR 执行错误仍必须经既有 `OuterScanRunner` 形成 `ScanFaultSafeCommit`，全通道安全映像与 shadow 诚实字段不退化；提交已尝试后失败仍按既有 `commit_fault` 路径原样上抛，不追加第二次安全提交。
+7. 用同一个 `Task` / Registry 创建两套 assembly，必须证明 Store、Executor、TON 块状态、SafetyStateService、OutputPolicy、CommitSupervisor、WriteGate、runner、monitor 均不共享；交错推进不串拍。传入共享 `dependencies` 只沿既有 `build_runtime` 规则注入，不复制/改写，不新增 LicenseContext 语义。
+
+### 装配失败关闭、状态文档与风险要求
+
+1. 增加配置/失败原子性反证：非法 Task/Registry、缺失或非法 OutputPolicy、非法 `driver`、非法 `watchdog_timeout_ms`、非法 `initial_safety`、非法 `numeric_mode`/构造参数分别由既有层稳定拒绝；全路径 driver 调用为 0、无 assembly 返回、输入映射/Registry 键集合不变。不得为追求统一异常而吞掉既有分层异常。
+2. 增加对象图身份反证：`runtime.task is task`、`runtime.layout is engine.layout`、`runtime.executor is engine.executor`、policy/port/runner 共享关系、policy 的 `safety_state` 与 assembly 暴露实例相同、monitor 的 `cycle_ns` 精确来自 `Task.cycle_ms`。
+3. `docs/SOFT_PLC_FUNCTION_MATRIX.md` 新增稳定 ID `L34-11`（单任务运行栈装配 / 阶段 1 E2E），总览 L34 功能点数由 10 调为 11；创建/实施阶段只能写“WP-049 候选/未提交/待 Codex 审核”，不得提前写 CLOSED、已合并、PLC 已验或现场已验。既有 L34-10/L5-04/L5-08/L5-10/L5-12 行只在真实状态发生变化时最小更新。
+4. `docs/RISKS.md` 新增或同源归并 `RUNTIME-TASK-ASSEMBLY`：区分“Python 单任务对象图/E2E 已有候选证据”和“真实调度、多任务、startup inhibit 计时/释放、外部信号源、HAL/硬件/现场未实现”。`RUNTIME-SAFETY-DEFAULT`、`RUNTIME-SHADOW-MODE`、`RUNTIME-WATCHDOG`、`RUNTIME-PARAM-VALIDATION` 不得仅因本包转 resolved。
+5. `docs/PLATFORM_ROADMAP.md` 与 `docs/PROJECT_STATE.md` 只按实际候选状态更新阶段 1 当前位置和下一步；不得把“手搭内存 IR”写成最终用户入口，不得宣称阶段 1 全面关闭，尤其 `startup_inhibit` 仍只有配置校验、外部参数源/动态值仍未完成。
+6. 文档永久分层：Python 已证实事实 / 项目工程约定 / 待 PLC/CODESYS 验证 / 待 HAL 与现场验证。历史工作包、历史测试计数、PR/commit 记录全部原样保留。
+
+### 明确排除项
+
+- 不修改 `src/runtime/parameters.py`、`engine.py`、`output_policy.py`、`commit_supervisor.py`、`scan_runner.py`、`monitor.py`、`store.py`、`executor.py`、`descriptors/**`、`src/blocks/**`、`src/primitives/**` 或正式 IR/扫描/组件规格；若现有公开接口不足，立即 `BLOCKED` 报告，不擅自扩 scope。
+- 不实现 startup inhibit 计时或 `system_ready` 自动释放，不实现外部参数文件/来源优先级、运行期动态参数卫生、HMI 在线写、RETAIN/PERSISTENT。
+- 不实现真实周期线程/调度器、sleep/asyncio、墙钟抖动、连续 deadline miss、在途扫描抢占、进程/OS 崩溃恢复、硬件 watchdog、HAL/协议、可信反馈、真实 I/O、执行机构、现场放开写或部署。
+- 不实现阶段 2 CFC 定序、阶段 3 ST 前端、阶段 4 编辑器、阶段 5 工程导入、F2 块级 float32、AI worker/IPC；不把 `USR-05` 多任务/工程装配记为已实现。
+- 不进行 CODESYS SP16.1 导入编译、黄金轨迹/PLC 对拍或真机测试；Python 测试不构成这些证明。
+- Claude 不执行 `git` / `gh` / GitHub 写操作，不关闭工作包，不启动旧轮询，不修改协调器/协议实现。Codex 本轮只在合法原子交接后独立审核；Git/GitHub 收尾与用户关闭必须另行授权。
+
+### Claude v2 自审与原子交接要求
+
+- 接手前复算七文件 baseline manifest（含两个 `ABSENT`）与规范聚合，必须精确等于 `37927b4a988f69d4322bf12ee03ab65c3ea3fd0e35b5c47af9cec11142281ff0`；复核全部冻结依赖哈希。任一不一致即零写入安全停止。
+- 先以测试锁定默认安全/shadow、最小 TON N 拍、对象图身份、双实例隔离、装配失败原子性、scan fault、commit fault 和 monitor 一次性派发，再实现最小生产代码；不得为测试修改冻结核心。
+- 自审必须逐文件审查、记录首次失败、根因、修复内容、真实测试命令/计数、已知疑问和未验证边界；禁止把“首次失败”伪写为无，若测试先写后实现应如实记录红灯。
+- 结构化字段必须逐字使用 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 是否满足交接条件: 是`；每条 unittest 同行使用可解析的 `Ran N tests, OK`。manifest 路径/顺序与 scope 完全一致，自审/实施聚合哈希相等，时间使用真实宿主时间。
+- 仅在自审 `PASS` 后原子写 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，随后停止修改全部 scope。发现需改冻结文件、需新增调度语义或规格歧义必须 `BLOCKED`，不得猜测。
+
+### Codex 独立审核要求
+
+- 交接后独立复算 baseline、Claude 自审/实施 manifest 与实盘哈希；审核开始/结束七文件聚合必须一致，全部冻结依赖哈希必须不变。
+- 逐文件审查公开 API、对象图身份、默认冷启动安全、默认 shadow、错误分层和文档状态；独立确认没有第二套 Store/策略/提交监督、安全状态或隐式物理写能力。
+- 使用未预告任务变体复测：非零安全值、模拟量 OUT、零 OUT 通道、两个 TON/两个 assembly 交错、恶意/失败 driver、monitor callback 抛异常、pending 不重放、scan fault 与 commit fault 分类；若公开接口不足或需扩 scope，给 `CHANGES_REQUESTED` / `BLOCKED`，不得在审核期改生产代码。
+- 明确分层 verdict：本包最多证明 Python 单任务生产形态对象图与确定性 E2E；不得把它升级为实时、PLC、HAL、硬件 watchdog 或现场安全通过。
+
+### 完整测试计划
+
+Claude 必须在宿主环境逐条实跑并记录真实计数：
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_task_runtime`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_monitor tests.test_runtime_task_runtime`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor tests.test_runtime_task_runtime`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor tests.test_runtime_parameters tests.test_runtime_task_runtime`
+6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+9. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+10. `PYTHONDONTWRITEBYTECODE=1 python -c "from src.runtime import TaskRuntimeAssembly, build_task_runtime; print('task-runtime-import-ok', TaskRuntimeAssembly.__name__, build_task_runtime.__name__)"`
+
+Codex 独立复跑上述十条、未预告反证与 `git diff --check`。任何受限环境端口假失败必须与宿主结果分开记录，不能用历史数字覆盖实际结果。
+
+### Round 1 首次启动安全停止与用户授权受控重试
+
+- 首次执行键：`WP-20260730-049:1:start_claude_implementation`。Claude 子进程于 2026-07-30 00:42:34 +0800 启动，约 108 秒后退出码为 0，但仍停在 `CLAUDE_WORKING / claude / claude / round=1`，未形成自审或原子交接；协调器据此正确登记 `postcondition-failed`，不是实施成功。
+- 已核实失败原因：Claude 误选了明确禁止的 `git`、`shasum` 和含 `echo/for/管道` 的复合 Bash；`dontAsk` 权限门正确拒绝。Claude 没有改用 adapter 已允许的 Python 命令，因此在无法复算哈希/运行测试时安全停止。该失败不是额度耗尽、不是 scope/规格冲突，也没有消耗新的实施—审核轮次。
+- 零写入证据：停止后七文件当前 manifest 与工作包 baseline 逐项相同，两个新文件仍为 `ABSENT`，规范聚合仍为 `37927b4a988f69d4322bf12ee03ab65c3ea3fd0e35b5c47af9cec11142281ff0`；工作区除本交接文件的工作包行政记录外无改动。协调器已停止、无活动租约，旧 30 分钟轮询仍暂停。
+- 用户于 2026-07-30 明确授权对上述**精确失败键**执行一次受控重试。本授权只重试同一 WP-049 Round 1 实施，不创建新工作包、不增加 round、不扩大 scope/Git/外部系统权限。
+- 重试时 Claude 必须遵守以下命令选择清单，不得再次以“Bash 不可用”概括所有命令：
+  1. 文件读取/检索使用 `Read / Glob / Grep`；scope 写入只用 `Edit / Write`。
+  2. SHA-256、文件存在性、真实时间、manifest 聚合必须使用允许的单一 Python 命令，例如 `python -c "from pathlib import Path; import hashlib; ..."`；不得使用 `shasum`、`sha256sum`、`git hash-object`、shell `for`、管道、命令替换或复合命令。
+  3. 测试逐条使用允许的 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`；不得把测试包进 shell 循环、管道或其它命令。
+  4. 禁止 `git` / `gh` / `rm` / `sudo` 的约束保持不变；不需要、也不得用 `git status/rev-parse` 完成 Claude 接手。`base_commit` 与工作区 Git 事实由 Codex 创建工作包时已核验，Claude 的强制接手证据是五字段、scope baseline/冻结依赖哈希和文件内容。
+  5. 若某条**单一 Python 命令**仍被权限门拒绝，记录精确命令与拒绝信息后安全停止；不得在未尝试允许命令前重复报告“所有 Bash 均不可用”，不得猜测或伪造哈希/测试。
+- 本节是用户授权下的协议行政恢复记录，不属于七文件功能 scope，不改变 baseline 聚合、功能目标、验收标准或历史首次失败事实。
+
+### Round 1 配额中断封存与后继裁决
+
+- 上述受控重试于 2026-07-30 00:53:49 +0800 启动；Claude 已按 Python-only 方向继续施工约 1050 秒、66 turns，随后返回 HTTP 429 session limit：`You've hit your session limit · resets 2:40am (Asia/Shanghai)`。协调器记录 `outcome=failed / returncode=1 / timed_out=false`，不是功能失败或 v2 交接成功。
+- 中断时 Claude 已写入 scope，但尚未形成结构化自审/实施交接，故本包不能进入 `READY_FOR_CODEX`，Codex 也未启动功能审核。七文件中间检查点规范聚合为 `a25bc8b2807fa044c25394af9b3bce5bb43f77084b87d794aab961508d310fed`；工作区无 scope 外功能改动，`git diff --check` 通过，`tests.test_runtime_task_runtime` 由 Codex 仅作检查点可运行性核验得到 **23/23 OK**，该结果不是独立审核 verdict。
+- 由于 `CLAUDE_WORKING` 调度必须继续匹配创建时 `scope_baseline_sha256=37927b4a…81ff0`，当前 partial checkpoint 已合法偏离原基线；协议不允许篡改 WP-049 创建基线或绕过哈希门直接重放同键。因此本包以 `BLOCKED / user / user / round=1 / max_rounds=5` 封存，历史目标、两次启动记录与中间改动事实全部保留。
+- 用户于 2026-07-30 授权 Codex 在当前 PLC 转 Python 工程内连续推进后续任务、无需逐项再次审批，并明确要求 Claude 额度耗尽时安排一次性恢复任务；授权不延伸到项目外本地资料或网络资源，也不取消 Claude 自审、原子交接、Codex 独立审核、scope/哈希、测试、Git 或现场证据门禁。
+- 后继动作：创建 `WP-20260730-050` 冻结当前七文件检查点，只完成 WP-049 原目标的剩余实施、自审和交接；Claude 实施 Runbook/启动器约束集中化顺延为独立 `WP-20260730-051`，不得混入本恢复包。
+- recorded_by: codex（用户授权下的配额中断封存与检查点恢复行政动作）
+
+## WP-20260730-050
+
+- title: WP-049 配额中断检查点恢复——阶段 1 单任务运行栈装配与 TON 端到端验收
+- status: CLOSED
+- owner: user
+- handoff_to: user
+- round: 3
+- max_rounds: 5
+- handoff_protocol: v2
+- function_matrix_ids: L34-10, L5-04, L5-08, L5-10, L5-12, L34-11
+- base_commit: a57dbb5e9ef4c1e290ede308e19ce7afc1e8a572
+- scope:
+  - src/runtime/task_runtime.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_task_runtime.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - docs/PLATFORM_ROADMAP.md
+  - docs/PROJECT_STATE.md
+- scope_baseline_sha256: a25bc8b2807fa044c25394af9b3bce5bb43f77084b87d794aab961508d310fed
+
+### 创建依据与检查点基线
+
+- 本包由 WP-049 Round 1 的 Claude 五小时额度中断检查点恢复而来，只承接原目标与原七文件 scope，不新增功能、不扩大权限。用户已授权本项目内连续推进及额度恢复后一次性续办；本包不是对 WP-049 的审核或通过结论。
+- 创建时协调器 `stopped / coordinator_live=false`，8765 无监听、无活动租约；旧 Claude/Codex 30 分钟轮询继续暂停且无恢复授权。`main == origin/main == HEAD == a57dbb5e9ef4c1e290ede308e19ce7afc1e8a572` 的 Git 基线不因工作区检查点改变。
+- scope baseline manifest（按 scope 顺序，规范聚合为上方 `scope_baseline_sha256`）：
+  - `d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e  src/runtime/task_runtime.py`
+  - `e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227  src/runtime/__init__.py`
+  - `383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445  tests/test_runtime_task_runtime.py`
+  - `9ebdb312d00d2c9484485b740fc8ea6390ad2a7fa016940036339690c3b6c652  docs/RISKS.md`
+  - `36632508cea0cb352dbc66a734463a47ad36acb059fb37fa2be342b2c6d71c79  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `7d347f01be00ba1b55650a57924087a918725fddd282e5ff3c0802c73265b00f  docs/PLATFORM_ROADMAP.md`
+  - `0b66cc31c87dae4f655e51fb030907a40e630bfcc58c12ce5001fd6a0bb5d533  docs/PROJECT_STATE.md`
+- 冻结依赖继续沿用 WP-049 创建时哈希：`parameters.py=ba6edd81…8719`、`engine.py=fb5eae2e…921`、`output_policy.py=b6289e8b…f495`、`commit_supervisor.py=45f8d21c…3d5`、`scan_runner.py=429b536e…0b0d`、`monitor.py=7e1265d5…ad9c`、`descriptors/representative.py=26b4b229…22b4`、`store.py=53dc8579…fba`、`executor.py=0a67459f…a973`；`src/blocks/**`、`src/primitives/**` 全部冻结。
+- 检查点最低可运行证据：Codex 在 Claude 已退出且协调器停止后仅运行 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime`，得到 `Ran 23 tests, OK`。这只证明检查点测试文件可导入和当前 23 项通过，不替代 Claude 完整自审或 Codex 独立审核。
+
+### 恢复目标与实施纪律
+
+1. WP-049 的“唯一目标与公开装配契约”“手搭最小程序与纵向验收”“装配失败关闭、状态文档与风险要求”“明确排除项”全部原样承接并继续有效；若本节与 WP-049 冲突，以更严格、不扩大范围的约束为准。
+2. Claude 接手后先复算上述七文件 checkpoint manifest 与聚合；不得回退、重写或猜测 WP-049 已有实现。逐文件对照 WP-049 任务书审查当前完成度，只补真实缺口。
+3. `docs/PLATFORM_ROADMAP.md` 在检查点仍与开工哈希相同，说明路线状态尚未同步；Claude 只能在实现/测试证据成立后最小更新，不得提前宣称阶段 1 全面关闭。
+4. 必须复核当前 23 项测试是否真实覆盖：对象图同一性、默认冷启动安全、默认 shadow、TON N 拍、显式实写、monitor 一次性派发、scan/commit fault 分类、双 assembly 隔离、非法配置与 driver 零调用。缺项先补反证，再修实现；不得只因 23/23 已绿跳过任务书逐条核对。
+5. 命令选择沿用 WP-049 的 Python-only 清单：哈希/时间/manifest 只用单一 `python -c`，测试只用单一 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`；文件操作用 `Read/Edit/Write/Glob/Grep`。禁止 `git/gh/shasum/sha256sum/rm/sudo`、shell 循环、管道、命令替换和复合 Bash。
+6. 发现需要修改冻结依赖、扩大 scope、裁决新运行语义或 Python 单一允许命令仍被拒绝，立即安全停止并报告；不得用恢复包绕过边界。
+
+### Claude v2 自审与原子交接要求
+
+- 必须亲自逐条运行下方十条测试，记录真实计数；自审须如实区分“WP-049 检查点已有内容”和“本包补充/修正内容”，记录本包首次失败、根因、修复和重跑结果。
+- 结构化字段必须逐字使用 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 是否满足交接条件: 是`；每条 unittest 同行使用 `Ran N tests, OK`。自审时间使用真实宿主时间，manifest 路径/顺序与 scope 精确一致。
+- 仅在自审 `PASS` 后原子写 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，自审/实施 `scope_sha256` 必须相等；交接后立即停止修改 scope。
+
+### Codex 独立审核要求
+
+- 独立复算 WP-050 checkpoint baseline、Claude 自审/交接 manifest 与接手实盘哈希；冻结依赖不得变化，审核开始/结束 scope 聚合必须相等。
+- 完整执行 WP-049 的对象图/安全/隔离/错误分层审查和未预告反证，不把 23/23 检查点绿灯当作通过；逐项核对矩阵 `L34-11`、RISKS、ROADMAP、PROJECT_STATE 的候选状态与证据。
+- verdict 只能为 `APPROVED / CHANGES_REQUESTED / BLOCKED`；Python 结果不得升级为 PLC/CODESYS、真实调度、HAL、硬件 watchdog 或现场安全证明。
+
+### 完整测试计划
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_task_runtime`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_monitor tests.test_runtime_task_runtime`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor tests.test_runtime_task_runtime`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor tests.test_runtime_parameters tests.test_runtime_task_runtime`
+6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+9. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+10. `PYTHONDONTWRITEBYTECODE=1 python -c "from src.runtime import TaskRuntimeAssembly, build_task_runtime; print('task-runtime-import-ok', TaskRuntimeAssembly.__name__, build_task_runtime.__name__)"`
+
+Codex 独立复跑上述十条、未预告反证与 `git diff --check`。本包不执行 Git/GitHub 写操作；用户的连续推进授权只允许在 Codex `APPROVED` 后继续关闭/收尾/下一包，不允许跳过审核。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_round: 1
+- self_review_started_at: 2026-07-30 02:40 +0800
+- self_review_finished_at: 2026-07-30 02:55:38 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- self_review_manifest:
+  - d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e  src/runtime/task_runtime.py
+  - e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227  src/runtime/__init__.py
+  - 383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445  tests/test_runtime_task_runtime.py
+  - 9ebdb312d00d2c9484485b740fc8ea6390ad2a7fa016940036339690c3b6c652  docs/RISKS.md
+  - 36632508cea0cb352dbc66a734463a47ad36acb059fb37fa2be342b2c6d71c79  docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - d637ee4a92ea435e97dc9008db29692ca0f45a68d2f2c5d39b03b0e22c497698  docs/PLATFORM_ROADMAP.md
+  - 0b66cc31c87dae4f655e51fb030907a40e630bfcc58c12ce5001fd6a0bb5d533  docs/PROJECT_STATE.md
+- 接手核验（零写入前）：复算七文件 checkpoint baseline manifest 与规范聚合，精确等于创建时 `scope_baseline_sha256=a25bc8b2807fa044c25394af9b3bce5bb43f77084b87d794aab961508d310fed`；五字段 `CLAUDE_WORKING/claude/claude/round=1/max_rounds=5` 与状态映射一致，`handoff_protocol: v2` 已声明；冻结依赖逐项复核——`parameters/engine/output_policy/commit_supervisor/scan_runner/monitor/descriptors.representative/store/executor` 九项与 WP-049 一致，其中 `executor.py` 完整哈希 `0a67459f…a97335` 与 WP-049 审核证据（本文件 Round 1 审核证据行）逐字相同，故创建行「冻结依赖」缩写 `executor.py=…a973` 只是**尾部缩写笔误**（真实尾串为 `a97335`），文件本身未漂移。全部命令使用允许的单一 `python -c` / `python -m unittest`，未用 `git/gh/shasum/rm`、管道、命令替换或复合 Bash。
+- 逐文件对照 WP-049 任务书审查完成度：
+  - `src/runtime/task_runtime.py`（WP-049 检查点已有内容，本轮未改）：`build_task_runtime(task, registry, *, driver, watchdog_timeout_ms, dependencies=None, numeric_mode=None, startup_inhibit_ms=None, initial_safety=None, clock_ns=time.monotonic_ns)` 签名与任务书逐字等价，无 `*args/**kwargs`、无环境变量/文件/全局驱动读取；对象图 `build_runtime→SafetyStateService→OutputPolicyService→CommitSupervisor→CommitPort(默认 shadow)→ScanEngine→OuterScanRunner→SoftwareCycleMonitor` 顺序装配，装配期不调用 `driver.commit()`；`COLD_START_SAFETY` 字段与任务书冻结快照逐字段一致；默认物理写关闭（无 `legacy_unshadowed`、无 `writes_enabled` 构造参数、无自动 `set_write_enabled`）；失败关闭为既有分层异常原样传播。
+  - `src/runtime/__init__.py`（本轮未改）：`TaskRuntimeAssembly / build_task_runtime / COLD_START_SAFETY` 已从 `src.runtime` 导出且列入 `__all__`。
+  - `tests/test_runtime_task_runtime.py`（本轮未改）：9 个测试类共 23 条，逐条覆盖 WP-049「手搭最小程序与纵向验收 / 装配失败关闭 / 对象图身份」全部要求——默认 shadow 冷启动 + 非零 safe_value（4）、手搭 TON `Motor=TON.Q AND NOT Stop`/`cycle_ms=500` 对照 `TON.step`/Stop 抑制/`prev` 前移/可重复（2）、显式退出 shadow 恰一次提交+回执（1）、对象图身份 + 便捷属性转发（2）、双实例隔离 + 交错不串拍（2）、monitor 手工 exact-int 纳秒时钟正常无事件/超时锁存一次性派发/不重放/业务不推进（2）、scan_fault 与 commit_fault 分层（2）、装配失败原子性 driver 零调用/无 assembly/registry 不污染（7）、公开导入契约（1）。逐条核对任务书清单，无真实缺口需补反证。
+  - `docs/RISKS.md`（WP-049 检查点已有，本轮未改）：`RUNTIME-TASK-ASSEMBLY` 新增为 `blocker / in-progress`，区分「有候选证据」与「明确未实现」，明确不使 `RUNTIME-SAFETY-DEFAULT/SHADOW-MODE/WATCHDOG/PARAM-VALIDATION` 转 resolved；候选计数 1560/68/1628，不回写主线。核对无误。
+  - `docs/SOFT_PLC_FUNCTION_MATRIX.md`（WP-049 检查点已有，本轮未改）：`L34-11` 新增，L34 总数 10→11，状态写「WP-049 候选/未提交/待 Codex 审核」，六状态轴未互推。核对无误。
+  - `docs/PROJECT_STATE.md`（WP-049 检查点已有，本轮未改）：「当前位置」首条为阶段 1 单任务运行栈装配 + TON E2E 候选，明确未提交/未合并、非最终用户入口、不使相关风险 resolved。核对无误。
+  - `docs/PLATFORM_ROADMAP.md`（**本包本轮补充**）：接手时该文件仍等于开工哈希 `7d347f01…`，是唯一未同步的路线文件。本轮最小补两处候选说明：L4 层「现状」列与阶段 1「当前状态（候选，未提交）」条，注明 `build_task_runtime/TaskRuntimeAssembly` 候选、手搭 TON E2E、默认 shadow/冷启动失败关闭、**未提交/待 Codex 审核、不代表阶段 1 全面关闭**，并给出下一步（Codex 审核→Git 收尾另需授权→阶段 2 CFC 定序）。未改动 L57/L86 主线测试快照（1441/1509 属 Git 收尾后行政同步），未宣称阶段 1 关闭。
+- 实际测试命令与结果（Claude 亲自逐条运行，均单一命令、无管道/复合）：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime` → Ran 23 tests, OK
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 74 tests, OK
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_monitor tests.test_runtime_task_runtime` → Ran 119 tests, OK
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor tests.test_runtime_task_runtime` → Ran 263 tests, OK
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 377 tests, OK
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff` → Ran 147 tests, OK
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` → Ran 1560 tests, OK
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  9. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` → Ran 1628 tests, OK
+  10. `PYTHONDONTWRITEBYTECODE=1 python -c "from src.runtime import TaskRuntimeAssembly, build_task_runtime; print('task-runtime-import-ok', TaskRuntimeAssembly.__name__, build_task_runtime.__name__)"` → 输出 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`，导入冒烟 OK
+- 首次失败：无本轮红灯。诚实说明：本包是 WP-049 五小时额度中断检查点恢复，接手时 `task_runtime.py` 实现与 `test_runtime_task_runtime.py` 23 条已存在且全绿（Codex 创建时已记 23/23）；本轮唯一功能改动是 `PLATFORM_ROADMAP.md` 文档补充，不影响任何测试结果，故十条命令一次全绿、无首次失败/根因/修复重跑循环。未伪造红灯，也未把检查点已有绿灯冒充为本轮新写。
+- 失败根因 / 修复内容 / 修复后重跑结果：不适用（无失败）。
+- 已知疑问：① `PLATFORM_ROADMAP.md` L57/L86 的主线测试快照为 `1441/1509`（WP-042 时点），而 `PROJECT_STATE.md` 提到主线为 `1537/1605`，两者对不齐——这是 WP-043…048 已审核未 Git 收尾造成的既有行政漂移，属 Codex Git/GitHub 收尾与行政同步范围，不在本功能恢复包 scope，本轮**未**改写主线快照。② 受限环境端口假失败未出现：本宿主 `test_ai_handoff` 面板用例可绑定本地端口，147 全绿；若 Codex 沙箱禁绑定端口，应按协议与宿主结果分开记录。
+- 未验证边界（继续 open，不得据 Python 绿灯外推）：真实周期线程/调度/优先级/连续 deadline miss、在途扫描异步抢占、进程/OS 崩溃恢复、硬件 watchdog、startup inhibit 计时与 `system_ready` 自动释放、外部参数/信号源、HMI 在线写、多任务/GVL 工程装配、HAL/真实 I/O/可信反馈/执行机构/现场放开写、阶段 2 CFC 定序、阶段 6 CODESYS 对拍与现场安全。本包最多证明 Python 单任务生产形态对象图与确定性 E2E。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容：承接 WP-049 配额中断检查点，完成剩余实施与验收收口。核验七文件 checkpoint baseline（聚合 `a25bc8b2…`）与九项冻结依赖后接手；逐文件对照 WP-049 任务书审查完成度，确认 `src/runtime/task_runtime.py`（`build_task_runtime` / `TaskRuntimeAssembly` / `COLD_START_SAFETY`）、`src/runtime/__init__.py` 导出、`tests/test_runtime_task_runtime.py`（9 类 23 条，逐条覆盖对象图身份/默认冷启动安全/默认 shadow/TON N 拍/显式实写恰一次提交/monitor 一次性派发/scan·commit fault 分层/双实例隔离/非法配置与 driver 零调用/公开导入契约）已在检查点齐备且全绿，无真实缺口需补反证或改实现。唯一真实缺口是路线文件未同步：本轮在 `docs/PLATFORM_ROADMAP.md` 最小补充 L4 现状列与阶段 1「当前状态（候选，未提交）」条，如实标注候选、未提交、待 Codex 审核、不代表阶段 1 关闭并给出下一步。亲自逐条实跑完整测试计划十条命令，全部通过。
+- 修改文件：`docs/PLATFORM_ROADMAP.md`（本包本轮唯一功能改动；scope 内）。其余六个 scope 文件（`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_task_runtime.py`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`、`docs/PROJECT_STATE.md`）均为 WP-049 检查点已有内容，本轮字节未变（哈希与 checkpoint baseline 逐项相同）。
+- 明确未修改：全部冻结依赖（`parameters.py/engine.py/output_policy.py/commit_supervisor.py/scan_runner.py/monitor.py/descriptors/**/store.py/executor.py`、`src/blocks/**`、`src/primitives/**`）、正式 IR/扫描/组件规格，以及 `PLATFORM_ROADMAP.md` L57/L86 主线测试快照（1441/1509，属 Git 收尾后行政同步）。未执行任何 `git/gh/rm/sudo` 或 Git/GitHub 写操作，未修改协调器/协议实现，未关闭工作包，未启动旧轮询。
+- 测试命令与实际结果：完整测试计划十条，Claude 亲自逐条运行、单一命令无管道/复合，全部通过——① 23 OK ② 74 OK ③ 119 OK ④ 263 OK ⑤ 377 OK ⑥ 147 OK ⑦ 1560 OK ⑧ 68 OK ⑨ 1628 OK ⑩ 导入冒烟 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`。逐条命令与计数见上方自审段「实际测试命令与结果」。候选计数 `tests` 1560、`prototype_05` 68、全仓 1628 均为**未合并候选**，不回写主线。
+- 已知疑问：见自审段——`PLATFORM_ROADMAP.md` 主线快照 1441/1509 与 `PROJECT_STATE.md` 提到的 1537/1605 的行政漂移属 Git 收尾/行政同步范围，本包未改写；受限环境端口假失败若在 Codex 沙箱出现应与宿主结果分开记录。
+- self_review_scope_sha256 == 本交接 scope_sha256（均为 `52df9590…0f79`），自审 `PASS` 且位置在本实施交接之前，Round 均为 1。
+- scope_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- handoff_to: codex
+- implementation_finished_at: 2026-07-30 02:55:38 +0800
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 审核范围: 本轮仅执行 v2 自审/原子交接门禁核验，未进入 WP-050 功能独立审核。
+- 已验证事实: Claude 外部进程正常退出，十条命令及七文件 manifest 已写入交接记录；当前七文件交接聚合声明为 `52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79`。但解析器返回 `self_review_state=v2-invalid`、`handoff_gate_ok=false`，精确原因为“自审缺少结构化字段「实际测试命令与结果」；不得交接”。
+- 必须返修: Round 1 自审字段写成 `- 实际测试命令与结果（Claude 亲自逐条运行，均单一命令、无管道/复合）:`，字段名后插入了括号说明，未精确使用协议要求的 `- 实际测试命令与结果:`。同包 Round 2 只恢复证据格式：不得修改七个 scope 文件；Claude 必须亲自重跑 WP-050 十条命令、复算同一七文件 manifest，并以精确字段 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 是否满足交接条件: 是` 形成新的结构化 v2 自审和原子交接。说明文字可放在字段值内，不得改字段名。
+- 非阻塞建议: 无。
+- scope 纪律: 本裁决只修改 `docs/AI_REVIEW_HANDOFF.md` 的五字段与追加门禁记录；七个 scope 文件保持 Claude Round 1 交接终态，不得把门禁失败误报为功能缺陷或重写 Round 1 历史。
+- review_started_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- review_finished_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- handoff_to: claude
+- reviewed_at: 2026-07-30 02:59:30 +0800
+
+### Claude 交接前自审（Round 2）
+
+- self_review_round: 2
+- self_review_started_at: 2026-07-30 03:00:00 +0800
+- self_review_finished_at: 2026-07-30 03:03:24 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- self_review_manifest:
+  - d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e  src/runtime/task_runtime.py
+  - e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227  src/runtime/__init__.py
+  - 383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445  tests/test_runtime_task_runtime.py
+  - 9ebdb312d00d2c9484485b740fc8ea6390ad2a7fa016940036339690c3b6c652  docs/RISKS.md
+  - 36632508cea0cb352dbc66a734463a47ad36acb059fb37fa2be342b2c6d71c79  docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - d637ee4a92ea435e97dc9008db29692ca0f45a68d2f2c5d39b03b0e22c497698  docs/PLATFORM_ROADMAP.md
+  - 0b66cc31c87dae4f655e51fb030907a40e630bfcc58c12ce5001fd6a0bb5d533  docs/PROJECT_STATE.md
+- 返修依据: Codex Round 1 裁决 CHANGES_REQUESTED，精确原因为 Round 1 自审把字段名写成含括号说明的 `- 实际测试命令与结果（Claude 亲自逐条运行，均单一命令、无管道/复合）:`，解析器返回 `self_review_state=v2-invalid / handoff_gate_ok=false`。本轮按 Codex 指令仅恢复结构化证据格式：不修改七个 scope 文件（保持 Round 1 交接终态），逐字使用协议字段名，说明文字只放入字段值。
+- 接手核验（零写入前）：复算七文件 manifest 与规范聚合，精确等于 Round 1 交接 `scope_sha256=52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79`（其中六文件仍等于创建时 checkpoint baseline，`docs/PLATFORM_ROADMAP.md` 保持 Round 1 补充后的 `d637ee4a…7698`）；五字段接手前为 `CHANGES_REQUESTED/claude/claude/round=1/max_rounds=5`，Claude 按协议 round+1=2（≤5，未超限）接手，`handoff_protocol: v2` 已声明。九项冻结依赖与 WP-049/WP-050 创建记录逐项一致，未漂移。全部命令仅用允许的单一 `python -c` / `python -m unittest`，未用 `git/gh/shasum/rm`、管道、命令替换或复合 Bash。
+- 逐文件对照（区分 WP-049 检查点已有 vs 本包内容）：七个 scope 文件本轮字节未变，均维持 Round 1 交接终态——`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_task_runtime.py`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`、`docs/PROJECT_STATE.md` 为 WP-049 检查点已有内容；`docs/PLATFORM_ROADMAP.md` 为 WP-050 Round 1 补充的候选路线说明（未提交、待 Codex 审核、不代表阶段 1 关闭）。本轮唯一动作是修正本交接文件的自审证据格式，未新增功能、未改实现或测试。Round 1 记录的对象图身份、默认冷启动安全、默认 shadow、TON N 拍、显式实写恰一次提交、monitor 一次性派发、scan/commit fault 分层、双实例隔离、非法配置 driver 零调用、公开导入契约的逐条覆盖结论继续有效。
+- 实际测试命令与结果:
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime` → Ran 23 tests, OK
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 74 tests, OK
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_monitor tests.test_runtime_task_runtime` → Ran 119 tests, OK
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor tests.test_runtime_task_runtime` → Ran 263 tests, OK
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 377 tests, OK
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff` → Ran 147 tests, OK
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` → Ran 1560 tests, OK
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  9. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` → Ran 1628 tests, OK
+  10. `PYTHONDONTWRITEBYTECODE=1 python -c "from src.runtime import TaskRuntimeAssembly, build_task_runtime; print('task-runtime-import-ok', TaskRuntimeAssembly.__name__, build_task_runtime.__name__)"` → 输出 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`，导入冒烟 OK
+- 首次失败：本轮无红灯。诚实说明：本轮为格式返修，未改任何 scope 文件；十条命令由 Claude 亲自逐条实跑一次全绿，与 Round 1 计数一致，无首次失败/根因/修复重跑循环。未伪造红灯，也未把检查点已有绿灯冒充为本轮新写实现。
+- 失败根因 / 修复内容 / 修复后重跑结果：不适用（本轮无测试红灯）。返修内容仅为本交接文件的自审字段名恢复为协议精确写法。
+- 已知疑问：① `docs/PLATFORM_ROADMAP.md` L57/L86 主线快照 `1441/1509` 与 `PROJECT_STATE.md` 的 `1537/1605` 行政漂移属 Git 收尾/行政同步范围，本包未改写。② 本宿主 `test_ai_handoff` 面板用例可绑定本地端口，147 全绿；若 Codex 沙箱禁绑定端口，应按协议与宿主结果分开记录。
+- 未验证边界（继续 open，不得据 Python 绿灯外推）：真实周期线程/调度/优先级/连续 deadline miss、在途扫描异步抢占、进程/OS 崩溃恢复、硬件 watchdog、startup inhibit 计时与 `system_ready` 自动释放、外部参数/信号源、HMI 在线写、多任务/GVL 工程装配、HAL/真实 I/O/可信反馈/执行机构/现场放开写、阶段 2 CFC 定序、阶段 6 CODESYS 对拍与现场安全。本包最多证明 Python 单任务生产形态对象图与确定性 E2E。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 2）
+
+- 完成内容：按 Codex Round 1 裁决恢复结构化 v2 自审证据格式。唯一返修点是把 Round 1 中被写成 `- 实际测试命令与结果（…）:` 的字段名恢复为协议精确写法 `- 实际测试命令与结果:`，并同步补齐 `- self_review_manifest:` 与 `- 是否满足交接条件: 是`；说明文字一律放入字段值，不改字段名。七个 scope 文件保持 Round 1 交接终态、字节未变。Claude 亲自逐条重跑 WP-050 十条命令并复算七文件 manifest，聚合等于 Round 1 `scope_sha256`。
+- 修改文件：仅 `docs/AI_REVIEW_HANDOFF.md`（追加 Round 2 自审段与本实施交接段、并原子更新本工作包五字段）。七个 scope 文件（`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_task_runtime.py`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`、`docs/PLATFORM_ROADMAP.md`、`docs/PROJECT_STATE.md`）本轮字节未变，哈希与 Round 1 交接逐项相同。
+- 明确未修改：全部冻结依赖（`parameters.py/engine.py/output_policy.py/commit_supervisor.py/scan_runner.py/monitor.py/descriptors/**/store.py/executor.py`、`src/blocks/**`、`src/primitives/**`）、正式 IR/扫描/组件规格、`PLATFORM_ROADMAP.md` L57/L86 主线测试快照（1441/1509）。未执行任何 `git/gh/rm/sudo` 或 Git/GitHub 写操作，未修改协调器/协议实现，未关闭工作包，未启动旧轮询，未修改项目状态。
+- 测试命令与实际结果：完整测试计划十条，Claude 亲自逐条运行、单一命令无管道/复合，全部通过——① 23 OK ② 74 OK ③ 119 OK ④ 263 OK ⑤ 377 OK ⑥ 147 OK ⑦ 1560 OK ⑧ 68 OK ⑨ 1628 OK ⑩ 导入冒烟 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`。逐条命令与计数见上方自审段「实际测试命令与结果」。候选计数 `tests` 1560、`prototype_05` 68、全仓 1628 均为未合并候选，不回写主线。
+- 已知疑问：见自审段——`PLATFORM_ROADMAP.md` 主线快照与 `PROJECT_STATE.md` 的行政漂移属 Git 收尾/行政同步范围，本包未改写；受限环境端口假失败若在 Codex 沙箱出现应与宿主结果分开记录。
+- self_review_scope_sha256 == 本交接 scope_sha256（均为 `52df9590…0f79`），自审 `PASS` 且位置在本实施交接之前，Round 均为 2。
+- scope_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- handoff_to: codex
+- implementation_finished_at: 2026-07-30 03:03:24 +0800
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 接手门禁合法。顶层五字段在接手时为 `WP-20260730-050 / READY_FOR_CODEX / codex / codex / round=2`，`max_rounds=5`、`handoff_protocol=v2`；仓库解析器返回 `self_review_state=v2-ok`，结合当前实盘 manifest 的九项门禁返回无错误。checkpoint baseline manifest 可独立重建为 `a25bc8b2807fa044c25394af9b3bce5bb43f77084b87d794aab961508d310fed`；Round 2 自审、实施交接与 Codex 开始/结束实盘七文件聚合均为 `52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79`，scope 无漂移。九项冻结依赖完整 SHA-256 均匹配 WP-049/WP-050 声明，`src/blocks/**`、`src/primitives/**` 未见改动。`src/runtime/task_runtime.py` 只把既有 `build_runtime / SafetyStateService / OutputPolicyService / CommitSupervisor / 默认 shadow CommitPort / ScanEngine / OuterScanRunner / SoftwareCycleMonitor` 连成同一对象图；公开导出、冷启动失败关闭快照、默认 shadow、显式实写、TON 确定性逐拍、对象身份、双 assembly 隔离、scan/commit fault 分层与装配失败关闭均有实现及直接测试证据。独立未预告变体另通过 REAL 模拟量非零 `safe_value`、零 OUT 通道、两个 TON×两套 assembly 交错、恶意惰性 Mapping 回执单次失败关闭、monitor callback 抛异常后先消费且不重放。
+- 项目工程约定: `COLD_START_SAFETY` 的字段组合、单任务 Python 内存 IR 装配入口及默认 write-disable/shadow 路径是本项目冻结工程契约，不是 IEC/CODESYS 官方语义；本包只证明既有 Python 生产组件可按固定对象图纵向装配，不把 `build_task_runtime` 提升为最终 ST/CFC 用户入口或工程解析器。
+- 待真机验证假设: 真实周期线程/调度/优先级/连续 deadline miss、在途扫描抢占、进程或 OS 崩溃恢复、硬件 watchdog、startup inhibit 计时与 `system_ready` 自动释放、外部参数/信号源、多任务/GVL、HAL/真实 I/O/可信反馈/执行机构、CFC 定序、CODESYS 对拍与现场安全均未验证；本轮 Python 结果不构成这些范围的完成或发布授权。
+- 必须返修: 当前状态索引把已封存为 `BLOCKED` 的来源包 `WP-20260730-049` 错写成仍在受审的“候选/待 Codex 审核”：`docs/PROJECT_STATE.md:28`、`docs/RISKS.md:135`、`docs/SOFT_PLC_FUNCTION_MATRIX.md:89,177`。实际当前候选与独立审核载体是 `WP-20260730-050`，WP-049 只应作为“配额中断检查点来源/被承接包”保留。请在 Round 3 仅最小修正这三份 scope 文档的当前口径为“WP-050 承接 WP-049 检查点的候选”，保持未提交/未合并、Python/PLC/HAL 六轴分层和历史 WP-049 `BLOCKED` 事实不变；`docs/PLATFORM_ROADMAP.md:51,146` 已同时标出 WP-049 来源与 WP-050 恢复关系，无需为本意见改写。不得修改代码、测试或其他 scope 文件。
+- 非阻塞建议: 无。
+- 审核证据: Codex 独立复跑计划 1–5 分别为 23/23、74/74、119/119、263/263、377/377，全部 `OK`；计划 6 `tests.test_ai_handoff` 实际运行 147 项，其中 9 项仅因受限沙箱禁止绑定本地端口报 `PermissionError: [Errno 1] Operation not permitted`，其余 138 项通过；计划 7 正式 tests 实际运行 1560 项，同源 9 项端口权限错误、其余 1551 项通过；计划 8 `prototype_05` 为 68/68 `OK`；计划 9 全仓实际运行 1628 项，同源 9 项端口权限错误、其余 1619 项通过；计划 10 导入冒烟输出 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`。该环境差异与 Claude 宿主 147/1560/1628 全绿证据分开记录，不用历史数字覆盖本轮实际结果。未预告反证五组全部通过；`git diff --check` 通过。审核仅执行 Git 只读检查，未暂存、提交、推送、建 PR、合并或修改 `.git`。
+- review_started_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- review_finished_sha256: 52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79
+- handoff_to: claude
+- reviewed_at: 2026-07-30 03:13:24 +0800
+
+### Claude 交接前自审（Round 3）
+
+- self_review_round: 3
+- self_review_started_at: 2026-07-30 03:14:00 +0800
+- self_review_finished_at: 2026-07-30 03:19:52 +0800
+- self_review_verdict: PASS
+- self_review_scope_sha256: 781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774
+- self_review_manifest:
+  - d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e  src/runtime/task_runtime.py
+  - e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227  src/runtime/__init__.py
+  - 383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445  tests/test_runtime_task_runtime.py
+  - 1212eef02d202f1dc48a6e16484a5229092c0569b623ed119c4b3bf3da155cbb  docs/RISKS.md
+  - 0d9fa061119080943043661b296ab5de9ba1bc6e872c9b0bb2005b3976540365  docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - d637ee4a92ea435e97dc9008db29692ca0f45a68d2f2c5d39b03b0e22c497698  docs/PLATFORM_ROADMAP.md
+  - 7eb262f85a20cb47a270563d41698e1fd4b05a3c04d92c6a867163e3b2bc4930  docs/PROJECT_STATE.md
+- 返修依据: Codex Round 2 裁决 CHANGES_REQUESTED，精确原因为当前状态索引把已封存为 `BLOCKED` 的来源包 `WP-20260730-049` 错写成仍在受审的“候选/待 Codex 审核”（`docs/PROJECT_STATE.md:28`、`docs/RISKS.md:135`、`docs/SOFT_PLC_FUNCTION_MATRIX.md:89,177`）。本轮按 Codex 指令仅最小修正这三份 scope 文档的当前口径为“WP-050 承接 WP-049 检查点的候选”，保持未提交/未合并、Python/PLC/HAL 六轴分层与历史 WP-049 `BLOCKED` 事实不变；`docs/PLATFORM_ROADMAP.md` 已同时标出 WP-049 来源与 WP-050 恢复关系，本意见不改写；不修改代码、测试或其它 scope 文件。
+- 接手核验（零写入前）：复算七文件 manifest 与规范聚合，精确等于 Round 2 交接 / Codex Round 2 审核起止 `scope_sha256=52df95902b4937fe17d61e49b110ba92833a0853addf4507abd10710486e0f79`，逐文件哈希与 Round 2 manifest 完全一致，无审核后漂移。五字段接手前为 `WP-20260730-050 / CHANGES_REQUESTED / claude / claude / round=2 / max_rounds=5`，Claude 按协议 round+1=3（≤5，未超限）接手，`handoff_protocol: v2` 已声明。九项冻结依赖与 WP-049/WP-050 创建记录一致，`src/blocks/**`、`src/primitives/**` 未触及。全部命令仅用允许的单一 `python -c` / `python -m unittest`，未用 `git/gh/shasum/sha256sum/rm/sudo`、管道、命令替换或复合 Bash。
+- 逐文件对照（区分 WP-049 检查点已有 vs 本轮返修）：
+  - `docs/PROJECT_STATE.md`（本轮返修）：第 28 行当前候选口径由 `WP-20260730-049 候选，待 Codex 审核` 改为 `WP-20260730-050 承接 WP-20260730-049 配额中断检查点的候选，待 Codex 审核`，并注明来源包 `WP-20260730-049` 已 `BLOCKED` 封存；保留“未提交/未合并”、`build_task_runtime` 非最终用户入口、四项相关风险不转 resolved 等原叙述不变。哈希 `0b66cc31…`→`7eb262f8…`。
+  - `docs/RISKS.md`（本轮返修）：第 135 行 `RUNTIME-TASK-ASSEMBLY` 状态格由 `WP-20260730-049 候选，待 Codex 审核` 改为 `WP-20260730-050 承接 WP-20260730-049 检查点的候选，待 Codex 审核`，追加来源包 `WP-20260730-049` 已 `BLOCKED` 封存；保留 `in-progress`、`未提交/未合并`、整体未 resolved 与全部候选/未验证边界叙述不变。哈希 `9ebdb312…`→`1212eef0…`。
+  - `docs/SOFT_PLC_FUNCTION_MATRIX.md`（本轮返修）：第 89 行两处、第 177 行一处的当前候选载体由 `WP-049 候选` 改为 `WP-050 承接 WP-049 检查点候选`；`已实现/未提交/未验证/未合并` 六状态轴、L34 总数 11、依赖与边界不变。哈希 `36632508…`→`0d9fa061…`。
+  - `src/runtime/task_runtime.py` / `src/runtime/__init__.py` / `tests/test_runtime_task_runtime.py`（WP-049 检查点已有，本轮未改）：字节未变，哈希与 checkpoint baseline / Round 2 交接逐项相同；对象图身份、默认冷启动安全、默认 shadow、TON N 拍、显式实写恰一次提交、monitor 一次性派发、scan/commit fault 分层、双实例隔离、非法配置 driver 零调用、公开导入契约的逐条覆盖结论继续有效。
+  - `docs/PLATFORM_ROADMAP.md`（WP-050 Round 1 补充，本轮未改）：保持 Round 1 候选路线说明的 `d637ee4a…`，Codex Round 2 已确认其 `:51,146` 同时标出 WP-049 来源与 WP-050 恢复关系，无需为本意见改写。
+- 实际测试命令与结果:（Claude 亲自逐条运行、单一命令、无管道/复合；本轮为文档口径返修，不影响任何测试计数，与 Round 2 计数一致）
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime` → Ran 23 tests, OK
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 74 tests, OK
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_monitor tests.test_runtime_task_runtime` → Ran 119 tests, OK
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_shadow_mode tests.test_runtime_engine tests.test_runtime_scan_runner tests.test_runtime_output_policy tests.test_runtime_commit_supervisor tests.test_runtime_task_runtime` → Ran 263 tests, OK
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor tests.test_runtime_parameters tests.test_runtime_task_runtime` → Ran 377 tests, OK
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff` → Ran 147 tests, OK
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` → Ran 1560 tests, OK
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` → Ran 68 tests, OK
+  9. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` → Ran 1628 tests, OK
+  10. `PYTHONDONTWRITEBYTECODE=1 python -c "from src.runtime import TaskRuntimeAssembly, build_task_runtime; print('task-runtime-import-ok', TaskRuntimeAssembly.__name__, build_task_runtime.__name__)"` → 输出 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`，导入冒烟 OK
+- 首次失败：本轮无红灯。诚实说明：本轮仅返修三份 scope 文档的当前候选载体口径（WP-049→WP-050 承接检查点），未改任何代码/测试；十条命令由 Claude 亲自逐条实跑一次全绿，与 Round 2 计数一致，无首次失败/根因/修复重跑循环。未伪造红灯，也未把检查点已有绿灯冒充为本轮新写实现。
+- 失败根因 / 修复内容 / 修复后重跑结果：不适用（本轮无测试红灯）。返修内容仅为三份 scope 文档当前候选载体的最小口径修正。
+- 已知疑问：① `docs/PLATFORM_ROADMAP.md` L57/L86 主线快照 `1441/1509` 与 `PROJECT_STATE.md` 的 `1537/1605` 行政漂移属 Git 收尾/行政同步范围，本包未改写。② 本宿主 `test_ai_handoff` 面板用例可绑定本地端口，147 全绿；若 Codex 沙箱禁绑定端口，应按协议与宿主结果分开记录。
+- 未验证边界（继续 open，不得据 Python 绿灯外推）：真实周期线程/调度/优先级/连续 deadline miss、在途扫描异步抢占、进程/OS 崩溃恢复、硬件 watchdog、startup inhibit 计时与 `system_ready` 自动释放、外部参数/信号源、HMI 在线写、多任务/GVL 工程装配、HAL/真实 I/O/可信反馈/执行机构/现场放开写、阶段 2 CFC 定序、阶段 6 CODESYS 对拍与现场安全。本包最多证明 Python 单任务生产形态对象图与确定性 E2E。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 3）
+
+- 完成内容：按 Codex Round 2 裁决完成当前状态索引口径返修。仅在三份 scope 文档中把当前候选/独立审核载体由已封存为 `BLOCKED` 的来源包 `WP-20260730-049` 更正为 `WP-20260730-050 承接 WP-20260730-049 检查点的候选`——`docs/PROJECT_STATE.md:28`、`docs/RISKS.md:135` 状态格、`docs/SOFT_PLC_FUNCTION_MATRIX.md:89`（两处）与 `:177`；同时保留未提交/未合并、Python/PLC/HAL 六轴分层，并明示历史 WP-049 `BLOCKED` 封存事实不变。`docs/PLATFORM_ROADMAP.md` 已由 Codex 确认无需改写，本轮未动。未修改任何代码、测试或其它 scope 文件。Claude 亲自逐条实跑完整测试计划十条命令，全部通过。
+- 修改文件：`docs/PROJECT_STATE.md`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（均在 scope 内，仅当前候选载体口径最小修正）。其余四个 scope 文件（`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_task_runtime.py`、`docs/PLATFORM_ROADMAP.md`）本轮字节未变，哈希与 Round 2 交接逐项相同。
+- 明确未修改：全部冻结依赖（`parameters.py/engine.py/output_policy.py/commit_supervisor.py/scan_runner.py/monitor.py/descriptors/**/store.py/executor.py`、`src/blocks/**`、`src/primitives/**`）、正式 IR/扫描/组件规格、`PLATFORM_ROADMAP.md`（含 L57/L86 主线测试快照 1441/1509）、WP-049 历史 `BLOCKED` 封存记录与创建基线。未执行任何 `git/gh/rm/sudo` 或 Git/GitHub 写操作（含暂存、建分支、提交、推送、合并），未修改协调器/协议实现，未关闭工作包，未启动旧轮询，未推进项目阶段/版本状态。
+- 测试命令与实际结果：完整测试计划十条，Claude 亲自逐条运行、单一命令无管道/复合，全部通过——① 23 OK ② 74 OK ③ 119 OK ④ 263 OK ⑤ 377 OK ⑥ 147 OK ⑦ 1560 OK ⑧ 68 OK ⑨ 1628 OK ⑩ 导入冒烟 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`。逐条命令与计数见上方自审段「实际测试命令与结果」。候选计数 `tests` 1560、`prototype_05` 68、全仓 1628 均为未合并候选，不回写主线 1537/1605。
+- 已知疑问：见自审段——`PLATFORM_ROADMAP.md` 主线快照 1441/1509 与 `PROJECT_STATE.md` 的 1537/1605 行政漂移属 Git 收尾/行政同步范围，本包未改写；受限环境端口假失败若在 Codex 沙箱出现应与宿主结果分开记录。
+- self_review_scope_sha256 == 本交接 scope_sha256（均为 `781f1027…8774`），自审 `PASS` 且位置在本实施交接之前，Round 均为 3。
+- scope_sha256: 781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774
+- handoff_to: codex
+- implementation_finished_at: 2026-07-30 03:19:52 +0800
+
+### Codex 审核结论（Round 3）
+
+- verdict: APPROVED
+- 已验证事实: v2 接手门禁合法且证据链闭合。接手五字段为 `WP-20260730-050 / READY_FOR_CODEX / codex / codex / round=3`，`max_rounds=5`、`handoff_protocol=v2`；仓库解析器完整读取交接文件并返回 `self_review_state=v2-ok`，结合当前实盘 manifest 的独立九项门禁无错误。WP-050 checkpoint baseline manifest 独立重建为 `a25bc8b2807fa044c25394af9b3bce5bb43f77084b87d794aab961508d310fed`，与声明一致；Round 3 自审、实施交接和 Codex 开始/结束实盘七文件聚合均为 `781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774`，scope 无漂移。Round 2 已独立验证的代码、对象图、安全、隔离与错误分层结论继续成立；Round 3 三份状态索引已按裁决最小收口：`docs/PROJECT_STATE.md:28`、`docs/RISKS.md:135`、`docs/SOFT_PLC_FUNCTION_MATRIX.md:89,177` 均把当前候选/审核载体写为 WP-050 承接 WP-049 检查点，并保留 WP-049 `BLOCKED`、未提交/未合并及 Python/PLC/HAL 六轴分层。矩阵 `L34-11` 与依赖 `L34-10 / L5-04 / L5-08 / L5-10 / L5-12` 的状态和证据一致，没有提前写成 CLOSED、已提交、PLC 已验或 HAL 已验。
+- 项目工程约定: `COLD_START_SAFETY` 的失败关闭字段组合、单任务 Python 内存 IR 装配入口、固定同一对象图以及默认 write-disable/shadow 路径是本项目工程契约，不是 IEC/CODESYS 官方语义。`build_task_runtime` 仍是阶段 1 Python 内部/测试装配入口，不是最终 ST/CFC 用户入口或工程解析器。
+- 待真机验证假设: Python 测试只证明当前单任务对象图、确定性单拍、TON E2E、shadow/安全包壳与错误分层实现；不证明目标 CODESYS SP16.1 扫描语义、PLC 黄金轨迹、真实调度优先级/连续 deadline miss、HAL/真实 I/O/可信反馈、硬件 watchdog、执行机构或现场安全。
+- 延后实现项: startup inhibit 计时与 `system_ready` 自动释放、外部参数/信号源、HMI 在线写、多任务/GVL 工程装配、阶段 2 CFC 定序、阶段 6 CODESYS 对拍、阶段 7 HAL/真实 I/O/现场安全继续保持后续独立范围；本包不使 `RUNTIME-SAFETY-DEFAULT / RUNTIME-SHADOW-MODE / RUNTIME-WATCHDOG / RUNTIME-PARAM-VALIDATION` 转 resolved。
+- 必须返修: 无。
+- 非阻塞建议: 无。
+- 审核证据: 七文件逐项开始/结束 SHA-256 均为 `src/runtime/task_runtime.py=d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e`、`src/runtime/__init__.py=e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227`、`tests/test_runtime_task_runtime.py=383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445`、`docs/RISKS.md=1212eef02d202f1dc48a6e16484a5229092c0569b623ed119c4b3bf3da155cbb`、`docs/SOFT_PLC_FUNCTION_MATRIX.md=0d9fa061119080943043661b296ab5de9ba1bc6e872c9b0bb2005b3976540365`、`docs/PLATFORM_ROADMAP.md=d637ee4a92ea435e97dc9008db29692ca0f45a68d2f2c5d39b03b0e22c497698`、`docs/PROJECT_STATE.md=7eb262f85a20cb47a270563d41698e1fd4b05a3c04d92c6a867163e3b2bc4930`。九项冻结依赖完整哈希均匹配 WP-049/WP-050 证据，`src/blocks/**`、`src/primitives/**` 相对基线无差异。Codex 独立复跑计划 1–5 分别为 23/23、74/74、119/119、263/263、377/377，全部 `OK`；计划 6 `tests.test_ai_handoff` 实际运行 147 项，其中 9 项仅因受限沙箱禁止绑定本地端口报 `PermissionError: [Errno 1] Operation not permitted`，其余 138 项通过；计划 7 正式 tests 实际运行 1560 项，同源 9 项端口权限错误、其余 1551 项通过；计划 8 `prototype_05` 为 68/68 `OK`；计划 9 全仓实际运行 1628 项，同源 9 项端口权限错误、其余 1619 项通过；计划 10 导入冒烟输出 `task-runtime-import-ok TaskRuntimeAssembly build_task_runtime`。未预告反证覆盖 REAL 模拟量非零 `safe_value`、零 OUT 通道、两个 TON×两套 assembly 交错、恶意惰性 Mapping 回执单次失败关闭、monitor callback 抛异常后先消费且不重放，五组全部通过；`git diff --check` 通过。审核仅使用 Git 只读范围核验，未暂存、提交、推送、建 PR、合并或修改 `.git`。
+- review_started_sha256: 781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774
+- review_finished_sha256: 781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774
+- handoff_to: user
+- reviewed_at: 2026-07-30 03:31:44 +0800
+
+### 用户关闭确认（2026-07-30）
+
+- closure: 用户已在本任务中连续授权 Codex 在 `APPROVED` 后完成关闭、Git/GitHub 收尾与行政同步；据此确认 `WP-20260730-050` 为 `CLOSED / user / user`。
+- accepted_verdict: Codex Round 3 `APPROVED`，必须返修与非阻塞建议均为无。
+- accepted_scope_sha256: 781f10277e4d890d83f2cfc87a96e3cc5965a3455d6d7c7a012e639070a28774
+- accepted_host_evidence: Claude 宿主正式 tests 1560/1560、`prototype_05` 68/68、全仓 1628/1628，十条计划均通过；Codex 受限审核环境的三组 9 项端口权限错误与功能结果分开保留。
+- boundary: 关闭只接受当前 Python 单任务对象图与手搭 TON 端到端范围，不构成 PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog、执行机构或现场安全证明。
+- closed_at: 2026-07-30 03:34:00 +0800
