@@ -228,7 +228,8 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
   失败关闭，并显式禁止 `git`、`gh`、`rm`、`sudo` 命令。
 - 必须区分四个互不等价的上限，任一先到即停止：① `--max-turns`（单个 Claude CLI 外部进程内
   agent 允许的最大 turns，默认 `80`，由 adapter 构造参数锁定并做正整数校验）；
-  ② 工作包协议 `max_rounds=3`（实施—审核自动往返轮次）；③ 进程 `timeout_seconds=1800`
+  ② 工作包协议 `max_rounds=5`（自 WP-20260729-048 起的新包默认值；实施—审核自动往返轮次，
+  历史包显式 `max_rounds=3` 原样保留）；③ 进程 `timeout_seconds=1800`
   （30 分钟墙钟超时）；④ Anthropic 账户订阅额度（五小时/每周）。把 40 提升为 80 只放宽 ①，
   不改变 ②③④，也不消除所有 Claude 中断，更不允许绕过订阅限制：达到 30 分钟超时、账户额度、
   权限拒绝、连接错误或协议门禁失败时仍必须失败关闭。
