@@ -9389,3 +9389,13 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
 - host_validation_after_review: `ClaudeNamingTests` 27/27、`test_ai_handoff` 155/155、正式 tests 1568/1568、`prototype_05` 68/68、全仓 1636/1636、Runbook 冒烟 `claude-runbook-smoke-ok 7747` 与 `git diff --check` 全部通过。
 - boundary: 本包只关闭 Claude 协作 Runbook、启动器 prompt 与契约测试；不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明，也不启动阶段 2。
 - closed_at: 2026-07-30 16:13:57+0800
+
+### Codex Git/GitHub 收尾（2026-07-30）
+
+- branch: `codex/wp-052-claude-runbook`
+- commit: `db5e92d88d5723106d75d2103a9fabc93637847a`
+- pull_request: [PR #32](https://github.com/yao501/PLC_to_Python/pull/32)
+- merge_commit: `252842f4cffd9056085524a2dcc341f5908016c9`
+- merged_scope: WP-052 已审核六文件产物、交接记录、用户关闭记录及已由后继包闭合的历史来源包顶层行政收口；提交前显式暂存 7 个文件，没有 `src/**` 产品代码。
+- host_validation_before_publish: `ClaudeNamingTests` 27/27、`test_ai_handoff` 155/155、正式 tests 1568/1568、`prototype_05` 68/68、全仓 1636/1636、Runbook 冒烟与 `git diff --check` 全部通过。
+- boundary: Git/GitHub 收尾只把工程协作基建落入主线；不新增软 PLC 产品语义，不改变 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全验证状态。

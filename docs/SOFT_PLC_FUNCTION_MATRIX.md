@@ -2,8 +2,8 @@
 
 > **用途**：一份详细、可检索、可长期维护的功能矩阵，把“有没有代码 / 工作包是否通过 / 是否已合并 / Python 测试到哪 / 是否做过 CODESYS·HAL·现场验证”拆成互不推导的独立状态轴。它服务于用户按需选取下一工作、日常了解项目状态和 Claude/Codex 工作包规划。
 > **本文件不是**新的技术规格或风险登记簿：不覆盖 `PLATFORM_ROADMAP.md`、各主题规格与 `RISKS.md`；只引用它们的结论并给一行边界。发现冲突时，本矩阵**降级标注并回查权威源**，绝不反向用矩阵改写历史或规格。
-> **最后只读核验日期**：2026-07-30。**核验主线 commit**：`73b462b5b0838e5826cbcd59db0b37a1893e44ad`（`main == origin/main == HEAD`）。
-> **本次核验结论**：软件 monitor 已通过 PR #28 合并；单任务运行栈装配 `L34-11` 已由 `WP-20260730-050 CLOSED` 收口并通过 PR #30 合并。Python、PLC/CODESYS、HAL、现场四级验证仍永久分离。
+> **最后只读核验日期**：2026-07-30。**核验主线 commit**：`252842f4cffd9056085524a2dcc341f5908016c9`（PR #32 合并后 `main == origin/main == HEAD`）。
+> **本次核验结论**：软件 monitor 已通过 PR #28 合并；单任务运行栈装配 `L34-11` 已由 `WP-20260730-050 CLOSED` 收口并通过 PR #30 合并；工程支持 `ENG-05` 已由 `WP-20260730-052 CLOSED` 收口并通过 PR #32 合并。Python、PLC/CODESYS、HAL、现场四级验证仍永久分离。
 
 ---
 
@@ -89,9 +89,9 @@
 | L34 IR/执行引擎 | 11 | 已实现（headless 核心）；L34-11 单任务纵向装配已由 WP-050 审核关闭 | 已合并（主线，PR #30） | 已覆盖 | CFC 图定序编译器属阶段 2 未做；L34-11 已审核关闭并合并 |
 | L5 运行时安全 | 14 | 软件安全核心与确定性 monitor 已实现；真实调度/硬件 watchdog 未实现 | monitor 经 PR #28 合并 | 已覆盖（Python） | shadow/OutputPolicy/提交监督/软件 monitor 已关闭；PLC、HAL、硬件与现场未验证 |
 | USR 用户入口/后续平台 | 13 | 多数未实现 | 未涉及/试验已合并 | 无/局部 | ST/CFC 前端、导入器、HAL、AI 集成等均未做 |
-| ENG 工程支持 | 5 | 已实现（既有协作机制）+ Claude Runbook 候选 | 既有机制已合并；ENG-05 未提交 | 部分覆盖 | 非软 PLC 产品功能，属协作基建 |
+| ENG 工程支持 | 5 | 已实现（含 Claude 实施 Runbook 与启动器强制阅读） | 已合并（ENG-05：PR #32） | 已覆盖 | 非软 PLC 产品功能，属协作基建 |
 
-**最新已合并且已关闭的完整主线基线**（唯一权威主机快照）：`WP-20260730-050` 的正式 tests **1560/1560**、`prototype_05` **68/68**、全仓 **1628/1628**（经 [PR #30](https://github.com/yao501/PLC_to_Python/pull/30) 合并，merge `73b462b5…`）。WP-043/044 的 1480/1548、WP-046 的 1504/1572、WP-048 的 1537/1605 等仍是各历史检查点计数，不回写为当前主线。
+**最新已合并且已关闭的完整主线基线**（唯一权威主机快照）：`WP-20260730-052` 的正式 tests **1568/1568**、`prototype_05` **68/68**、全仓 **1636/1636**（经 [PR #32](https://github.com/yao501/PLC_to_Python/pull/32) 合并，merge `252842f4…`）。WP-050 的 1560/1628、WP-043/044 的 1480/1548、WP-046 的 1504/1572、WP-048 的 1537/1605 等仍是各历史检查点计数，不回写为当前主线。
 
 ---
 
@@ -223,7 +223,7 @@
 | ENG-02 | 工程支持 | 工作包状态机 + 协调器 | 事件协调器串行唤醒；WP-048 起新包默认最多 5 轮（历史 3 轮原样保留） | [AI_REVIEW_HANDOFF.md](AI_REVIEW_HANDOFF.md) | 已实现 | 用户协议裁决（2026-07-29） | 协议说明已随 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并；状态机继续按每包显式 `max_rounds` 通用执行 | 部分覆盖（`test_ai_handoff`；状态机无需为 3→5 改码） | 未验证 | 未验证 | 全局执行租约边界；轮次增加不扩大 scope/外部授权；非产品功能 | ENG-01 | 新包显式写 `max_rounds: 5` |
 | ENG-03 | 工程支持 | Git / GitHub 收尾（Codex 执行） | 提交/推送由 Codex 审核并执行；Claude 不写 Git | [CODEX_GUIDE.md](../CODEX_GUIDE.md) §6 | 已实现（分工纪律） | `无 WP` | 已合并（主线 73b462b） | 无（流程约定） | 未验证 | 未验证 | Git 列只在实际操作成功后更新 | ENG-01 | — |
 | ENG-04 | 工程支持 | 测试快照纪律 | 历史测试数字原样保留，不回写冒充当前 | [PROJECT_STATE.md](PROJECT_STATE.md) | 已实现（纪律） | `无 WP` | 已合并（主线 73b462b） | 无 | 未验证 | 未验证 | 环境差异不等于功能矛盾 | — | — |
-| ENG-05 | 工程支持 | Claude 实施 Runbook 与启动器强制阅读 | 集中允许命令、历史易错项、v2 模板与停笔清单，并让首轮/返修 prompt 在写入前强制提示完整阅读 | [CLAUDE_IMPLEMENTATION_RUNBOOK.md](CLAUDE_IMPLEMENTATION_RUNBOOK.md)；[../tools/ai_handoff/scheduler.py](../tools/ai_handoff/scheduler.py) | 候选已实现（待独立审核） | `READY_FOR_CODEX`（WP-20260730-052 Round 1，收口 WP-20260730-051 Round 3 中断检查点；Claude 已完成本轮 v2 自审与原子交接，待 Codex 独立复核） | 未提交 | 部分覆盖（`test_ai_handoff` 定向测试） | 未验证 | 未验证 | **非产品功能**；Runbook 不证明模型正确，v2 自审与独立审核仍强制 | ENG-01/02 | 待 Codex 独立复核本轮收口（Runbook 状态相关连续性基准 / manifest 范例双空格同源 / v2 完整模板 / prompt 项目状态修改收窄 / ENG-05 承接 WP-052 五项） |
+| ENG-05 | 工程支持 | Claude 实施 Runbook 与启动器强制阅读 | 集中允许命令、历史易错项、v2 模板与停笔清单，并让首轮/返修 prompt 在写入前强制提示完整阅读 | [CLAUDE_IMPLEMENTATION_RUNBOOK.md](CLAUDE_IMPLEMENTATION_RUNBOOK.md)；[../tools/ai_handoff/scheduler.py](../tools/ai_handoff/scheduler.py) | 已实现 | `CLOSED`（WP-20260730-052 Round 1；收口 WP-20260730-051 Round 3 中断检查点） | 已合并（主线，PR #32，merge `252842f4…`） | 已覆盖（`ClaudeNamingTests` 27/27、`test_ai_handoff` 155/155；宿主正式 1568/1568、全仓 1636/1636） | 未验证 | 未验证 | **非产品功能**；Runbook 不证明模型正确，v2 自审与独立审核仍强制 | ENG-01/02 | 产品主线进入阶段 2 CFC 数据流定序编译器 |
 
 ---
 
@@ -259,6 +259,7 @@
 5. **WP-20260729-046 返修候选（已创建、已实施至 Round 3=max_rounds，用户授权恢复最后一轮，待独立审核）**：本包**仅返修**契约缺陷，不新增功能、不改公开导出。**Round 1**（返修 WP-044 Codex 两项阻塞项）：① 同一 active sequence 事件二次生成 / callback 二次调用——已加**独立于 pending 槽**的 sequence 终态 `_latched_seq`，事件消费后同一序号不再生成 / 不再触发 callback，且不永久抑制后续合法周期；② `int` 子类信任边界——配置值与每次时钟返回值改为 **exact-int**（`type(value) is not int` 即失败关闭），先于任何数值比较 / 换算。**Round 2**（返修 Codex 本包 Round 1 阻塞项）：③ exact-int 拒绝路径 repr 反噬——原拒绝分支以 `%r` 格式化被拒的 `int` 子类，可重载 `__repr__` 在信任边界诊断阶段抛异常逃逸（`RuntimeError` 取代稳定的 `MonitorConfigError`/`MonitorClockError`）；已改为经 `_safe_type_name()` 只报告**可信类型名**、绝不 `repr` 不可信值（`bool` 分支不可继承故保留）。**Round 3**（返修 Codex 本包 Round 2 阻塞项）：④ 可信类型名经 metaclass 反噬——Round 2 的 `_safe_type_name()` 直接返回 `type(value).__name__`，自定义 metaclass 可重载类型对象 `__getattribute__`（或把 `__name__` 定义成数据描述符）令其返回 `__str__` 抛异常的恶意对象，诊断 `%s` 再次执行攻击者代码逃逸；已改为经 `type.__getattribute__` **绕过自定义 metaclass** 取候选类名、**仅当** `type(name) is str`（exact）才用、否则回退固定占位符 `"<unavailable>"`，`type(value)` 用单参内建 `type()`。`tests/test_runtime_monitor.py` 由 39 增至 **63**（Round 1 +11、Round 2 +6、Round 3 +7）。**Round 3 Claude 亲自宿主复跑真实计数（本机允许绑定本地端口，`test_ai_handoff` 全绿）**：`test_runtime_monitor` **63**、monitor+scan_runner+output_policy **181**、shadow+engine+scan_runner+output_policy+commit_supervisor **240**、parameters+executor **192**、`test_ai_handoff` **147**、`discover tests` **1504**、`prototype_05` **68**、`discover .` 全仓 **1572**，导入冒烟 `runtime-monitor-import-ok SoftwareCycleMonitor`，均 OK。此为**工作区候选**——**未提交、未合并、未经 Codex `APPROVED`、未经用户 `CLOSED`**；不得据本包升级实现/审核/Git/PLC/HAL 状态，`1572` 亦不得写成已批准主线基线。
 6. **WP-048 收口口径（WP-20260729-048 / PR #28）**：WP-047 Round 3 暴露的 pending 公开事件别名读取已在 WP-048 收口；Claude Round 2 v2 自审/交接合法，Codex Round 2 独立审核 `APPROVED`，用户于 2026-07-29 确认 `CLOSED`。WP-043～048 累积 monitor、矩阵与 5 轮协议说明已通过 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并（merge `c5031fff…`），最终宿主证据 monitor **96/96**、monitor+runner+policy **214/214**、安全运行时组 **240/240**、parameters+executor **192/192**、`test_ai_handoff` **147/147**、正式 tests **1537/1537**、`prototype_05` **68/68**、全仓 **1605/1605** 现为主线快照，导入冒烟通过。PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog 与现场安全仍为未验证。
 7. **最新主线口径（WP-20260730-050 / PR #30）**：在上述 monitor 主线基础上，阶段 1 单任务运行栈装配与手搭 TON E2E 已由 Claude v2 自审、Codex Round 3 独立审核 `APPROVED`、用户授权关闭，并经 [PR #30](https://github.com/yao501/PLC_to_Python/pull/30) 合并（merge `73b462b5…`）。最新完整宿主证据为正式 **1560/1560**、`prototype_05` **68/68**、全仓 **1628/1628**；L34-11 的 Git 状态现为已合并。真实调度、多任务、startup inhibit 计时/释放、CFC 定序、HAL/I/O、硬件 watchdog、CODESYS 与现场安全仍未验证。
+8. **当前最新主线口径（WP-20260730-052 / PR #32）**：Claude 实施 Runbook、首轮/返修统一 prompt、`--max-turns 80` 与契约测试已由 Claude v2 自审、Codex 独立审核 `APPROVED`、用户关闭，并经 [PR #32](https://github.com/yao501/PLC_to_Python/pull/32) 合并（merge `252842f4…`）。最新完整宿主证据为正式 **1568/1568**、`prototype_05` **68/68**、全仓 **1636/1636**。该项是工程协作基建，不新增软 PLC 产品能力，不改变 PLC/CODESYS、HAL/现场验证状态。
 
 ---
 

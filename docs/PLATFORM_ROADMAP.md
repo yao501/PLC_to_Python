@@ -54,7 +54,7 @@
 | **L7 I/O 与 HAL** | 驱动/协议、GVL↔物理点映射、实时循环驱动 | 🟥 未做（接现场必需） |
 | **L8 持久化** | RETAIN / PERSISTENT 变量的断电恢复 | 🟨 IR/Schema 已预留声明与 serializer 边界，真实快照/恢复未做 |
 | **L9 AI / Python 集成** | 控制逻辑与 AI/Python 程序同平台协作（**分进程** + 共享内存/IPC，D-AI；本平台的核心价值） | 🟥 未做 |
-| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 最新完整主机快照（`WP-20260730-050` 收尾实跑）：正式 tests 1560/1560、`prototype_05` 68/68、全仓 1628/1628；GitHub CI、覆盖率、lint/type-check 仍未建立 |
+| **横切 工程基建** | CI / 类型检查 / 覆盖率 / 架构文档 / 契约与风险登记同步 | 🟨 Claude 实施 Runbook 与启动器强制阅读已由 `WP-20260730-052 CLOSED` 收口并通过 PR #32 合并；最新完整主机快照为正式 tests 1568/1568、`prototype_05` 68/68、全仓 1636/1636；GitHub CI、覆盖率、lint/type-check 仍未建立 |
 
 ### 1.1 一拍执行时序（引擎核心，泛化自 `00a` 五步式）
 
@@ -83,7 +83,7 @@
 - **授权**：`src/licensing/` 一机一码 + `src/globals/LicenseContext`（每实例全局量容器，**可泛化成通用 GVL 容器**）。
 - **基建**：`config.py`（CYCLE_MS / STARTUP_INHIBIT_MS）、`validation.py`（PT_ms / TB 校验）、`compat/conversions.py`（REAL_TO_INT / REAL_TO_TIME）。
 - **契约**：`.cursor/rules/00 / 00a / 01 / 02 / 03`，其中 `00a` 已把运行时与安全机制规定齐全。
-- **测试**：2026-07-30（`WP-20260730-050` Git/GitHub 收尾）最新完整主机快照为正式 tests 1560/1560、`prototype_05` 68/68、全仓 Python 发现集 1628/1628；1537/1605、1509、1451、1439、1367、1349、1299、1290、1250、1176、690 等均为对应历史工作包时间点的真实快照，不回写冒充当时结果，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
+- **测试**：2026-07-30（`WP-20260730-052` / PR #32 收尾）最新完整主机快照为正式 tests 1568/1568、`prototype_05` 68/68、全仓 Python 发现集 1636/1636；1560/1628、1537/1605、1509、1451、1439、1367、1349、1299、1290、1250、1176、690 等均为对应历史工作包时间点的真实快照，不回写冒充当时结果，当前证据与环境差异见 `PROJECT_STATE.md §2`。这些 Python 测试不证明 PLC/CODESYS、真实 HAL 或现场安全一致性；`docs/RISKS.md` 为唯一风险登记簿。
 
 **映射关系**：L1 已就绪；L2 把这些块补元数据即可；`LicenseContext`→L3 的 GVL 容器雏形；`00a`→L4/L5 的规格来源；`validation.py`→L5 的参数校验来源。
 
@@ -143,7 +143,7 @@
 - **依赖**：**阶段 0.5（冻结闸门通过）**。
 - **验收**：最小程序（如 TON + 逻辑）确定性跑 N 拍；安全门控 / shadow / 启动抑制 / 参数非法硬停 / OutputPolicy 分原因故障策略（`ENGINE_SCAN_SPEC §4`）均有测试。
 - **风险**：把"引擎内部 Python 构造法"误当成最终编程入口对外暴露——必须明确它只是内部/测试用。
-- **当前状态（Python 单任务装配子范围已审核关闭并合并）**：阶段 1 内核（L2 元数据 / L3 IR / L4 五步引擎 / L5 安全服务 + 参数校验）与“手搭最小程序跑通”验收已有 Python 实现。`WP-20260730-050 CLOSED`（承接已封存的 WP-049 检查点）新增 `src/runtime/task_runtime.py::build_task_runtime` / `TaskRuntimeAssembly`，把内核连成**同一对象图**并以手搭 TON（`Motor=TON.Q AND NOT Stop`、`cycle_ms=500`）跑通默认 shadow 冷启动 / N 拍确定性 / 显式实写恰一次提交 / monitor 一次性派发 / scan·commit fault 分层的 E2E（`tests/test_runtime_task_runtime.py` 23 条）；Codex Round 3 `APPROVED`，产物已通过 PR #30 合并。该结论不代表阶段 1 全面关闭——真实调度 / 多任务 / startup inhibit 计时与释放 / 外部信号源 / HAL / CFC 定序 / CODESYS 对拍仍未实现。**下一步**：先完成独立协作基建 WP-051，再进入阶段 2 CFC 定序编译器。
+- **当前状态（Python 单任务装配子范围已审核关闭并合并）**：阶段 1 内核（L2 元数据 / L3 IR / L4 五步引擎 / L5 安全服务 + 参数校验）与“手搭最小程序跑通”验收已有 Python 实现。`WP-20260730-050 CLOSED`（承接 WP-049 检查点，来源包原始阻塞记录保留且行政顶层已关闭）新增 `src/runtime/task_runtime.py::build_task_runtime` / `TaskRuntimeAssembly`，把内核连成**同一对象图**并以手搭 TON（`Motor=TON.Q AND NOT Stop`、`cycle_ms=500`）跑通默认 shadow 冷启动 / N 拍确定性 / 显式实写恰一次提交 / monitor 一次性派发 / scan·commit fault 分层的 E2E（`tests/test_runtime_task_runtime.py` 23 条）；Codex Round 3 `APPROVED`，产物已通过 PR #30 合并。独立协作基建 `WP-20260730-052 CLOSED` 已通过 PR #32 收口 Claude Runbook 与启动器强制阅读。该结论不代表阶段 1 全面关闭——真实调度 / 多任务 / startup inhibit 计时与释放 / 外部信号源 / HAL / CFC 定序 / CODESYS 对拍仍未实现。**下一步**：进入阶段 2 CFC 数据流定序编译器。
 
 ### 阶段 2 — 数据流定序编译器（CFC 执行语义的运行时基础）
 
@@ -313,4 +313,4 @@
 
 ---
 
-> **下一步建议（2026-07-30 状态再基线）**：阶段 0/0.5 已冻结；L2 22/22 adapter、参数装载静态子范围、软件 monitor 事件源与阶段 1 单任务运行栈装配均已审核关闭并合并。先以独立工程支持包 `WP-051` 收口 Claude 实施 Runbook、允许命令范例、历史易错项、v2 模板、停笔清单与启动器强制阅读测试；产品工程主线随后进入**阶段 2 CFC 数据流定序编译器**。外部参数源/优先级、真实调度与连续 deadline miss、HMI、RETAIN/PERSISTENT、F2、HAL/现场 I/O、CODESYS SP16.1 对拍和现场安全证明继续分别立项，不得混入协作基建或 CFC 定序工作包。
+> **下一步建议（2026-07-30 状态再基线）**：阶段 0/0.5 已冻结；L2 22/22 adapter、参数装载静态子范围、软件 monitor 事件源、阶段 1 单任务运行栈装配及 Claude 实施 Runbook/启动器强制阅读均已审核关闭并合并（Runbook 由 `WP-20260730-052` / PR #32 收口）。产品工程主线现进入**阶段 2 CFC 数据流定序编译器**。外部参数源/优先级、真实调度与连续 deadline miss、HMI、RETAIN/PERSISTENT、F2、HAL/现场 I/O、CODESYS SP16.1 对拍和现场安全证明继续分别立项，不得混入 CFC 定序工作包。

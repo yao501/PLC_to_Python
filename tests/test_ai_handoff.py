@@ -1431,15 +1431,20 @@ class ClaudeNamingTests(unittest.TestCase):
         self.assertNotIn("软 PLC 产品功能", row)
         # 反向锁定：ENG-05 不得保留 Claude 恢复前的陈旧措辞——实现轴不得与 Git 轴混淆
         # 写成“候选未提交”，下一步不得停留在“Claude 恢复后复核全部 scope”；本轮已完成
-        # 合法 v2 自审与原子交接，应体现为待 Codex 独立复核。
+        # 合法 v2 自审与独立审核完成后，候选阶段措辞必须被清除。
         self.assertNotIn("候选未提交", row)
         self.assertNotIn("Claude 恢复后复核全部 scope", row)
-        self.assertIn("待 Codex", row)
-        # 反向锁定：创建/实施阶段不得提前把 ENG-05 写成 APPROVED / CLOSED / 已提交 / 已合并。
+        # 生命周期终态锁定：WP-052 已经 Codex APPROVED、用户 CLOSED 并通过 PR #32 合并；
+        # 矩阵必须清除候选阶段措辞，且 Git 轴只能依据真实 PR/merge 更新。
         self.assertNotIn("APPROVED", row)
-        self.assertNotIn("CLOSED", row)
-        self.assertNotIn("已合并", row)
-        self.assertNotIn("已提交", row)
+        self.assertIn("CLOSED", row)
+        self.assertIn("PR #32", row)
+        self.assertIn("已合并", row)
+        self.assertIn("1568/1568", row)
+        self.assertIn("1636/1636", row)
+        self.assertNotIn("READY_FOR_CODEX", row)
+        self.assertNotIn("未提交", row)
+        self.assertNotIn("待 Codex", row)
 
     def test_zero_write_check_uses_state_specific_scope_basis(self):
         # Runbook §2 与 prompt 的 scope 连续性基准必须随接手状态区分，
