@@ -910,6 +910,83 @@ class CodexCommandAdapter:
         raise RuntimeError("dry-run 安全锁禁止执行 Codex 命令")
 
 
+# ---- Claude 实施方长期稳定 prompt 片段（首轮实施与返修共用，避免两条路径漂移）----
+# 任一修改必须同时与 docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md 和 command_for() 实际下发的
+# --allowedTools / --disallowedTools 保持一致；关键失败关闭条件必须直接写进 prompt，
+# 不得只靠“去读 Runbook”单点引用隐藏。首轮与返修只允许在开头任务动词上不同。
+
+CLAUDE_RUNBOOK_PATH = "docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md"
+
+_CLAUDE_REQUIRED_READING = (
+    "任何写入前必须先完整读取以下必读文件（顺序即优先级）："
+    "① {runbook}（实施方长期纪律，第一必读）、② CODEX_GUIDE.md、"
+    "③ docs/AI_REVIEW_HANDOFF.md 的协议区与当前工作包 {wp} 全文；"
+    "再按当前包读取 docs/AI_HANDOFF_OPERATIONS.md、docs/PROJECT_STATE.md、"
+    "docs/PLATFORM_ROADMAP.md、docs/COMPONENT_CONTRACT.md 与适用规格、scope 源码与测试；"
+    "必读发生在任何写入之前，不得用旧对话快照覆盖仓库实盘。"
+)
+
+_CLAUDE_ZERO_WRITE_CHECK = (
+    "完成必读后、任何写入前，先核验当前包 "
+    "work_package_id/status/owner/handoff_to/round/max_rounds/handoff_protocol、"
+    "main==origin/main==HEAD、scope 清单与聚合 SHA-256、冻结依赖与协调器/租约状态；"
+    "scope 聚合的比对基准随接手状态而定：首轮 CLAUDE_WORKING 与 scope_baseline_sha256 比对，"
+    "CHANGES_REQUESTED 返修先确认上一轮 review_started_sha256==review_finished_sha256，"
+    "再与 review_finished_sha256 比对（不得再统一拿 baseline，否则合法返修会被误判漂移）；"
+    "任一与任务书不符立即停笔并报告，不猜测、不擅自修复。"
+)
+
+_CLAUDE_COMMAND_DISCIPLINE = (
+    "允许命令：文件用 Read/Edit/Write/Glob/Grep；哈希、manifest、真实宿主时间与测试只用"
+    "单条 python/python3 -c 或单条 PYTHONDONTWRITEBYTECODE=1 python -m unittest；"
+    "禁止使用 git、gh、shasum、sha256sum、rm、sudo，禁止管道、命令替换、shell 循环、"
+    "&& 或 ; 串联及任何复合 Bash（与执行计划的 --allowedTools/--disallowedTools 完全一致）。"
+)
+
+_CLAUDE_V2_TEMPLATE = (
+    "交接证据必须逐字使用结构化字段名 `- 实际测试命令与结果:`、`- self_review_manifest:`、"
+    "`- 是否满足交接条件: 是`，字段名后不得加括号、附注或改成表格/小标题；"
+    "每条 unittest 结果在同一行写 `Ran N tests, OK`（真实计数，出现 FAILED/ERROR 即失败关闭）；"
+    "真实时间只能由允许的单条 Python 命令在宿主读取，禁止估算或沿用旧时间。"
+)
+
+_CLAUDE_STOP_AND_HANDOFF = (
+    "只改工作包 scope，先写反证再修复，运行必要测试。"
+    "scope/冻结哈希漂移、需扩 scope、规格或默认值不明确、测试真实失败未定位、"
+    "允许命令被拒、触及 Git/删除/外部系统、轮次耗尽或无法取得真实时间/真实测试计数时，"
+    "必须安全停笔并报告，不得伪造 PASS 或创建恢复包。"
+    "禁止任何 Git/GitHub 写操作（暂存、提交、推送、建 PR、合并），"
+    "禁止越权修改 scope 外或任务书未授权的项目状态；"
+    "仅在自审 PASS 后原子转为 READY_FOR_CODEX/owner=codex/handoff_to=codex 并立即停止写 scope。"
+)
+
+_CLAUDE_HANDOFF_TITLE = (
+    "实施交接标题必须精确使用 `### Claude 实施交接（Round N）`，"
+    "并至少包含两个可机器解析的独立字段行："
+    "`- scope_sha256: <64位小写十六进制>` 和 "
+    "`- implementation_finished_at: <带时区时间>`；不得改写成小标题、表格或仅放在正文中。"
+)
+
+
+def build_claude_prompt(work_package_id: str, action: str) -> str:
+    """首轮实施与返修共用的实施方 prompt；只在开头任务动词上区分，其余纪律片段完全一致，
+    避免两条执行路径漂移。关键失败关闭条件（必读顺序、零写入核验、允许/禁止命令、
+    三个精确 v2 字段、`Ran N tests, OK`、真实时间、scope/规格歧义停笔、禁止 Git/GitHub 写、
+    交接标题与字段）全部内联，不依赖 Runbook 单点引用。"""
+    task = "按最近 Codex 审核意见返修" if action == "start_claude_rework" else "实施当前工作包"
+    return " ".join(
+        [
+            f"{task} {work_package_id}。"
+            + _CLAUDE_REQUIRED_READING.format(runbook=CLAUDE_RUNBOOK_PATH, wp=work_package_id),
+            _CLAUDE_ZERO_WRITE_CHECK,
+            _CLAUDE_COMMAND_DISCIPLINE,
+            _CLAUDE_V2_TEMPLATE,
+            _CLAUDE_STOP_AND_HANDOFF,
+            _CLAUDE_HANDOFF_TITLE,
+        ]
+    )
+
+
 class ClaudeEndpointAdapter:
     """Claude Code 非交互命令契约；默认禁用，只有显式生产开关才能启用。"""
 
@@ -1003,17 +1080,7 @@ class ClaudeEndpointAdapter:
     def command_for(self, package: WorkPackage, action: str = "start_claude_rework") -> ExecutionPlan:
         if not self.executable:
             raise RuntimeError(self.reason)
-        task = "按最近 Codex 审核意见返修" if action == "start_claude_rework" else "实施当前工作包"
-        prompt = (
-            f"{task} {package.work_package_id}。先完整读取 CODEX_GUIDE.md、"
-            "docs/AI_REVIEW_HANDOFF.md；接手前重新核验五字段、"
-            "round/max_rounds、scope 与对应 SHA-256。仅修改工作包 scope，运行必要测试，并按协议"
-            "原子交接给 Codex。禁止 Git 暂存、提交、推送、建 PR、合并，禁止修改项目状态；"
-            "证据漂移、权限不足或轮次超限时安全停止并报告。实施交接标题必须精确使用 "
-            "`### Claude 实施交接（Round N）`，并至少包含两个可机器解析的独立字段行："
-            "`- scope_sha256: <64位小写十六进制>` 和 "
-            "`- implementation_finished_at: <带时区时间>`；不得改写成小标题、表格或仅放在正文中。"
-        )
+        prompt = build_claude_prompt(package.work_package_id, action)
         return ExecutionPlan(
             actor="claude",
             action=action,

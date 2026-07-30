@@ -6470,7 +6470,7 @@ Claude 必须亲自逐条运行以下九条命令，分别记录每条真实 `Ra
 ## WP-20260728-041
 
 - title: Runtime 参数装载核心、APCHSACCUM 构造覆盖与启动期失败关闭
-- status: BLOCKED
+- status: CLOSED
 - owner: user
 - handoff_to: user
 - round: 3
@@ -6956,12 +6956,18 @@ Codex 仅在合法交接后独立复算五文件哈希、逐文件审查全部�
 - git_pull_request: https://github.com/yao501/PLC_to_Python/pull/26
 - git_merge_commit: 495ebb1e3dc7ae457e4986f3024d0bf266d0278a
 
+### 前序来源包行政收口
+
+- WP-041 的原始 `BLOCKED / round=3=max_rounds`、审核缺陷、哈希与历史测试数字原样保留；WP-042 已完成其剩余启动失败关闭返修，经 Codex `APPROVED`、用户关闭并由 PR #26 合并。
+- 因后继包已完成并进入主线，WP-041 顶层行政状态转为 `CLOSED / user / user`，避免解析器回溯显示已解决的历史阻塞。
+- closed_at: 2026-07-30 16:13:57+0800
+
 ---
 
 ## WP-20260729-043
 
 - title: 软件周期监视、扫描超时与 watchdog 一次性事件源
-- status: BLOCKED
+- status: CLOSED
 - owner: user
 - handoff_to: user
 - round: 1
@@ -7123,9 +7129,9 @@ Codex 仅在合法交接后独立复算四文件哈希、逐文件审查全部�
 ## WP-20260729-044
 
 - title: WP-043 v2 测试计数格式证据恢复
-- status: CHANGES_REQUESTED
-- owner: claude
-- handoff_to: claude
+- status: CLOSED
+- owner: user
+- handoff_to: user
 - round: 1
 - max_rounds: 3
 - handoff_protocol: v2
@@ -7671,7 +7677,7 @@ manifest 按三个 scope 文件顺序，每项为 `<64位小写 SHA-256><两个�
 ## WP-20260729-046
 
 - title: 软件 monitor 一次性事件终态与 exact-int 信任边界返修
-- status: BLOCKED
+- status: CLOSED
 - owner: user
 - handoff_to: user
 - round: 3
@@ -8013,7 +8019,7 @@ Claude 必须：
 ## WP-20260729-047
 
 - title: 软件 monitor 不可信诊断零观察与稳定失败关闭收口
-- status: BLOCKED
+- status: CLOSED
 - owner: user
 - handoff_to: user
 - round: 3
@@ -8559,10 +8565,17 @@ Codex 独立复跑上述九条、未预告反证与 `git diff --check`。Python 
 - git_finalized_at: 2026-07-29 23:25:13 +0800
 - git_notes: 本地 smart-HTTP push/fetch 因 GitHub 空响应失败，未重试已知失效的 `gh` 令牌；Codex 改用已连接 GitHub Git Data API 发布与本地提交精确相同的 tree，并以预期 head SHA 锁定合并。GitHub merge commit `verification=verified / reason=valid`；随后按 GitHub 原始 Git Data 元数据重建远端 head 与签名 merge 对象，本地 `main` / `origin/main` 精确同步到上述 merge commit。Python 主机测试结果不构成 PLC/CODESYS、HAL、硬件 watchdog 或现场安全证明。
 
+### 前序 monitor 来源包行政收口
+
+- WP-043、WP-044、WP-046、WP-047 的原始失败、`CHANGES_REQUESTED/BLOCKED`、轮次上限、反证、哈希与历史测试数字全部原样保留；本段不把任何中断或被拒轮次改写成通过。
+- WP-048 已完成 pending `WatchdogTimeoutEvent` 外部别名零观察的最终收口，经 Codex Round 2 `APPROVED`、用户关闭并由 PR #28 合并；它承接并闭合上述 monitor 来源链的未完缺陷。
+- 因最终实现已审核、关闭并进入主线，上述四个来源包顶层行政状态统一转为 `CLOSED / user / user`，避免解析器回溯显示已经由 WP-048 解决的历史阻塞。
+- closed_at: 2026-07-30 16:13:57+0800
+
 ## WP-20260730-049
 
 - title: 阶段 1 单任务运行栈装配与手搭 TON 最小程序端到端验收
-- status: BLOCKED
+- status: CLOSED
 - owner: user
 - handoff_to: user
 - round: 1
@@ -8694,6 +8707,12 @@ Codex 独立复跑上述十条、未预告反证与 `git diff --check`。任何�
 - 用户于 2026-07-30 授权 Codex 在当前 PLC 转 Python 工程内连续推进后续任务、无需逐项再次审批，并明确要求 Claude 额度耗尽时安排一次性恢复任务；授权不延伸到项目外本地资料或网络资源，也不取消 Claude 自审、原子交接、Codex 独立审核、scope/哈希、测试、Git 或现场证据门禁。
 - 后继动作：创建 `WP-20260730-050` 冻结当前七文件检查点，只完成 WP-049 原目标的剩余实施、自审和交接；Claude 实施 Runbook/启动器约束集中化顺延为独立 `WP-20260730-051`，不得混入本恢复包。
 - recorded_by: codex（用户授权下的配额中断封存与检查点恢复行政动作）
+
+### 后续收口（由 WP-20260730-050 完成）
+
+- WP-049 原始 `BLOCKED` 事实、Round 1 配额中断、两次启动记录和中间检查点证据原样保留；本段不把中断冒充为 WP-049 自身完成。
+- WP-20260730-050 已从该检查点完成原目标，经 Claude v2 自审、Codex Round 3 `APPROVED`、用户关闭和 PR #30 合并；行政同步 PR #31 也已进入主线。因此 WP-049 顶层转为 `CLOSED / user / user`，避免解析器回溯显示已解决的历史阻塞。
+- closed_at: 2026-07-30 16:13:57+0800
 
 ## WP-20260730-050
 
@@ -8979,3 +8998,394 @@ Codex 独立复跑上述十条、未预告反证与 `git diff --check`。本包�
 - merged_scope: WP-050 八文件产物；提交前显式暂存范围与审核范围一致。
 - host_validation_before_publish: 23/23、74/74、119/119、263/263、377/377、`test_ai_handoff` 147/147、正式 1560/1560、`prototype_05` 68/68、全仓 1628/1628、导入冒烟与 `git diff --check` 全部通过。
 - boundary: Git/GitHub 收尾只把已审核 Python 产物落入主线，不改变任何 PLC/CODESYS、实时调度、HAL/物理 I/O、硬件 watchdog 或现场安全验证状态。
+
+---
+
+## WP-20260730-051
+
+- title: Claude 实施 Runbook、允许命令范例、历史易错项与启动器强制阅读
+- status: CLOSED
+- owner: user
+- round: 2
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- function_matrix_ids: ENG-01、ENG-02、ENG-05（本包新增稳定 ID）
+- expected_matrix_axes: 只允许更新工程支持项的实现状态、WP 状态与 Python 验证；PLC/CODESYS、HAL/现场列保持不适用/未验证，不得把本包计入软 PLC 产品能力完成度
+- scope:
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - CODEX_GUIDE.md
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74
+- base_branch: main
+- base_commit: cba1d21355ff56dddfa0efab64449265c55565bb
+
+### 目标与问题边界
+
+1. 把 Claude 实施方长期稳定、可执行的规则集中为单一 Runbook，解决已多次出现的同类失误：未完整读取约束、使用不在 allowlist 的 `git/gh/shasum` 或复合 Bash、结构化 v2 字段名增加括注、测试计数格式不可解析、以估算/旧时间冒充真实宿主时间、错误更新来源包/承接包当前状态，以及应停笔时继续扩大 scope。
+2. 启动器生成的 Claude prompt 必须把 Runbook 列为**第一批必读文件**，并明确要求“完成必读后、任何写入前”核验当前包五字段、轮次、scope 与基线哈希。测试必须锁定该要求，不能只依赖操作者记忆。
+3. 本包只改善协作质量和失败关闭，不改变任何软 PLC 业务语义、运行时、IR、Store、Executor、monitor、task runtime、PLC/HAL/现场功能，也不声称消除模型错误；Codex 独立审核仍不可省略。
+
+### Runbook 必须包含的内容
+
+1. **权威读取顺序**：先完整读 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、`docs/AI_REVIEW_HANDOFF.md` 协议区与当前工作包，再按当前包读取 `AI_HANDOFF_OPERATIONS / PROJECT_STATE / ROADMAP / COMPONENT_CONTRACT / 适用规格 / scope 源码与测试`；不得用旧对话快照覆盖仓库实盘。
+2. **开工零写入检查表**：`work_package_id/status/owner/handoff_to/round/max_rounds/handoff_protocol`、main/origin/main/HEAD、scope manifest/aggregate、冻结依赖、协调器/租约/旧轮询；若与任务书不符立即停笔。
+3. **允许命令范例**：文件读取/修改使用 `Read/Edit/Write/Glob/Grep`；哈希、manifest、真实时间使用单条 `python`/`python3 -c`；测试使用单条 `PYTHONDONTWRITEBYTECODE=1 python -m unittest ...`。给出可复制范例，并明确 Claude 不得使用 `git/gh/shasum/sha256sum/rm/sudo`、管道、命令替换、shell 循环、`&&/;` 串联或其它复合 Bash。
+4. **实施纪律**：只改 scope；先写反证再修复；保持历史记录与历史测试数字；状态索引区分来源包、恢复包、当前承载包；Python/PLC/CODESYS/HAL/现场证据分轴；Git/GitHub 由 Codex 收尾。
+5. **v2 精确模板**：逐字字段必须包括 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 是否满足交接条件: 是`；每条 unittest 结果同一行写 `Ran N tests, OK`；标题、Round、真实时间、manifest 顺序与 scope、两个聚合哈希相等、原子五字段转移均给出完整模板。字段名后不得加括号、冒号说明或改成表格/小标题。
+6. **历史易错项与正确替代**：至少逐项覆盖 WP-027/028、WP-030/031、WP-043、WP-046、WP-049/050 暴露的证据格式、真实时间、受限命令、配额检查点承接与状态索引错误；只提炼规则，不改写历史结论。
+7. **停笔清单**：scope/冻结哈希漂移、需扩 scope、规格/默认值不明确、测试真实失败未定位、允许命令被拒、Git/删除/外部系统、轮次耗尽、配额/认证/代理失败、无法取得真实时间或真实测试计数时必须安全停止；不得伪造 PASS 或创建恢复包。
+8. **交接后纪律**：原子转为 `READY_FOR_CODEX/codex/codex` 后立即停止写 scope；不得自行审核、关闭、提交、推送或更新 Git 列。
+
+### 启动器与测试验收
+
+1. `ClaudeEndpointAdapter.command_for()` 生成的首轮实施和返修 prompt 都必须明确要求完整读取 Runbook、`CODEX_GUIDE.md`、交接协议区和当前工作包，并说明必读发生在任何写入之前。
+2. prompt 必须直接包含允许/禁止命令纪律、v2 三个精确字段名、`Ran N tests, OK` 同行格式、真实时间、scope/规格歧义停笔，以及不得 Git/GitHub 写操作；不得靠 Runbook 单点引用隐藏关键失败关闭条件。
+3. 将长期 prompt 片段集中为可审查常量或纯函数，避免首轮/返修两条路径漂移；不得改变当前 `--max-turns 80`、30 分钟外部进程超时、代理、`dontAsk`、allowed/disallowed tools、无 session persistence 或租约语义。
+4. 新增测试至少覆盖：
+   - 首轮与返修 prompt 都含全部必读文件、当前包 ID 和“写入前”顺序；
+   - prompt 精确包含三个 v2 字段名与 `Ran N tests, OK`，并拒绝以旧的模糊模板替代；
+   - prompt 的允许命令说明与实际 `--allowedTools/--disallowedTools` 不矛盾；
+   - max turns、timeout、proxy、permission mode、session persistence 等既有执行计划不回归；
+   - Runbook 存在且包含允许命令、禁止命令、历史易错项、停笔清单、v2 完整模板和 Git 分工；
+   - 矩阵新增 `ENG-05`，明确它是工程支持而非产品功能。
+5. 若实现证明需要修改 parser、状态机、process runner、server/watcher、权限列表或 scope 外文件，立即停止并报告，不得擅自扩大。
+
+### 明确排除项
+
+- 不修改 `src/**`、`prototype_05/**`、PLC 业务块/原语、IR/Store/Executor/Loader、monitor/watchdog、task runtime、参数装载、CFC 定序或任何产品功能。
+- 不启动/恢复旧 30 分钟轮询，不改变协调器租约或自动化策略。
+- 不执行 Git/GitHub 写操作、删除、依赖安装、外部网络操作或项目外文件操作。
+- 不把 Runbook 当成 Claude 正确性的证明；Claude v2 自审、原子交接和 Codex 独立审核继续强制。
+
+### Claude v2 自审与原子交接要求
+
+- Claude 必须亲自逐条运行下方完整测试计划并记录真实计数；文档内容须逐条对照本任务书，而不是只检查文件存在。
+- 结构化字段必须逐字使用 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 是否满足交接条件: 是`；每条 unittest 同行使用 `Ran N tests, OK`。真实时间只能由允许的单条 Python 命令在宿主读取。
+- 仅在自审 `PASS` 后原子写 `READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`；自审与实施 `scope_sha256` 必须相等，交接后立即停止修改 scope。
+
+### Codex 独立审核要求
+
+- 独立复算 baseline、Claude 自审/交接 manifest 和审核开始/结束哈希；逐文件核验 Runbook 与启动器 prompt，不用 Claude 自述代替检查。
+- 做未预告反证：分别构造首轮与返修执行计划，检查必读顺序、精确 v2 字段、允许/禁止命令一致性和既有安全开关；检查文档没有把工程协作能力计入软 PLC 产品完成度。
+- verdict 只能为 `APPROVED / CHANGES_REQUESTED / BLOCKED`；发现 prompt 与实际权限矛盾、Runbook 缺少停笔条件、scope 漂移或需改 parser/runner 时失败关闭。
+
+### 完整测试计划
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+6. `PYTHONDONTWRITEBYTECODE=1 python -c "from pathlib import Path; text=Path('docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md').read_text(encoding='utf-8'); print('claude-runbook-smoke-ok', len(text))"`
+
+Codex 独立复跑上述六条、未预告 prompt 反证与 `git diff --check`。本包的 Python 测试只验证协作工具和文档，不构成任何 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明。
+
+### 创建与开工证据（Codex，2026-07-30）
+
+- 创建前 `main == origin/main == HEAD == cba1d21355ff56dddfa0efab64449265c55565bb`，工作区干净；该提交为 WP-050 功能 PR #30 与行政同步 PR #31 均合并后的主线。
+- 协调器创建前为 stopped、8765 无监听、无活动租约；旧 Claude/Codex 30 分钟轮询保持暂停。
+- baseline manifest（按 scope 顺序）：
+  - `ABSENT  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `43bf7d43c8073e5835e263d2574671d87ecdd9a90e8073f8b2c9fe78f3c79c42  tools/ai_handoff/scheduler.py`
+  - `e0d576c2d9bb65a4c0eb37250adad4d680362cc6644fa2664025fb21d8b6cff5  tests/test_ai_handoff.py`
+  - `f8f6aee3bb98e82e87555d752528fbf871f755ab06965d83d5259de3549229e0  CODEX_GUIDE.md`
+  - `dab515dbe98bba8b281558a9b4cc6c6db776016cdf033e2fc432c5656a77ac05  docs/AI_HANDOFF_OPERATIONS.md`
+  - `d9dc3946a5d7ace5d23298d52aa617df58c302e626c99bdd5ad7c9b7ebee36fc  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 规范聚合为 `d4c6df0eccee2dd070432b087d8b7c8fccea6c94e5c8e931a252bfbec83f776d`；新 Runbook 仅在 `CLAUDE_WORKING` 状态允许以 `ABSENT` 建基线。
+- 本包由用户连续推进授权创建并启动；不含 Git/GitHub 收尾授权给 Claude。
+
+### Claude 启动失败与 Codex 连续性候选（2026-07-30）
+
+- Claude 首轮实施精确幂等键 `WP-20260730-051:1:start_claude_implementation` 共进行 5 次受控启动；每次均先确认前一进程已退出且无活动租约。前三次依次为 HTTP 500、HTTP 529、HTTP 529，均未产生 scope 写入；第 4 次为 HTTP 529，仍无 scope 写入；第 5 次进入 28 turns 并写入 Runbook、prompt 主体及测试导入后，连接以 `Connection closed mid-response` 中断，未形成 v2 自审或原子交接。
+- 用户随后直接要求“继续任务”，并再次说明 Claude 额度约半小时后恢复。为避免丢失第 5 次中间实现，Codex 在协调器 stopped、无租约后只在本包既定六文件 scope 内补齐候选：新增 5 项 prompt/Runbook/矩阵测试，补 `CODEX_GUIDE` 特殊必读顺序、`AI_HANDOFF_OPERATIONS` 启动器说明与矩阵 `ENG-05`；没有修改产品运行时、PLC 业务逻辑或 scope 外文件。
+- 当前六文件候选 manifest（仅供 Claude 恢复时接手核验，不是 Claude 自审或 Codex 独立审核）：
+  - `30412ce369cc5480cdf4e8bc231a9d9c670a4ce652d96a5492b0c439280f6d30  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `2947b69ee4a2c9885e01399f7004953f9a0c15c807211d1677b26113a56b8c46  tools/ai_handoff/scheduler.py`
+  - `b3699c340bfa17d3d461acf10c707af518b2755edf782877038f48ce5342ab76  tests/test_ai_handoff.py`
+  - `8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1  CODEX_GUIDE.md`
+  - `782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md`
+  - `613c55a233a0888938b5b9bc8c75d71a076a2a02a39cdc2619c15e764d4979e4  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 当前候选规范聚合：`ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`。
+- Codex 候选验证（宿主环境）：`ClaudeNamingTests` 24/24、`test_ai_handoff` 152/152、正式 tests 1565/1565、`prototype_05` 68/68、全仓 1633/1633、Runbook 冒烟与 `git diff --check` 均通过。受限沙箱中的 `ClaudeNamingTests` 仅有既知的 2 项本地端口 `PermissionError`，其余通过；宿主复跑已全绿。
+- 独立性边界：上述为 Codex 临时代实施的**未审核候选**，不得冒充 Claude v2 自审或 Codex 独立审核。Claude 恢复后必须完整复核全部六文件，可修改任何不合理处，亲自重跑六条测试并形成合法自审/原子交接；随后须由新的独立 Codex 审核进程裁决。本节不改变顶层 `CLAUDE_WORKING / claude / claude / round=1`。
+
+### 用户授权恢复检查点（Codex，2026-07-30）
+
+- 原创建基线 `d4c6df0eccee2dd070432b087d8b7c8fccea6c94e5c8e931a252bfbec83f776d` 及其 `ABSENT docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md` manifest 保留在“创建与开工证据”中，不改写五次受控启动失败和第 5 次中断历史。
+- 用户在五次启动上限耗尽后再次明确要求继续，并授权在 Claude 额度恢复后完成本包；同时要求本包结束后提交汇总和下一任务规划，随后暂停实施、由用户接管。为继续同一 WP-051 且不绕过协调器的 `CLAUDE_WORKING` 哈希门，本次把上节六文件 Codex 连续性候选设为唯一恢复检查点，顶层 `scope_baseline_sha256` 更新为其规范聚合 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`。
+- 该恢复检查点不把候选升级为 Claude 自审或 Codex 审核结论。Claude 必须从此逐字节检查点接手、完整复核六文件、亲自运行任务书六条命令，并可在既定 scope 内修正；随后仍须按 v2 原子交接给新的独立 Codex 审核进程。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-07-30 08:44:53+0800
+- self_review_finished_at: 2026-07-30 08:48:23+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 复核范围与方法: 额度恢复后从恢复检查点 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74` 逐字节接手；先完整读取 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、本交接文件协议区与 WP-20260730-051 全文，再读 `docs/AI_HANDOFF_OPERATIONS.md`、六个 scope 文件全文与 `tools/ai_handoff/parser.py` 门禁实现；开工零写入核验：五字段 status=CLAUDE_WORKING/owner=claude/handoff_to=claude、round=1、max_rounds=5、handoff_protocol=v2 与任务书一致，`.git/HEAD→refs/heads/main`、`refs/heads/main` 与 `refs/remotes/origin/main` 均为 `cba1d21355ff56dddfa0efab64449265c55565bb`（==base_commit），协调器 `coordinator_status.json` 为 `coordinator_live=true`、`legacy_polling_resume_authorized=false`。逐条对照任务书「Runbook 必须包含的内容 / 启动器与测试验收 / 明确排除项」，不是仅检查文件存在。
+- 复核结论（逐 scope 文件）:
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md 含权威读取顺序、开工零写入检查表、允许命令范例（单条 python/hashlib；禁 git/gh/shasum/sha256sum/rm/sudo 与管道/命令替换/shell 循环/&&/; 复合 Bash）、实施纪律（含「Git/GitHub 收尾一律留给 Codex」）、v2 精确模板（三个逐字字段 + 同行 Ran N tests, OK）、历史易错项 WP-027/028、WP-030/031、WP-043、WP-046、WP-049/050、停笔清单与交接后纪律，齐备。
+  - tools/ai_handoff/scheduler.py 的 build_claude_prompt() 与常量把必读顺序（①Runbook②CODEX_GUIDE③协议区/当前包）、零写入核验、允许/禁止命令、三个 v2 精确字段、同行 Ran N tests, OK、真实时间、停笔与禁止 Git/GitHub 写、交接标题与字段全部内联；首轮/返修共用同一片段仅任务动词不同；command_for() 的 --allowedTools/--disallowedTools 与 prompt 文字一致，--max-turns 80、dontAsk、--no-session-persistence、1800 秒超时与代理语义未回归。
+  - tests/test_ai_handoff.py 新增 prompt 必读顺序、精确 v2 字段与停笔条件、命令纪律与执行计划一致性、Runbook 契约段、ENG-05 矩阵登记等测试。
+  - CODEX_GUIDE.md 的第 1 节特殊前置读取顺序与第 6 节「Claude 实施 Runbook」段落到位。
+  - docs/AI_HANDOFF_OPERATIONS.md 的生产事件入口安全约束说明 build_claude_prompt() 必读与内联纪律，并列出四个互不等价上限。
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md 新增 ENG-05 行，标注工程支持 / 非产品功能 / WP-20260730-051，未把本包计入软 PLC 产品能力度量。
+- 是否修改 scope: 未修改任何 scope 文件——逐条复核后候选内容正确且完备，无不合理处需修正，因此当前 scope 聚合仍等于恢复检查点 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`（== 顶层 scope_baseline_sha256）。
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests —— Ran 24 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 152 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1565 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1633 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -c 读取 Runbook 冒烟 —— claude-runbook-smoke-ok 6399
+- self_review_scope_sha256: ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74
+- self_review_manifest:
+  - 30412ce369cc5480cdf4e8bc231a9d9c670a4ce652d96a5492b0c439280f6d30  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 2947b69ee4a2c9885e01399f7004953f9a0c15c807211d1677b26113a56b8c46  tools/ai_handoff/scheduler.py
+  - b3699c340bfa17d3d461acf10c707af518b2755edf782877038f48ce5342ab76  tests/test_ai_handoff.py
+  - 8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1  CODEX_GUIDE.md
+  - 782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md
+  - 613c55a233a0888938b5b9bc8c75d71a076a2a02a39cdc2619c15e764d4979e4  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 已知疑问: 无新增。
+- 未验证边界: 本包 Python 测试仅验证协作工具与文档，不构成任何 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明；Runbook 不证明模型正确性，v2 自审与 Codex 独立审核仍强制不可省略。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 从用户授权的恢复检查点接手 WP-20260730-051，完整复核六个 scope 文件（Runbook、scheduler.py 的 build_claude_prompt/command_for、test_ai_handoff.py、CODEX_GUIDE.md、AI_HANDOFF_OPERATIONS.md、SOFT_PLC_FUNCTION_MATRIX.md ENG-05）对照任务书全部条款，亲自重跑任务书六条测试命令并取得真实计数，形成本轮 v2 自审（PASS）与原子交接。复核判定候选内容正确且完备，无 scope 内容需修改。
+- 修改文件: 本轮仅在交接载体 `docs/AI_REVIEW_HANDOFF.md`（非 scope）追加本轮自审与实施交接记录、并原子转移顶层五字段；未改动任何 scope 文件内容。
+- 明确未修改: 六个 scope 文件（docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md、tools/ai_handoff/scheduler.py、tests/test_ai_handoff.py、CODEX_GUIDE.md、docs/AI_HANDOFF_OPERATIONS.md、docs/SOFT_PLC_FUNCTION_MATRIX.md）内容零改动；未触及 src/**、prototype_05/**、parser/状态机/process runner/server/watcher/权限列表或任何 scope 外源码；未执行任何 Git/GitHub 写操作、删除、依赖安装或外部网络操作；未启动/恢复旧 30 分钟轮询，未改协调器租约。
+- 影响的功能矩阵 ID: ENG-05（工程支持，Claude 实施 Runbook 与启动器强制阅读；候选已随本轮复核就绪，待 Codex 独立审核）；ENG-01/ENG-02 仅作依赖引用，状态轴不变。PLC/CODESYS 与 HAL/现场列保持未验证/不适用，未计入软 PLC 产品能力完成度。
+- scope_sha256: ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74
+- implementation_finished_at: 2026-07-30 08:48:23+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 顶层五字段在接手时为 `WP-20260730-051 / READY_FOR_CODEX / codex / codex / round=1`，`max_rounds=5`、`handoff_protocol=v2`，状态映射与轮次合法；仓库解析器结合当前实际 manifest 复核 v2 九项门禁通过，无 errors/warnings。六文件 scope 精确且顺序一致，独立重算逐文件 SHA-256 与 Claude 自审/实施交接 manifest 全部相等，规范聚合为 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`。`build_claude_prompt()` 确实由首轮和返修共用，两个实际执行计划均按 Runbook→CODEX_GUIDE→交接协议区/当前包顺序要求写入前完整阅读，并内联三个 v2 精确字段、`Ran N tests, OK`、真实时间、scope/规格歧义停笔与 Git/GitHub 禁令；`--max-turns 80`、1800 秒超时、`dontAsk`、代理、allowed/disallowed tools 和 `--no-session-persistence` 未回归。`CODEX_GUIDE.md`、`AI_HANDOFF_OPERATIONS.md` 已加入相应长期入口说明；矩阵把 ENG-05 放在“工程支持（非软 PLC 产品功能）”区，未升级 PLC/CODESYS 或 HAL/现场证据。
+- 项目工程约定: Claude 允许命令、v2 证据格式、状态机写入权、失败关闭和 Git/GitHub 分工均为本项目工程协作约定，不是 CODESYS/IEC 语义；本包 Python 测试只验证协作工具与文档。
+- 待真机验证假设: 本包不产生新的 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证据；这些轴保持未验证/不适用，不能由本包 Python 结果推导。
+- 延后实现项: 本包未授权修改 parser、状态机、process runner、server/watcher、权限列表或产品运行时；本轮也未触及这些排除项。
+- 必须返修:
+  1. `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:53` 写成“需要删除/移动改用 Edit/Write 覆写”，这给出了绕过 `rm` 禁令的替代路径，与同文件 §7 “触及删除立即安全停止”、当前工作包停笔清单及启动器 prompt 的失败关闭口径直接冲突。请改为删除/移动需求必须停笔并报告，未经明确授权不得用 Edit/Write 清空、覆写或变相移动目标。
+  2. `docs/SOFT_PLC_FUNCTION_MATRIX.md:226` 的 ENG-05 把实现状态写成“候选未提交”（混淆实现轴与 Git 轴），WP 状态仍写 `CLAUDE_WORKING`，下一步仍是“Claude 恢复后复核全部 scope、完成 v2 交接”；但本轮 Claude 已完成合法 v2 自审和实施交接。请把实现轴改为候选已实现/待独立审核，把 WP 轴与下一步更新为本轮已交接、待 Codex 复核；Git 轴继续保持未提交，PLC/CODESYS 与 HAL/现场继续未验证，不得写成 APPROVED/CLOSED。
+  3. 在 `tests/test_ai_handoff.py` 加强对应契约测试：不得只检查 Runbook 含“删除”和矩阵含 ENG-05；应反向锁定 Runbook 不得提供 Edit/Write 删除/移动绕行，并锁定 ENG-05 不再保留 Claude 恢复前的陈旧 WP/下一步措辞。
+- 非阻塞建议: prompt 与执行计划的新增定向测试当前通过；可继续保持首轮/返修共用纯函数，避免复制两份纪律文本。
+- 审核证据: 审核开始和结束的 scope 规范聚合 SHA-256 均为 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`，期间无 scope 漂移；逐文件哈希为 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md=30412ce369cc5480cdf4e8bc231a9d9c670a4ce652d96a5492b0c439280f6d30`、`tools/ai_handoff/scheduler.py=2947b69ee4a2c9885e01399f7004953f9a0c15c807211d1677b26113a56b8c46`、`tests/test_ai_handoff.py=b3699c340bfa17d3d461acf10c707af518b2755edf782877038f48ce5342ab76`、`CODEX_GUIDE.md=8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1`、`docs/AI_HANDOFF_OPERATIONS.md=782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513`、`docs/SOFT_PLC_FUNCTION_MATRIX.md=613c55a233a0888938b5b9bc8c75d71a076a2a02a39cdc2619c15e764d4979e4`。Codex 未预告反证分别构造首轮/返修执行计划，全部关键开关符合任务书。独立测试：新增 5 项 prompt/Runbook/矩阵定向测试 `Ran 5 tests, OK`；Runbook 冒烟 `claude-runbook-smoke-ok 6399`；`prototype_05` `Ran 68 tests, OK`；`ClaudeNamingTests` Ran 24 tests、`test_ai_handoff` Ran 152 tests、正式 tests Ran 1565 tests、全仓 Ran 1633 tests，四组在当前受限沙箱分别仅有同一组本地端口绑定 `PermissionError`（前者 2 项、其余各 9 项），无 assertion failure；该环境结果与交接中已声明的受限端口边界一致，不能冒充宿主全绿。`git diff --check` 通过。
+- review_started_sha256: ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74
+- review_finished_sha256: ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74
+- handoff_to: claude
+- reviewed_at: 2026-07-30 09:03:17+0800
+
+### Claude 交接前自审（Round 2）
+
+- self_review_started_at: 2026-07-30 09:14:58+0800
+- self_review_finished_at: 2026-07-30 09:16:17+0800
+- self_review_verdict: PASS
+- self_review_round: 2
+- 复核范围与方法: 接手 CHANGES_REQUESTED（round 1）按协议 round+1=2。任何写入前先完整读取 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、本交接文件协议区与 WP-20260730-051 全文，再读 `docs/AI_HANDOFF_OPERATIONS.md`、`docs/PROJECT_STATE.md` 与三个待改 scope 文件全文。开工零写入核验：五字段 status=CHANGES_REQUESTED/owner=claude/handoff_to=claude、round=1、max_rounds=5、handoff_protocol=v2；`.git/HEAD→refs/heads/main`、`refs/heads/main` 与 `refs/remotes/origin/main` 均为 `cba1d21355ff56dddfa0efab64449265c55565bb`（==base_commit）；接手时 scope 规范聚合重算等于 `ce51524bca835e87a3c24d2f7de40f2ab562fa83e7fe6684c9f3ff33070bba74`（==顶层 scope_baseline_sha256）；`coordinator_status.json` 为只读存活投影（心跳过期只告警，未据此恢复旧轮询、未取得执行权）。仅在既定六文件 scope 内返修，先写反证契约测试再验证。
+- 返修对照（逐条对应 Codex Round 1 必须返修）:
+  1. `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:53` 原“需要删除/移动改用 `Edit`/`Write` 覆写”提供了绕过 `rm` 禁令的替代路径，与 §7 停笔清单和启动器 prompt 失败关闭口径冲突。已改为“删除或移动文件的需求必须立即停笔并报告，未经用户明确授权不得用 `Edit`/`Write` 清空、覆写或变相移动目标”，并注明与 §7 及 prompt 一致；哈希仍用 `hashlib`、Git/GitHub 收尾仍留给 Codex 未变。
+  2. `docs/SOFT_PLC_FUNCTION_MATRIX.md` ENG-05 原把实现轴写成“候选未提交”（与 Git 轴混淆）、WP 轴停留在 `CLAUDE_WORKING` 且下一步仍是“Claude 恢复后复核全部 scope、完成 v2 交接”。已把实现轴改为“候选已实现（待独立审核）”、WP 轴改为“`READY_FOR_CODEX`（WP-20260730-051 Round 2；Claude 已完成本轮 v2 自审与原子交接，待 Codex 独立复核）”、下一步改为“待 Codex 独立复核本轮返修”；Git 轴保持“未提交”，PLC/CODESYS 与 HAL/现场保持“未验证”，未写成 APPROVED/CLOSED。
+  3. `tests/test_ai_handoff.py` 加强契约测试：在 Runbook 契约测试中反向锁定 `assertNotIn("删除/移动改用")` 且 `assertIn("删除或移动文件的需求必须立即停笔并报告")`；在 ENG-05 矩阵测试中反向锁定 `assertNotIn("候选未提交")`、`assertNotIn("Claude 恢复后复核全部 scope")` 且 `assertIn("待 Codex")`。三条反向锁定在旧内容上均会失败（旧 Runbook 含“删除/移动改用”、旧 ENG-05 含“候选未提交/Claude 恢复后复核全部 scope”且不含“待 Codex”），构成真实反证。
+- 是否修改 scope: 修改 3 个 scope 文件（Runbook、SOFT_PLC_FUNCTION_MATRIX.md、test_ai_handoff.py）；`tools/ai_handoff/scheduler.py`（其 prompt 已把删除列为停笔条件、无绕行路径）、`CODEX_GUIDE.md`、`docs/AI_HANDOFF_OPERATIONS.md` 内容零改动，逐文件 SHA-256 与接手基线一致。
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests —— Ran 24 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 152 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1565 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1633 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -c 读取 Runbook 冒烟 —— claude-runbook-smoke-ok 6467
+- self_review_scope_sha256: eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc
+- self_review_manifest:
+  - 855351ab28472a914b7af5fbd95be0cb5e8189df15b67a9dc45a4d83676a5eed  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 2947b69ee4a2c9885e01399f7004953f9a0c15c807211d1677b26113a56b8c46  tools/ai_handoff/scheduler.py
+  - a86d329fba1e5fe13109cb74eb9296e48a8661d307e5a23a371ecf7c191b0749  tests/test_ai_handoff.py
+  - 8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1  CODEX_GUIDE.md
+  - 782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md
+  - d0eab3716acac9a300f3f6d0bca1292b3b05d7150735ac6b9ac97272990c2ddf  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 已知疑问: 无新增。
+- 未验证边界: 本包 Python 测试仅验证协作工具与文档，不构成任何 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明；Runbook 不证明模型正确性，v2 自审与 Codex 独立审核仍强制不可省略。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 2）
+
+- 完成内容: 按 Codex Round 1 三条必须返修在既定六文件 scope 内完成返修——① Runbook §53 去除以 `Edit`/`Write` 覆写替代 `rm` 的绕行路径，改为删除/移动必须停笔并报告；② SOFT_PLC_FUNCTION_MATRIX.md ENG-05 把实现轴/WP 轴/下一步从恢复前陈旧措辞更新为本轮已交接、待 Codex 独立复核，Git/PLC/HAL 轴保持未提交/未验证；③ test_ai_handoff.py 加入三条反向锁定契约测试。亲自重跑任务书六条命令取得真实计数，形成本轮 v2 自审（PASS）与原子交接。
+- 修改文件: 3 个 scope 文件——`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`、`tests/test_ai_handoff.py`；另在交接载体 `docs/AI_REVIEW_HANDOFF.md`（非 scope）追加本轮自审/实施交接记录并原子转移顶层五字段。
+- 明确未修改: `tools/ai_handoff/scheduler.py`、`CODEX_GUIDE.md`、`docs/AI_HANDOFF_OPERATIONS.md` 三个 scope 文件内容零改动；未触及 src/**、prototype_05/**、parser/状态机/process runner/server/watcher/权限列表或任何 scope 外源码；未执行任何 Git/GitHub 写操作、删除、依赖安装或外部网络操作；未启动/恢复旧 30 分钟轮询，未改协调器租约。
+- 影响的功能矩阵 ID: ENG-05（工程支持，本轮返修后候选已实现、待 Codex 独立复核）；ENG-01/ENG-02 仅作依赖引用，状态轴不变。PLC/CODESYS 与 HAL/现场列保持未验证/不适用，未计入软 PLC 产品能力完成度。
+- scope_sha256: eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc
+- implementation_finished_at: 2026-07-30 09:16:17+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: 接手五字段为 `WP-20260730-051 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=2`，`max_rounds=5`、`handoff_protocol=v2`，状态映射和轮次合法；仓库解析器对当前实盘 manifest 执行 v2 九项门禁结果为 `v2-ok`，无 errors/warnings。Round 1 三条必须返修已按其字面要求完成：Runbook 已删除以 `Edit`/`Write` 变相删除或移动的绕行建议；ENG-05 已分离实现轴与 Git 轴并更新为本轮待独立审核；对应三条反向锁定测试存在且通过。首轮/返修实际 prompt 继续共用 `build_claude_prompt()`，必读顺序、三个精确 v2 字段、`Ran N tests, OK`、真实时间、停笔与 Git/GitHub 禁令均存在；`--max-turns 80`、1800 秒超时、`dontAsk`、代理、allowed/disallowed tools 和无 session persistence 未回归。
+- 项目工程约定: Runbook、Claude 允许命令、哈希连续性基准、v2 证据格式、状态机写入权与 ENG-05 均是项目协作工程约定，不是 IEC 61131-3 / CODESYS 产品语义；本包测试只验证协作工具和文档。
+- 待真机验证假设: 本包不产生 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证据；矩阵相应轴保持未验证，Python 结果不得外推为软 PLC 产品能力完成。
+- 延后实现项: parser、状态机、process runner、server/watcher、权限列表与产品运行时仍属本包明确排除项；本轮发现的返修可在现有 Runbook / prompt / 测试 scope 内完成，不需要扩 scope 或规格裁决。
+- 必须返修:
+  1. `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:29` 把初次实施和 `CHANGES_REQUESTED` 返修一律要求与 `scope_baseline_sha256` 比对，和实际协调器连续性规则冲突。`tools/ai_handoff/scheduler.py:1408-1431` 已明确：初始 `CLAUDE_WORKING` 才使用 `scope_baseline_sha256`，`CHANGES_REQUESTED` 必须先确认上一轮 `review_started_sha256 == review_finished_sha256`，再把当前 scope 与 `review_finished_sha256` 比对；现有 `tests/test_ai_handoff.py:741-751` 也锁定此行为。正常工作包首轮修改后，两个哈希通常不同，按当前 Runbook 会把合法 Round 2 错判为漂移并停笔。请按状态分别写清连续性基准，并在 `_CLAUDE_ZERO_WRITE_CHECK` 直接内联同一规则；新增首轮/返修反证测试，禁止以后再次统一写成初始 baseline。
+  2. `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:42-43` 的“可复制”scope manifest 命令使用 `print(h,p)`，实际只输出一个空格（反证输出为 `ABSENT __wp051_absent_a__`），而同一命令计算聚合时使用两个空格，协议 `docs/AI_REVIEW_HANDOFF.md:104-108` 又强制 `<sha256>  <path>\n`。因此复制命令输出会得到与聚合文本不同、解析器拒绝的 manifest。请让打印文本与参与聚合的规范文本来自同一个字符串并精确保留双空格/行末换行；新增执行该范例等价逻辑的测试，验证逐行文本、顺序与聚合哈希，而不只检查文档含有关键字。
+  3. `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:66-101` 标为“v2 精确交接模板”，但未给出协议 `docs/AI_REVIEW_HANDOFF.md:74-82` 要求记录的 `首次失败 / 失败根因 / 修复内容 / 修复后重跑结果 / 已知疑问 / 未验证边界` 字段，也没有展示 `status / owner / handoff_to / round` 的原子顶层转移块；当前 `tests/test_ai_handoff.py:1390-1417` 只做若干字符串存在性检查，无法证明“完整模板”。请补齐完整自审/实施交接字段（无失败时明确写“无/不适用”）和原子五字段转移示例，修正第 99 行“自审 `scope_sha256`”为精确字段名 `self_review_scope_sha256`，并用结构/顺序断言锁定完整模板。
+- 非阻塞建议: `tools/ai_handoff/scheduler.py:955` 的“禁止修改项目状态”容易与 Runbook 第 62 行“只更新当前包实际改变的状态轴”及未来把状态文件列入 scope 的工作包冲突；建议返修时收窄为“禁止越权修改 scope 外或任务书未授权的项目状态”，避免合法 scope 被 prompt 绝对禁止。
+- 审核证据: 审核开始与结束独立重算的 scope 规范聚合 SHA-256 均为 `eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc`，期间六文件逐项一致且无漂移：`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md=855351ab28472a914b7af5fbd95be0cb5e8189df15b67a9dc45a4d83676a5eed`、`tools/ai_handoff/scheduler.py=2947b69ee4a2c9885e01399f7004953f9a0c15c807211d1677b26113a56b8c46`、`tests/test_ai_handoff.py=a86d329fba1e5fe13109cb74eb9296e48a8661d307e5a23a371ecf7c191b0749`、`CODEX_GUIDE.md=8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1`、`docs/AI_HANDOFF_OPERATIONS.md=782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513`、`docs/SOFT_PLC_FUNCTION_MATRIX.md=d0eab3716acac9a300f3f6d0bca1292b3b05d7150735ac6b9ac97272990c2ddf`。Codex 独立执行任务书六条：新增五项定向测试 `Ran 5 tests, OK`，Runbook 冒烟 `claude-runbook-smoke-ok 6467`，`prototype_05` `Ran 68 tests, OK`；`ClaudeNamingTests` Ran 24 tests、`test_ai_handoff` Ran 152 tests、正式 tests Ran 1565 tests、全仓 Ran 1633 tests，在当前受限沙箱分别仅有已知本地端口绑定 `PermissionError`（前者 2 项，其余各 9 项），无 assertion failure，不能冒充宿主全绿。未预告反证确认：返修哈希基准与调度器规则冲突、manifest 示例单空格输出与双空格聚合不一致、所谓完整模板缺少六类协议字段及原子顶层状态块。`git diff --check` 通过；仅做 Git 只读核验，未执行暂存、提交、推送、建 PR 或合并。
+- review_started_sha256: eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc
+- review_finished_sha256: eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc
+- handoff_to: claude
+- reviewed_at: 2026-07-30 09:27:50+0800
+
+### Round 3 配额中断封存与 WP-052 承接（2026-07-30）
+
+- Claude 返修精确幂等键 `WP-20260730-051:2:start_claude_rework` 于 2026-07-30 09:29:22+0800 启动，从 Codex Round 2 审核终态聚合 `eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc` 接手；约 684 秒、42 turns 后返回 HTTP 429 session limit：`resets 12:50pm (Asia/Shanghai)`，协调器记录 `outcome=failed / returncode=1 / timed_out=false`。
+- 中断前 Claude 已在六文件 scope 中形成部分返修，但尚未完成 Round 3 六条宿主测试、结构化 v2 自审或原子实施交接；因此不得把中间内容冒充 `READY_FOR_CODEX`，不得启动 Codex 功能审核，也不得执行 Git/GitHub 收尾。
+- 中断后的六文件规范聚合为 `9b15cc30ff4f28aa317a19944e3b60f16d7b69ef6006b556edfd0fd8d0a236cb`。由于 `CHANGES_REQUESTED` 调度必须继续对照最近独立审核终态 `review_finished_sha256=eb0dad225bf1a235219c5288c69cdae6c93f4ef562fa7de114708d997bad7afc`，协调器只读门禁明确返回 `rejected-invalid`；协议不允许回滚中间候选、篡改 Round 2 审核哈希或绕过调度器重放同键。
+- 用户随后明确同意创建极窄恢复包。故 WP-051 以 `BLOCKED / user / user / round=2 / max_rounds=5` 封存，保留两轮审核与 Round 3 中断事实；当前六文件检查点由 WP-20260730-052 冻结承接。
+
+### 后续收口（由 WP-20260730-052 完成）
+
+- WP-051 原始 `BLOCKED` 事实、两轮审核结论、Round 3 配额中断和全部历史测试数字原样保留；本段不把中断冒充为 WP-051 自身完成。
+- WP-20260730-052 从冻结检查点接手剩余返修，完成 Claude v2 自审、原子交接、Codex 独立审核并获用户关闭授权。因此 WP-051 的未完目标已由后继包收口，行政顶层转为 `CLOSED / user / user`，避免解析器回溯把已解决的来源包重新显示为当前阻塞。
+- closed_at: 2026-07-30 16:13:57+0800
+
+---
+
+## WP-20260730-052
+
+- title: WP-051 Round 3 中间检查点恢复与 Claude Runbook 协议收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- function_matrix_ids: ENG-01、ENG-02、ENG-05
+- expected_matrix_axes: 只允许更新 ENG-05 的实现状态、WP 状态与 Python 验证；Git 列在实际收尾前保持未提交，PLC/CODESYS、HAL/现场列保持未验证，不计入软 PLC 产品能力完成度
+- scope:
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - CODEX_GUIDE.md
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: 9b15cc30ff4f28aa317a19944e3b60f16d7b69ef6006b556edfd0fd8d0a236cb
+- base_branch: main
+- base_commit: cba1d21355ff56dddfa0efab64449265c55565bb
+
+### 创建依据与检查点
+
+- 用户于 2026-07-30 明确授权采用极窄恢复包方案，以 WP-051 Round 3 中断后的六文件候选为冻结检查点完成未完返修；本包不回滚候选、不重写 WP-051 历史、不创建产品功能或阶段 2 工作。
+- 创建前 `main == origin/main == HEAD == cba1d21355ff56dddfa0efab64449265c55565bb`，分支为 `main`；工作区除 WP-051/052 交接记录与六文件候选外无其它改动。协调器 stopped、8765 无监听、无活动租约；旧 30 分钟主轮询保持暂停。
+- 六文件 baseline manifest（按 scope 声明顺序，规范聚合为上方 `scope_baseline_sha256`）：
+  - `f79de3d388e846cd9ae6cf7a1abadefacdadb4027d1c90f1d9d5fc96d92abb9b  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `013106c7fcd0fed17d51bc46ac5e077ff306c60344c17ba876dfc86d6d3a677d  tools/ai_handoff/scheduler.py`
+  - `d765f7ece5fe461b8d1f5698d1947b14dd923439f35294afe2c282a2cb94923d  tests/test_ai_handoff.py`
+  - `8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1  CODEX_GUIDE.md`
+  - `782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md`
+  - `ae4d1cdf22fd7af379aad1c43292423eee19a5fdbd115ed0cdb8a30279b1788b  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 这是 Codex 冻结的**未审核中间候选**，不是 Claude 自审或 Codex 独立审核结论。Claude 必须从该逐字节检查点重新完整复核六文件，可在 scope 内修正任何不合理内容，并亲自形成合法证据链。
+
+### 唯一目标与必须收口项
+
+1. 完成 Codex WP-051 Round 2 已确认的状态相关连续性规则：Runbook 与 `_CLAUDE_ZERO_WRITE_CHECK` 必须明确区分首轮 `CLAUDE_WORKING → scope_baseline_sha256` 和返修 `CHANGES_REQUESTED → review_finished_sha256`，且返修先确认 `review_started_sha256 == review_finished_sha256`；不得把合法返修统一误判为 baseline 漂移。
+2. Runbook 的可复制 manifest 范例必须让打印文本与聚合输入来自同一规范字符串，逐行精确为 `<sha256-or-ABSENT>  <path>\n`；测试必须执行等价范例并锁定双空格、scope 顺序和聚合哈希，不能只查关键词。
+3. Runbook 的 v2 模板必须完整包含 `首次失败 / 失败根因 / 修复内容 / 修复后重跑结果 / 已知疑问 / 未验证边界`，无失败时明确写无/不适用；使用精确 `self_review_scope_sha256` 字段名，并展示 `status / owner / handoff_to / round` 的原子顶层转移。测试必须锁定字段完整性与顺序。
+4. 采纳 Round 2 非阻塞建议：启动器 prompt 不得绝对禁止所有项目状态修改，应收窄为禁止越权修改 scope 外或任务书未授权的状态，同时继续禁止 Claude Git/GitHub 写。
+5. 修正 `ENG-05` 行的中断后陈旧表述：创建/实施阶段只能写 WP-052 候选或 `CLAUDE_WORKING`；合法自审并原子交接时可在同次 scope 产物中写待 Codex 独立审核。不得提前写 `APPROVED`、`CLOSED`、已提交或已合并。
+
+### 测试、交接与独立审核
+
+Claude 必须在宿主环境逐条实跑并记录真实计数：
+
+1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests`
+2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+6. `PYTHONDONTWRITEBYTECODE=1 python -c "from pathlib import Path; text=Path('docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md').read_text(encoding='utf-8'); print('claude-runbook-smoke-ok', len(text))"`
+
+- Claude 必须按 Runbook 第一必读顺序重新接手，先确认当前六文件聚合精确等于 `9b15cc30ff4f28aa317a19944e3b60f16d7b69ef6006b556edfd0fd8d0a236cb`，再完成剩余实现、真实时间、结构化 v2 自审和原子交接；不得复制 WP-051 的旧测试计数或时间冒充本轮结果。
+- 只有 `self_review_verdict=PASS`、六条命令全绿、manifest 与实盘一致、`self_review_scope_sha256 == scope_sha256` 时，才能原子转为 `READY_FOR_CODEX / codex / codex / round=1`，随后立即停止写 scope。
+- Codex 交接后由新的独立进程复算 manifest、逐文件审查、构造首轮/返修连续性、manifest 文本、v2 模板与矩阵状态的未预告反证，完整复跑六条及 `git diff --check`。若 `CHANGES_REQUESTED`，按同包最多 5 轮继续；任何 scope 漂移、需扩 scope、规格歧义、额度/认证/代理失败或轮次耗尽均失败关闭。
+
+### 明确排除项
+
+- 不修改 `src/**`、`prototype_05/**`、解析器、状态机、process runner、server/watcher、权限列表或产品运行时；不创建或实施阶段 2 CFC 定序编译器。
+- 不修改 PLC 业务逻辑、IR、Store、Executor、monitor/watchdog、HAL、真实 I/O、持久化、F2、ST/CFC 前端、CODESYS 或现场验证。
+- Claude 不执行任何 Git/GitHub 写操作；本包 `APPROVED` 不自动等于用户 `CLOSED` 或 Git 已合并，后续关闭与 Git/GitHub 收尾另按用户授权。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-07-30 13:11:34+0800
+- self_review_finished_at: 2026-07-30 13:11:56+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 复核范围与方法: 额度恢复后（宿主时间 13:11 已过 WP-051 记录的 12:50pm 会话重置点）从 WP-052 冻结检查点 `9b15cc30ff4f28aa317a19944e3b60f16d7b69ef6006b556edfd0fd8d0a236cb` 逐字节接手。任何写入前先完整读取 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、本交接文件协议区与 WP-20260730-052 全文，再读 `docs/AI_HANDOFF_OPERATIONS.md`、`docs/PROJECT_STATE.md`、`docs/PLATFORM_ROADMAP.md`、`docs/COMPONENT_CONTRACT.md`（确认为 L2 块描述符规格，与本协作基建包无关）与六个 scope 文件全文，并核读 `tools/ai_handoff/parser.py` 门禁实现。开工零写入核验：五字段 status=CLAUDE_WORKING/owner=claude/handoff_to=claude、round=1、max_rounds=5、handoff_protocol=v2 与任务书一致；`.git/HEAD→refs/heads/main`、`refs/heads/main` 与 `refs/remotes/origin/main` 均为 `cba1d21355ff56dddfa0efab64449265c55565bb`（==base_commit）；接手时六文件规范聚合重算等于 `9b15cc30…`（==顶层 scope_baseline_sha256，首轮 CLAUDE_WORKING 基准）且逐文件哈希与任务书 baseline manifest 全部相等；`coordinator_status.json` 为只读存活投影（`legacy_polling_resume_authorized=false`，心跳过期只告警，未据此恢复旧轮询、未取得执行权）。逐条对照任务书五项必须收口项，不是仅检查文件存在。
+- 复核结论（逐 scope 文件与逐收口项）:
+  - 收口项 1（状态相关连续性基准）: `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md` §2 已区分首轮 `CLAUDE_WORKING → scope_baseline_sha256` 与返修 `CHANGES_REQUESTED → review_finished_sha256`（且先确认 `review_started_sha256 == review_finished_sha256`）；`tools/ai_handoff/scheduler.py` `_CLAUDE_ZERO_WRITE_CHECK`（929-937）内联同一状态相关基准，与 `_expected_scope_hash`/`_validate_scope_integrity`（1420-1435、1412-1419）一致。候选正确、无需修改。
+  - 收口项 2（manifest 范例双空格同源）: Runbook §3 的可复制命令让打印文本与聚合输入同源（`(hash-or-ABSENT)+'  '+p+chr(10)`，`print(line,end='')`），逐行精确双空格 + 行末换行。候选正确、无需修改。
+  - 收口项 3（v2 完整模板）: Runbook §5 含 `首次失败/失败根因/修复内容/修复后重跑结果/已知疑问/未验证边界`、精确 `self_review_scope_sha256` 字段名与 `status/owner/handoff_to/round` 原子顶层转移块。候选正确、无需修改。
+  - 收口项 4（prompt 项目状态修改收窄）: `scheduler.py` `_CLAUDE_STOP_AND_HANDOFF`（959）已收窄为“禁止越权修改 scope 外或任务书未授权的项目状态”，同时保留禁止 Claude Git/GitHub 写。候选正确、无需修改。
+  - 收口项 5（ENG-05 中断后陈旧表述）: 检查点行仍把中断的 WP-051 Round 3 冒充为“已完成本轮 v2 自审与原子交接”的 `READY_FOR_CODEX`，且未体现当前承载包 WP-052。**本轮修正**：`docs/SOFT_PLC_FUNCTION_MATRIX.md` ENG-05 的 WP 轴改为 `READY_FOR_CODEX`（WP-20260730-052 Round 1，收口 WP-20260730-051 Round 3 中断检查点；Claude 已完成本轮 v2 自审与原子交接，待 Codex 独立复核），下一步改为本轮五项收口；Git 轴仍“未提交”、PLC/CODESYS 与 HAL/现场仍“未验证”，未写 APPROVED/CLOSED/已提交/已合并。`tests/test_ai_handoff.py` 加入反向锁定：ENG-05 行必须含当前承载包 `WP-20260730-052`，且不得写成 APPROVED/CLOSED/已合并/已提交（先写反证：新断言在旧行上失败，见首次失败）。
+  - `CODEX_GUIDE.md`、`docs/AI_HANDOFF_OPERATIONS.md` 与 Runbook、scheduler.py 内容零改动，逐文件 SHA-256 与接手基线一致。
+- 是否修改 scope: 修改 2 个 scope 文件——`tests/test_ai_handoff.py`（ENG-05 反向锁定）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（ENG-05 行）；`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`tools/ai_handoff/scheduler.py`、`CODEX_GUIDE.md`、`docs/AI_HANDOFF_OPERATIONS.md` 四文件逐文件 SHA-256 与接手基线一致、零改动。
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests —— Ran 27 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 155 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1568 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1636 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -c 读取 Runbook 冒烟 —— claude-runbook-smoke-ok 7747
+- self_review_scope_sha256: e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939
+- self_review_manifest:
+  - f79de3d388e846cd9ae6cf7a1abadefacdadb4027d1c90f1d9d5fc96d92abb9b  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 013106c7fcd0fed17d51bc46ac5e077ff306c60344c17ba876dfc86d6d3a677d  tools/ai_handoff/scheduler.py
+  - cec685a783f4bb710d4ed47c14fb41c1f296555e862d95db3e0f61c1e624081b  tests/test_ai_handoff.py
+  - 8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1  CODEX_GUIDE.md
+  - 782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md
+  - 2c7594d80cfcd995c67f7132e8115850ac6ac692ac552efb1e5e50a019912671  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 按“先反证后修复”纪律，先在 `tests/test_ai_handoff.py` 加入 ENG-05 反向锁定 `assertIn("WP-20260730-052", row)`；对旧检查点 ENG-05 行运行 `tests.test_ai_handoff.ClaudeNamingTests.test_function_matrix_registers_claude_runbook_as_engineering_support` 得预期反证 AssertionError（`'WP-20260730-052' not found in ...WP-20260730-051 Round 3；Claude 已完成本轮 v2 自审与原子交接...`）。此为设计内的反证，非未预期缺陷。
+- 失败根因: WP-052 承接后，旧 ENG-05 行仍停留在 WP-051 Round 3 中断态，把中断轮冒充为已完成的 `READY_FOR_CODEX` 交接，且未体现当前承载包 WP-20260730-052。
+- 修复内容: 将 ENG-05 行 WP 轴更新为 WP-20260730-052 Round 1（收口 WP-051 Round 3 中断检查点、待 Codex 独立复核），下一步更新为本轮五项收口；Git/PLC/HAL 轴保持未提交/未验证。测试反向锁定同时新增禁止 ENG-05 提前写 APPROVED/CLOSED/已合并/已提交。
+- 修复后重跑结果: PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ClaudeNamingTests.test_function_matrix_registers_claude_runbook_as_engineering_support —— Ran 1 test, OK；随后六条命令全绿（见实际测试命令与结果）。
+- 已知疑问: 无新增。
+- 未验证边界: 本包 Python 测试仅验证协作工具与文档，不构成任何 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明；Runbook 不证明模型正确性，v2 自审与 Codex 独立审核仍强制不可省略。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 从用户授权的 WP-052 冻结检查点 `9b15cc30…` 逐字节接手，完整复核六个 scope 文件并逐条对照任务书五项必须收口项。复核确认收口项 1～4（Runbook §2 状态相关连续性、§3 manifest 双空格同源、§5 v2 完整模板；scheduler `_CLAUDE_ZERO_WRITE_CHECK` 状态相关基准与 `_CLAUDE_STOP_AND_HANDOFF` 收窄；对应五项定向测试）在检查点候选中已正确落地、无需修改；仅收口项 5 需修正——ENG-05 行仍把中断的 WP-051 Round 3 冒充为已完成交接。按“先反证后修复”先加 ENG-05 反向锁定测试并取得预期反证，再修正 ENG-05 行。亲自在宿主逐条重跑任务书六条命令取得真实计数，形成本轮 v2 自审（PASS）与原子交接。
+- 修改文件: 2 个 scope 文件——`tests/test_ai_handoff.py`（ENG-05 反向锁定：新增 `WP-20260730-052` 当前承载包断言与禁止 APPROVED/CLOSED/已合并/已提交）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（ENG-05 WP 轴与下一步）；另在交接载体 `docs/AI_REVIEW_HANDOFF.md`（非 scope）追加本轮自审/实施交接记录并原子转移顶层五字段。
+- 明确未修改: `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`tools/ai_handoff/scheduler.py`、`CODEX_GUIDE.md`、`docs/AI_HANDOFF_OPERATIONS.md` 四个 scope 文件内容零改动（逐文件 SHA-256 与接手基线一致）；未触及 `src/**`、`prototype_05/**`、parser/状态机/process runner/server/watcher/权限列表或任何 scope 外源码；未执行任何 Git/GitHub 写操作、删除、依赖安装或外部网络操作；未启动/恢复旧 30 分钟轮询，未改协调器租约。
+- 影响的功能矩阵 ID: ENG-05（工程支持，Claude 实施 Runbook 与启动器强制阅读；本轮收口后候选已实现、承接包更新为 WP-20260730-052、待 Codex 独立复核）；ENG-01/ENG-02 仅作依赖引用，状态轴不变。PLC/CODESYS 与 HAL/现场列保持未验证/不适用，未计入软 PLC 产品能力完成度。
+- scope_sha256: e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939
+- implementation_finished_at: 2026-07-30 13:11:56+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实: 接手五字段为 `WP-20260730-052 / READY_FOR_CODEX / owner=codex / handoff_to=codex / round=1`，`max_rounds=5`、`handoff_protocol=v2`，状态映射与轮次合法；审核期间按协议置 `CODEX_REVIEWING / codex / codex`。仓库解析器结合当前实盘 manifest 复核 v2 九项门禁通过，无 errors/warnings；Claude 自审起止时间合法且未越界，`self_review_verdict=PASS`、`self_review_round=1`、结构化测试字段、`是否满足交接条件: 是`、实施交接轮次与记录顺序均合规。六文件 scope 精确且顺序一致，独立重算逐文件 SHA-256 与自审 manifest 全部相等，规范聚合为 `e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939`，并同时等于 `self_review_scope_sha256` 与实施交接 `scope_sha256`。逐文件审查确认五项收口均成立：Runbook 与 `_CLAUDE_ZERO_WRITE_CHECK` 区分首轮 baseline 和返修 review 终态连续性；manifest 范例打印与聚合使用同一双空格规范字符串；v2 模板包含完整自审字段、精确 `self_review_scope_sha256` 和原子顶层转移块；prompt 已把项目状态禁令收窄为 scope/任务书授权边界且继续禁止 Git/GitHub 写；ENG-05 正确登记 WP-052 承接 WP-051 中断检查点，六个状态轴未提前升级。
+- 项目工程约定: Runbook、Claude 允许命令、状态相关哈希连续性、v2 证据格式、状态机写入权和 ENG-05 均为本项目协作工程约定，不是 IEC 61131-3 / CODESYS 产品语义；本包 Python 测试只验证协作工具与文档。
+- 待真机验证假设: 本包不产生新的 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证据；矩阵相应轴保持未验证/不适用，Python 结果不得外推为软 PLC 产品能力完成或现场发布授权。
+- 延后实现项: parser、状态机、process runner、server/watcher、权限列表、产品运行时与阶段 2 CFC 定序编译器均属本包明确排除项；本审核未修改这些内容。
+- 必须返修: 无。
+- 非阻塞建议: 无。
+- 审核证据: 审核开始与结束独立重算的 scope 规范聚合 SHA-256 均为 `e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939`，期间无 scope 漂移；逐文件哈希为 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md=f79de3d388e846cd9ae6cf7a1abadefacdadb4027d1c90f1d9d5fc96d92abb9b`、`tools/ai_handoff/scheduler.py=013106c7fcd0fed17d51bc46ac5e077ff306c60344c17ba876dfc86d6d3a677d`、`tests/test_ai_handoff.py=cec685a783f4bb710d4ed47c14fb41c1f296555e862d95db3e0f61c1e624081b`、`CODEX_GUIDE.md=8f533882d1836be54e45329ec062d13b66473f41937c6364389fb9fc86542df1`、`docs/AI_HANDOFF_OPERATIONS.md=782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513`、`docs/SOFT_PLC_FUNCTION_MATRIX.md=2c7594d80cfcd995c67f7132e8115850ac6ac692ac552efb1e5e50a019912671`。未预告反证覆盖首轮/返修连续性、manifest 文本同源、v2 模板结构和 ENG-05 状态轴，另新增五项定向测试 `Ran 5 tests, OK`，排除当前沙箱禁止 socket 绑定的 9 项面板用例后协作测试 `Ran 146 tests, OK`；Runbook 冒烟为 `claude-runbook-smoke-ok 7747`，`prototype_05` 为 `Ran 68 tests, OK`。任务书六条命令均已逐条实跑：`ClaudeNamingTests` Ran 27 tests（仅 2 项本地端口绑定 `PermissionError`）、`test_ai_handoff` Ran 155 tests、正式 tests Ran 1568 tests、全仓 Ran 1636 tests（后三组各仅同一组 9 项端口绑定 `PermissionError`），均无 assertion failure；此为当前受限审核沙箱的已知环境边界，未冒充宿主全绿。`git diff --check` 通过；未执行任何 Git 暂存、提交、推送、建 PR、合并或其它 Git/GitHub 写操作。
+- review_started_sha256: e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939
+- review_finished_sha256: e09f34085d39641dc2d2aff128a2ca63338647d526be8d79a8f249d9483f4939
+- handoff_to: user
+- reviewed_at: 2026-07-30 13:41:43+0800
+
+### 用户关闭（2026-07-30）
+
+- accepted_verdict: Codex Round 1 `APPROVED`；必须返修与非阻塞建议均为无。
+- close_authorization: 用户明确同意关闭 WP-20260730-052，并授权 Codex 执行 Git/GitHub 收尾及合并后行政状态同步。
+- host_validation_after_review: `ClaudeNamingTests` 27/27、`test_ai_handoff` 155/155、正式 tests 1568/1568、`prototype_05` 68/68、全仓 1636/1636、Runbook 冒烟 `claude-runbook-smoke-ok 7747` 与 `git diff --check` 全部通过。
+- boundary: 本包只关闭 Claude 协作 Runbook、启动器 prompt 与契约测试；不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明，也不启动阶段 2。
+- closed_at: 2026-07-30 16:13:57+0800
