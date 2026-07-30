@@ -25,6 +25,7 @@ from tools.ai_handoff.parser import (
 from tools.ai_handoff.heartbeat import CoordinatorHeartbeat
 from tools.ai_handoff.scheduler import (
     AsyncExecutionCoordinator,
+    CLAUDE_RUNBOOK_PATH,
     ClaudeEndpointAdapter,
     CodexCommandAdapter,
     DryRunScheduler,
@@ -34,10 +35,13 @@ from tools.ai_handoff.scheduler import (
     ProcessRunResult,
     SafeProcessRunner,
     ScopeHashResult,
+    build_claude_prompt,
     calculate_scope_sha256,
 )
 from tools.ai_handoff.server import DashboardApplication, StateStore
 from tools.ai_handoff.watcher import HandoffWatcher
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 HASH_A = "a" * 64
@@ -1333,6 +1337,202 @@ class ClaudeNamingTests(unittest.TestCase):
         self.assertEqual("80", plan.command[idx + 1])
         # 80 turns 与 1800 秒进程超时相互独立，默认超时不得随之改变。
         self.assertEqual(1800, plan.timeout_seconds)
+
+    def test_claude_first_run_and_rework_prompts_share_mandatory_reading_order(self):
+        package = self.package()
+        first = build_claude_prompt(package.work_package_id, "start_claude_implementation")
+        rework = build_claude_prompt(package.work_package_id, "start_claude_rework")
+        for prompt in (first, rework):
+            with self.subTest(prompt=prompt[:24]):
+                self.assertIn(package.work_package_id, prompt)
+                self.assertIn("任何写入前", prompt)
+                self.assertIn(CLAUDE_RUNBOOK_PATH, prompt)
+                self.assertIn("CODEX_GUIDE.md", prompt)
+                self.assertIn("docs/AI_REVIEW_HANDOFF.md", prompt)
+                self.assertLess(prompt.index(CLAUDE_RUNBOOK_PATH), prompt.index("CODEX_GUIDE.md"))
+                self.assertLess(prompt.index("CODEX_GUIDE.md"), prompt.index("docs/AI_REVIEW_HANDOFF.md"))
+        self.assertIn("实施当前工作包", first)
+        self.assertIn("按最近 Codex 审核意见返修", rework)
+
+    def test_claude_prompt_inlines_exact_v2_and_stop_conditions(self):
+        prompt = build_claude_prompt("WP-PROMPT", "start_claude_implementation")
+        for required in (
+            "- 实际测试命令与结果:",
+            "- self_review_manifest:",
+            "- 是否满足交接条件: 是",
+            "Ran N tests, OK",
+            "真实时间",
+            "需扩 scope",
+            "规格或默认值不明确",
+            "不得伪造 PASS",
+            "READY_FOR_CODEX/owner=codex/handoff_to=codex",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, prompt)
+        self.assertNotIn("OK，Ran N", prompt)
+
+    def test_claude_prompt_command_discipline_matches_execution_plan(self):
+        adapter = ClaudeEndpointAdapter(
+            executable=sys.executable, project_root="/tmp/project", authenticated=True,
+        )
+        plan = adapter.command_for(self.package(), action="start_claude_implementation")
+        prompt = plan.command[2]
+        allowed = plan.command[plan.command.index("--allowedTools") + 1]
+        disallowed = plan.command[plan.command.index("--disallowedTools") + 1]
+        for tool in ("Read", "Edit", "Write", "Glob", "Grep", "Bash(python3 *)"):
+            self.assertIn(tool, allowed)
+        for command in ("git", "gh", "rm", "sudo"):
+            self.assertIn(f"Bash({command} *)", disallowed)
+            self.assertIn(command, prompt)
+        for command in ("shasum", "sha256sum", "管道", "命令替换", "shell 循环"):
+            self.assertIn(command, prompt)
+
+    def test_claude_runbook_contains_required_contract_sections(self):
+        runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
+        for required in (
+            "第一必读",
+            "开工零写入检查表",
+            "允许命令范例",
+            "git",
+            "gh",
+            "shasum",
+            "历史易错项",
+            "WP-027 / WP-028",
+            "WP-030 / WP-031",
+            "WP-043",
+            "WP-046",
+            "WP-049 / WP-050",
+            "停笔清单",
+            "- 实际测试命令与结果:",
+            "- self_review_manifest:",
+            "- 是否满足交接条件: 是",
+            "Ran N tests, OK",
+            "Git/GitHub 收尾一律留给 Codex",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, runbook)
+        # 反向锁定：Runbook 不得提供以 Edit/Write 删除或移动文件的绕行路径；
+        # 删除/移动需求必须停笔并报告，与 §7 停笔清单及启动器 prompt 的失败关闭口径一致。
+        self.assertNotIn("删除/移动改用", runbook)
+        self.assertIn("删除或移动文件的需求必须立即停笔并报告", runbook)
+
+    def test_function_matrix_registers_claude_runbook_as_engineering_support(self):
+        matrix = (REPO_ROOT / "docs" / "SOFT_PLC_FUNCTION_MATRIX.md").read_text(
+            encoding="utf-8"
+        )
+        row = next(line for line in matrix.splitlines() if line.startswith("| ENG-05 |"))
+        self.assertIn("工程支持", row)
+        self.assertIn("非产品功能", row)
+        self.assertIn("WP-20260730-051", row)
+        # 承接包 WP-052 收口 WP-051 Round 3 中断检查点：ENG-05 的 WP 轴必须体现当前承载包
+        # WP-20260730-052，不得停留在把 WP-051 中断态冒充为已完成交接；WP-051 仅作被收口的
+        # 来源检查点保留。
+        self.assertIn("WP-20260730-052", row)
+        self.assertNotIn("软 PLC 产品功能", row)
+        # 反向锁定：ENG-05 不得保留 Claude 恢复前的陈旧措辞——实现轴不得与 Git 轴混淆
+        # 写成“候选未提交”，下一步不得停留在“Claude 恢复后复核全部 scope”；本轮已完成
+        # 合法 v2 自审与原子交接，应体现为待 Codex 独立复核。
+        self.assertNotIn("候选未提交", row)
+        self.assertNotIn("Claude 恢复后复核全部 scope", row)
+        self.assertIn("待 Codex", row)
+        # 反向锁定：创建/实施阶段不得提前把 ENG-05 写成 APPROVED / CLOSED / 已提交 / 已合并。
+        self.assertNotIn("APPROVED", row)
+        self.assertNotIn("CLOSED", row)
+        self.assertNotIn("已合并", row)
+        self.assertNotIn("已提交", row)
+
+    def test_zero_write_check_uses_state_specific_scope_basis(self):
+        # Runbook §2 与 prompt 的 scope 连续性基准必须随接手状态区分，
+        # 与 scheduler._expected_scope_hash / _validate_scope_integrity 一致：
+        # 首轮 CLAUDE_WORKING 用 scope_baseline_sha256；CHANGES_REQUESTED 返修先确认
+        # review_started_sha256==review_finished_sha256 再与 review_finished_sha256 比对。
+        runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
+        self.assertIn("scope_baseline_sha256", runbook)
+        self.assertIn("review_finished_sha256", runbook)
+        self.assertIn("review_started_sha256 == review_finished_sha256", runbook)
+        # 反向锁定：不得再把首轮与返修一律要求聚合等于初始 baseline。
+        self.assertNotIn("聚合值必须等于 `scope_baseline_sha256`", runbook)
+        # 首轮/返修共用的 prompt 必须内联同一状态相关基准（不得只靠 Runbook 单点引用）。
+        for action in ("start_claude_implementation", "start_claude_rework"):
+            with self.subTest(action=action):
+                prompt = build_claude_prompt("WP-ZERO", action)
+                self.assertIn("scope_baseline_sha256", prompt)
+                self.assertIn("review_finished_sha256", prompt)
+
+    def test_runbook_manifest_command_emits_canonical_double_space_manifest(self):
+        # Runbook 中“可复制”的 scope manifest 聚合范例：打印的每行必须与参与聚合的
+        # 规范文本同源（`<sha256>  <path>\n`，两个空格 + 行末换行），否则复制输出会得到
+        # 与聚合不一致、解析器拒绝的 manifest。这里直接执行文档里的命令做等价验证。
+        runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
+        command_line = next(
+            line.strip().strip("`")
+            for line in runbook.splitlines()
+            if "python3 -c" in line and "AGG" in line and "join(" in line
+        )
+        prefix = 'python3 -c "'
+        self.assertIn(prefix, command_line)
+        self.assertTrue(command_line.endswith('"'))
+        code = command_line[command_line.index(prefix) + len(prefix):-1]
+        with tempfile.TemporaryDirectory() as directory:
+            completed = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=directory, capture_output=True, text=True, check=True,
+            )
+        out_lines = completed.stdout.splitlines()
+        # a.py / b.py 均不存在于临时空目录 → 逐行必须是「ABSENT + 两个空格 + 路径」。
+        self.assertEqual("ABSENT  a.py", out_lines[0])
+        self.assertEqual("ABSENT  b.py", out_lines[1])
+        # 反向锁定：单空格输出（旧 print(h,p)）会破坏与聚合文本的一致性。
+        self.assertNotIn("ABSENT a.py", completed.stdout)
+        canonical = "ABSENT  a.py\nABSENT  b.py\n"
+        expected_agg = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        self.assertEqual(f"AGG {expected_agg}", out_lines[2])
+
+    def test_runbook_v2_template_is_complete_and_ordered(self):
+        # §5 “v2 精确交接模板”必须给出协议 docs/AI_REVIEW_HANDOFF.md 要求的完整自审字段
+        # （含首次失败/失败根因/修复内容/修复后重跑结果/已知疑问/未验证边界）与原子顶层
+        # 五字段转移块，并用精确字段名 self_review_scope_sha256。
+        runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
+        for field in (
+            "- self_review_started_at:",
+            "- self_review_finished_at:",
+            "- self_review_verdict:",
+            "- self_review_round:",
+            "- 实际测试命令与结果:",
+            "- self_review_scope_sha256:",
+            "- self_review_manifest:",
+            "- 首次失败:",
+            "- 失败根因:",
+            "- 修复内容:",
+            "- 修复后重跑结果:",
+            "- 已知疑问:",
+            "- 未验证边界:",
+            "- 是否满足交接条件: 是",
+            "- scope_sha256:",
+            "- implementation_finished_at:",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, runbook)
+        # 原子顶层五字段转移块必须展示 status/owner/handoff_to/round。
+        for top in (
+            "- status: READY_FOR_CODEX",
+            "- owner: codex",
+            "- handoff_to: codex",
+            "- round: N",
+        ):
+            with self.subTest(top=top):
+                self.assertIn(top, runbook)
+        # 结构顺序：六类协议字段须出现在实际测试命令/ manifest 之后、交接条件之前。
+        idx_tests = runbook.index("- 实际测试命令与结果:")
+        idx_first_fail = runbook.index("- 首次失败:")
+        idx_unverified = runbook.index("- 未验证边界:")
+        idx_ready = runbook.index("- 是否满足交接条件: 是")
+        self.assertLess(idx_tests, idx_first_fail)
+        self.assertLess(idx_first_fail, idx_unverified)
+        self.assertLess(idx_unverified, idx_ready)
+        # 反向锁定：硬约束必须用精确字段名，不得写成裸「自审 `scope_sha256`」。
+        self.assertNotIn("自审 `scope_sha256`", runbook)
+        self.assertIn("自审 `self_review_scope_sha256`", runbook)
 
     def test_claude_max_turns_injection_is_used_verbatim(self):
         adapter = ClaudeEndpointAdapter(

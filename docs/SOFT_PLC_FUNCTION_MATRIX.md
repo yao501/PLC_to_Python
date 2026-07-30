@@ -89,7 +89,7 @@
 | L34 IR/执行引擎 | 11 | 已实现（headless 核心）；L34-11 单任务纵向装配已由 WP-050 审核关闭 | 已合并（主线，PR #30） | 已覆盖 | CFC 图定序编译器属阶段 2 未做；L34-11 已审核关闭并合并 |
 | L5 运行时安全 | 14 | 软件安全核心与确定性 monitor 已实现；真实调度/硬件 watchdog 未实现 | monitor 经 PR #28 合并 | 已覆盖（Python） | shadow/OutputPolicy/提交监督/软件 monitor 已关闭；PLC、HAL、硬件与现场未验证 |
 | USR 用户入口/后续平台 | 13 | 多数未实现 | 未涉及/试验已合并 | 无/局部 | ST/CFC 前端、导入器、HAL、AI 集成等均未做 |
-| ENG 工程支持 | 4 | 已实现（协作机制） | 已合并（主线） | 部分覆盖 | 非软 PLC 产品功能，属协作基建 |
+| ENG 工程支持 | 5 | 已实现（既有协作机制）+ Claude Runbook 候选 | 既有机制已合并；ENG-05 未提交 | 部分覆盖 | 非软 PLC 产品功能，属协作基建 |
 
 **最新已合并且已关闭的完整主线基线**（唯一权威主机快照）：`WP-20260730-050` 的正式 tests **1560/1560**、`prototype_05` **68/68**、全仓 **1628/1628**（经 [PR #30](https://github.com/yao501/PLC_to_Python/pull/30) 合并，merge `73b462b5…`）。WP-043/044 的 1480/1548、WP-046 的 1504/1572、WP-048 的 1537/1605 等仍是各历史检查点计数，不回写为当前主线。
 
@@ -223,6 +223,7 @@
 | ENG-02 | 工程支持 | 工作包状态机 + 协调器 | 事件协调器串行唤醒；WP-048 起新包默认最多 5 轮（历史 3 轮原样保留） | [AI_REVIEW_HANDOFF.md](AI_REVIEW_HANDOFF.md) | 已实现 | 用户协议裁决（2026-07-29） | 协议说明已随 [PR #28](https://github.com/yao501/PLC_to_Python/pull/28) 合并；状态机继续按每包显式 `max_rounds` 通用执行 | 部分覆盖（`test_ai_handoff`；状态机无需为 3→5 改码） | 未验证 | 未验证 | 全局执行租约边界；轮次增加不扩大 scope/外部授权；非产品功能 | ENG-01 | 新包显式写 `max_rounds: 5` |
 | ENG-03 | 工程支持 | Git / GitHub 收尾（Codex 执行） | 提交/推送由 Codex 审核并执行；Claude 不写 Git | [CODEX_GUIDE.md](../CODEX_GUIDE.md) §6 | 已实现（分工纪律） | `无 WP` | 已合并（主线 73b462b） | 无（流程约定） | 未验证 | 未验证 | Git 列只在实际操作成功后更新 | ENG-01 | — |
 | ENG-04 | 工程支持 | 测试快照纪律 | 历史测试数字原样保留，不回写冒充当前 | [PROJECT_STATE.md](PROJECT_STATE.md) | 已实现（纪律） | `无 WP` | 已合并（主线 73b462b） | 无 | 未验证 | 未验证 | 环境差异不等于功能矛盾 | — | — |
+| ENG-05 | 工程支持 | Claude 实施 Runbook 与启动器强制阅读 | 集中允许命令、历史易错项、v2 模板与停笔清单，并让首轮/返修 prompt 在写入前强制提示完整阅读 | [CLAUDE_IMPLEMENTATION_RUNBOOK.md](CLAUDE_IMPLEMENTATION_RUNBOOK.md)；[../tools/ai_handoff/scheduler.py](../tools/ai_handoff/scheduler.py) | 候选已实现（待独立审核） | `READY_FOR_CODEX`（WP-20260730-052 Round 1，收口 WP-20260730-051 Round 3 中断检查点；Claude 已完成本轮 v2 自审与原子交接，待 Codex 独立复核） | 未提交 | 部分覆盖（`test_ai_handoff` 定向测试） | 未验证 | 未验证 | **非产品功能**；Runbook 不证明模型正确，v2 自审与独立审核仍强制 | ENG-01/02 | 待 Codex 独立复核本轮收口（Runbook 状态相关连续性基准 / manifest 范例双空格同源 / v2 完整模板 / prompt 项目状态修改收窄 / ENG-05 承接 WP-052 五项） |
 
 ---
 

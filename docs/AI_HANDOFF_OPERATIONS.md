@@ -226,6 +226,11 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 - Claude 使用官方 Claude Code CLI，安装位置为 `~/.local/bin/claude`。计划采用
   `-p` 非交互模式、JSON 输出、固定 `opus` 模型、`--max-turns` 默认 `80`、超时、`dontAsk`
   失败关闭，并显式禁止 `git`、`gh`、`rm`、`sudo` 命令。
+- Claude 首轮实施和返修共用 `build_claude_prompt()` 的长期纪律片段；两条路径都要求在任何
+  写入前先完整读取 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、交接协议区
+  与当前工作包。prompt 直接内联允许/禁止命令、三个 v2 精确字段、`Ran N tests, OK`、
+  真实时间和停笔条件，不能只写“请阅读 Runbook”。Runbook 与 prompt 的一致性由
+  `tests.test_ai_handoff.ClaudeNamingTests` 覆盖。
 - 必须区分四个互不等价的上限，任一先到即停止：① `--max-turns`（单个 Claude CLI 外部进程内
   agent 允许的最大 turns，默认 `80`，由 adapter 构造参数锁定并做正整数校验）；
   ② 工作包协议 `max_rounds=5`（自 WP-20260729-048 起的新包默认值；实施—审核自动往返轮次，
