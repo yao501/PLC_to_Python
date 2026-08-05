@@ -25,7 +25,8 @@
    / numeric_mode 由既有层稳定拒绝；全路径 driver 调用为 0、无 assembly 返回。
 
 诚实边界：本文件锁定的是当前 Python 单任务生产形态对象图与确定性 E2E 契约——真实
-调度、多任务、startup inhibit 计时 / 释放、外部信号源、HAL / 硬件 / 现场均**不在本包**；
+已覆盖调用方显式注入 readiness 的确定性 startup inhibit 计时 / 释放子范围；
+真实调度、多任务、外部信号源、HAL / 硬件 / 现场均**不在本包**；
 这些测试**不构成**与 CODESYS PLC 语义、实时、硬件 watchdog 或现场安全一致的证据。
 """
 from __future__ import annotations
@@ -50,6 +51,10 @@ from src.runtime import (
     POUDefinition,
     ProgramInstance,
     SafetySnapshot,
+    SafetyStateService,
+    ReadinessSnapshot,
+    ReadinessConfigError,
+    ReadinessClockError,
     SafetyStateError,
     ScanFaultSafeCommit,
     ScanResult,
@@ -99,8 +104,11 @@ class _ManualClock:
 
     def __init__(self):
         self.now_ns = 0
+        self.mutate = None
 
     def __call__(self):
+        if self.mutate is not None:
+            self.mutate()
         return self.now_ns
 
     def advance_ms(self, ms):
@@ -140,14 +148,23 @@ def _min_task(*, motor_safe=False):
 
 
 def _build(*, driver=None, watchdog_timeout_ms=2000, initial_safety=None,
-           clock_ns=time.monotonic_ns, task=None, registry=None):
+           clock_ns=time.monotonic_ns, startup_inhibit_ms=None,
+           task=None, registry=None):
     task = task if task is not None else _min_task()
     registry = registry if registry is not None else build_default_registry()
     driver = driver if driver is not None else _ConfirmingDriver()
     a = build_task_runtime(task, registry, driver=driver,
                            watchdog_timeout_ms=watchdog_timeout_ms,
-                           initial_safety=initial_safety, clock_ns=clock_ns)
+                           initial_safety=initial_safety, clock_ns=clock_ns,
+                           startup_inhibit_ms=startup_inhibit_ms)
     return a, driver
+
+
+def _readiness(**changes):
+    values = dict(io_ready=True, bus_ready=True, comm_ready=True,
+                  safety_ok=True, interlock_ok=True, output_enable=True)
+    values.update(changes)
+    return ReadinessSnapshot(**values)
 
 
 _QK = persistent_key("PLC_PRG.T1", "Q")
@@ -198,6 +215,433 @@ class TestDefaultShadowColdStart(unittest.TestCase):
         self.assertEqual(r1.logical_outputs(), {"DO0": True})   # == safe_value
         self.assertEqual(r2.logical_outputs(), {"DO0": True})
         self.assertEqual(drv.commands, [])
+
+
+class TestStartupReadinessAssembly(unittest.TestCase):
+    """WP-060 双状态域原子接入与 WP-055 TOCTOU 反证。"""
+
+    def test_unmodified_failures_preserve_exact_safety_snapshot_identity(self):
+        class _ClockAbort(BaseException):
+            pass
+
+        def invalid_readiness(_assembly, _clock):
+            readiness = _readiness()
+            object.__setattr__(readiness, "io_ready", 1)
+            return readiness
+
+        failure_factories = (
+            (ReadinessConfigError, invalid_readiness),
+            (ReadinessClockError,
+             lambda a, clock: (setattr(clock, "now_ns", True), _readiness())[1]),
+            (ReadinessClockError,
+             lambda a, clock: (setattr(clock, "mutate",
+                                       lambda: (_ for _ in ()).throw(RuntimeError("clock"))),
+                               _readiness())[1]),
+            (ReadinessClockError,
+             lambda a, clock: (setattr(clock, "mutate",
+                                       lambda: (_ for _ in ()).throw(_ClockAbort())),
+                               _readiness())[1]),
+        )
+        for expected, arrange in failure_factories:
+            with self.subTest(expected=expected, arrange=arrange):
+                clock = _ManualClock()
+                a, _ = _build(clock_ns=clock)
+                before = a.safety_state.read()
+                readiness = arrange(a, clock)
+                with self.assertRaises(expected):
+                    a.apply_readiness(readiness)
+                self.assertIs(a.safety_state.read(), before)
+                self.assertEqual(a.startup_controller.last_seen_ns, 0)
+
+    def test_instance_replace_exception_wrappers_are_not_observed(self):
+        class _CallbackAbort(BaseException):
+            pass
+
+        for error in (RuntimeError("callback"), _CallbackAbort()):
+            with self.subTest(error_type=type(error)):
+                a, _ = _build(startup_inhibit_ms=0)
+                replace_calls = 0
+
+                def fail_replace(_snapshot, error=error):
+                    nonlocal replace_calls
+                    replace_calls += 1
+                    raise error
+
+                a.safety_state.replace = fail_replace
+                self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+                self.assertEqual(replace_calls, 0)
+                self.assertTrue(
+                    SafetyStateService.read(a.safety_state).system_ready)
+
+    def test_explicit_readiness_releases_after_window_and_preserves_fault_latches(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        a.safety_state.replace(SafetySnapshot(True, True, True, True, True,
+                                              False, False))
+        self.assertFalse(a.apply_readiness(_readiness()).system_ready)
+        clock.advance_ms(500)
+        result = a.apply_readiness(_readiness())
+        self.assertTrue(result.system_ready)
+        state = a.safety_state.read()
+        self.assertTrue(state.system_ready)
+        self.assertTrue(state.output_enable)
+        self.assertFalse(state.scan_ok)
+        self.assertFalse(state.watchdog_ok)
+
+    def test_output_enable_is_independent_from_readiness_release_and_gates_output(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+
+        self.assertFalse(a.apply_readiness(
+            _readiness(output_enable=False)).system_ready)
+        clock.advance_ms(500)
+        result = a.apply_readiness(_readiness(output_enable=False))
+        self.assertTrue(result.system_ready)
+        self.assertFalse(result.output_enable)
+
+        safety = a.safety_state.read()
+        self.assertTrue(safety.system_ready)
+        self.assertFalse(safety.output_enable)
+        self.assertTrue(safety.comm_ok)
+        self.assertTrue(safety.safety_ok)
+        self.assertTrue(safety.interlock_ok)
+
+        # 前五项只决定 startup 释放；独立操作员门仍使输出落 safe_value。
+        a.runner.scan_cycle({"DI0": True, "DI1": False})
+        scan = a.runner.scan_cycle({"DI0": True, "DI1": False})
+        self.assertEqual(scan.logical_outputs(), {"DO0": False})
+
+    def test_clock_reentry_rejects_ordinary_and_base_exceptions_without_progress(self):
+        class _ClockAbort(BaseException):
+            pass
+
+        for mode in ("ordinary", "base"):
+            with self.subTest(mode=mode):
+                clock = _ManualClock()
+                a, _ = _build(clock_ns=clock)
+                before_safety = a.safety_state.read()
+                before_controller = (a.startup_controller._last_seen_ns,
+                                     a.startup_controller._window_start_ns,
+                                     a.startup_controller._released)
+
+                def reenter():
+                    try:
+                        a.apply_readiness(_readiness())
+                    except ReadinessConfigError:
+                        if mode == "base":
+                            raise _ClockAbort()
+                        raise
+
+                clock.mutate = reenter
+
+                with self.assertRaises(ReadinessClockError) as raised:
+                    a.apply_readiness(_readiness())
+
+                expected_cause = (_ClockAbort if mode == "base"
+                                  else ReadinessConfigError)
+                self.assertIsInstance(raised.exception.__cause__, expected_cause)
+                self.assertEqual((a.startup_controller._last_seen_ns,
+                                  a.startup_controller._window_start_ns,
+                                  a.startup_controller._released),
+                                 before_controller)
+                self.assertIs(a.safety_state.read(), before_safety)
+
+                clock.mutate = None
+                self.assertFalse(a.apply_readiness(_readiness()).system_ready)
+
+    def test_zero_inhibit_clock_reentry_cannot_half_commit_and_guard_recovers(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock, startup_inhibit_ms=0)
+        before_safety = a.safety_state.read()
+        clock.mutate = lambda: a.apply_readiness(_readiness())
+
+        with self.assertRaises(ReadinessClockError):
+            a.apply_readiness(_readiness())
+
+        self.assertEqual((a.startup_controller._last_seen_ns,
+                          a.startup_controller._window_start_ns,
+                          a.startup_controller._released),
+                         (0, None, False))
+        self.assertIs(a.safety_state.read(), before_safety)
+        self.assertFalse(before_safety.system_ready)
+
+        clock.mutate = None
+        self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+        self.assertTrue(a.safety_state.read().system_ready)
+
+    def test_instance_replace_reentry_wrapper_is_not_observed(self):
+        a, _ = _build(startup_inhibit_ms=0)
+        replace_calls = 0
+
+        def reentrant_replace(_snapshot):
+            nonlocal replace_calls
+            replace_calls += 1
+            a.apply_readiness(_readiness())
+
+        a.safety_state.replace = reentrant_replace
+        self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+        self.assertEqual(replace_calls, 0)
+        self.assertTrue(SafetyStateService.read(a.safety_state).system_ready)
+
+    def test_instance_read_replace_collusion_cannot_fake_commit(self):
+        a, _ = _build(startup_inhibit_ms=0)
+        forged = SafetySnapshot.all_ok()
+        read_calls = 0
+        replace_calls = 0
+
+        def fake_read():
+            nonlocal read_calls
+            read_calls += 1
+            return forged
+
+        def fake_replace(_snapshot):
+            nonlocal replace_calls
+            replace_calls += 1
+
+        a.safety_state.read = fake_read
+        a.safety_state.replace = fake_replace
+
+        self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+        self.assertEqual((read_calls, replace_calls), (0, 0))
+        committed = SafetyStateService.read(a.safety_state)
+        self.assertTrue(committed.system_ready)
+        self.assertTrue(committed.output_enable)
+
+    def test_recovery_ignores_instance_wrappers_for_ordinary_and_base_exception(self):
+        class _ClockAbort(BaseException):
+            pass
+
+        for error in (RuntimeError("clock"), _ClockAbort()):
+            with self.subTest(error_type=type(error)):
+                clock = _ManualClock()
+                a, _ = _build(clock_ns=clock)
+                trusted = SafetyStateService.read(a.safety_state)
+                read_calls = 0
+                replace_calls = 0
+
+                def fake_read():
+                    nonlocal read_calls
+                    read_calls += 1
+                    return trusted
+
+                def fake_replace(_snapshot):
+                    nonlocal replace_calls
+                    replace_calls += 1
+                    raise AssertionError("instance replace wrapper was observed")
+
+                def pollute_then_abort(error=error):
+                    SafetyStateService.replace(
+                        a.safety_state, SafetySnapshot.all_ok())
+                    raise error
+
+                a.safety_state.read = fake_read
+                a.safety_state.replace = fake_replace
+                clock.mutate = pollute_then_abort
+
+                with self.assertRaises(ReadinessClockError) as raised:
+                    a.apply_readiness(_readiness())
+
+                self.assertIsInstance(raised.exception.__cause__, type(error))
+                self.assertEqual((read_calls, replace_calls), (0, 0))
+                self.assertEqual(
+                    SafetyStateService.read(a.safety_state), trusted)
+                self.assertEqual((a.startup_controller._last_seen_ns,
+                                  a.startup_controller._window_start_ns,
+                                  a.startup_controller._released),
+                                 (0, None, False))
+
+    def test_initial_instance_read_fake_view_cannot_replace_real_latches(self):
+        initial = SafetySnapshot(False, False, False, False, False, False, True)
+        a, _ = _build(initial_safety=initial, startup_inhibit_ms=0)
+        fake = SafetySnapshot.all_ok()
+        read_calls = 0
+
+        def fake_read():
+            nonlocal read_calls
+            read_calls += 1
+            return fake
+
+        a.safety_state.read = fake_read
+
+        self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+        self.assertEqual(read_calls, 0)
+        committed = SafetyStateService.read(a.safety_state)
+        self.assertFalse(committed.scan_ok)
+        self.assertTrue(committed.watchdog_ok)
+
+    def test_real_clock_drift_cannot_be_hidden_by_instance_read(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        trusted = SafetyStateService.read(a.safety_state)
+        read_calls = 0
+        replace_calls = 0
+
+        def fake_read():
+            nonlocal read_calls
+            read_calls += 1
+            return trusted
+
+        def fake_replace(_snapshot):
+            nonlocal replace_calls
+            replace_calls += 1
+
+        a.safety_state.read = fake_read
+        a.safety_state.replace = fake_replace
+        clock.mutate = lambda: SafetyStateService.replace(
+            a.safety_state, SafetySnapshot.all_ok())
+
+        with self.assertRaises(ReadinessConfigError):
+            a.apply_readiness(_readiness())
+
+        self.assertEqual((read_calls, replace_calls), (0, 0))
+        self.assertEqual(SafetyStateService.read(a.safety_state), trusted)
+        self.assertEqual((a.startup_controller._last_seen_ns,
+                          a.startup_controller._window_start_ns,
+                          a.startup_controller._released),
+                         (0, None, False))
+
+    def test_clock_safety_replacement_aborts_both_domains_before_controller_commit(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        baseline = a.safety_state.read()
+        injected = SafetySnapshot.all_ok()
+        def replace_state():
+            a.safety_state.replace(injected)
+        clock.mutate = replace_state
+        with self.assertRaises(ReadinessConfigError):
+            a.apply_readiness(_readiness())
+        self.assertFalse(a.startup_controller.released)
+        self.assertEqual(a.safety_state.read(), baseline)
+        self.assertIsNot(a.safety_state.read(), injected)
+
+    def test_clock_base_exception_after_safety_pollution_restores_both_domains(self):
+        class _ClockAbort(BaseException):
+            pass
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        before = a.safety_state.read()
+        def corrupt_then_abort():
+            object.__setattr__(before, "scan_ok", False)
+            raise _ClockAbort()
+        clock.mutate = corrupt_then_abort
+        with self.assertRaises(ReadinessClockError):
+            a.apply_readiness(_readiness())
+        self.assertFalse(a.startup_controller.released)
+        self.assertEqual(a.startup_controller.last_seen_ns, 0)
+        self.assertEqual(a.safety_state.read(),
+                         SafetySnapshot(False, False, False, False, False, True, True))
+
+    def test_clock_exception_after_safety_replacement_restores_both_domains(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        def replace_then_abort():
+            a.safety_state.replace(SafetySnapshot.all_ok())
+            raise RuntimeError("clock failure")
+        clock.mutate = replace_then_abort
+        with self.assertRaises(ReadinessClockError):
+            a.apply_readiness(_readiness())
+        self.assertFalse(a.startup_controller.system_ready)
+        self.assertEqual(a.safety_state.read(),
+                         SafetySnapshot(False, False, False, False, False, True, True))
+
+    def test_clock_original_snapshot_delete_restores_before_semantics(self):
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        before = a.safety_state.read()
+        def delete_latch():
+            object.__delattr__(before, "watchdog_ok")
+        clock.mutate = delete_latch
+        with self.assertRaises(ReadinessConfigError):
+            a.apply_readiness(_readiness())
+        self.assertEqual(a.safety_state.read(),
+                         SafetySnapshot(False, False, False, False, False, True, True))
+        self.assertFalse(a.startup_controller.released)
+
+    def test_clock_watchdog_latch_during_readiness_is_not_resurrected(self):
+        # 反证（Codex WP-20260804-071 Round 1 P1）：readiness 时钟窗口内经真实公开
+        # 路径 runner.trigger_watchdog() 锁存 watchdog_ok=False（受信 replace 装入
+        # 新快照）后，_read_clock 把 WatchdogSafeCommit 包成 ReadinessClockError；
+        # 旧候选的异常恢复整包恢复到时钟前副本，把真实 watchdog 故障锁存复位为 True。
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+        self.assertTrue(a.safety_state.read().watchdog_ok)     # 冷启动 watchdog_ok=True
+
+        def latch_watchdog():
+            clock.mutate = None                                # 防经本时钟递归
+            a.runner.trigger_watchdog()                        # 锁存后抛 WatchdogSafeCommit
+
+        clock.mutate = latch_watchdog
+        with self.assertRaises(ReadinessClockError):
+            a.apply_readiness(_readiness())
+        # 真实 watchdog 故障锁存必须保留，绝不被 readiness 异常恢复复位为真。
+        self.assertFalse(a.safety_state.read().watchdog_ok)
+        self.assertTrue(a.safety_state.read().scan_ok)         # 本路径未触碰 scan_ok
+        # readiness 失败不提交 controller。
+        self.assertFalse(a.startup_controller.released)
+        self.assertEqual(a.startup_controller.last_seen_ns, 0)
+
+    def test_clock_scan_fault_latch_during_readiness_is_not_resurrected(self):
+        # 同一缺陷的 scan_fault 路径：runner.scan_cycle({}) 执行期异常锁存
+        # scan_ok=False 后抛 ScanFaultSafeCommit → ReadinessClockError。
+        clock = _ManualClock()
+        a, _ = _build(task=_fault_task(), clock_ns=clock)
+        self.assertTrue(a.safety_state.read().scan_ok)
+
+        def latch_scan_fault():
+            clock.mutate = None
+            a.runner.scan_cycle({})                            # 锁存 scan_ok=False 后抛
+
+        clock.mutate = latch_scan_fault
+        with self.assertRaises(ReadinessClockError):
+            a.apply_readiness(_readiness())
+        self.assertFalse(a.safety_state.read().scan_ok)
+        self.assertTrue(a.safety_state.read().watchdog_ok)
+        self.assertFalse(a.startup_controller.released)
+        self.assertEqual(a.startup_controller.last_seen_ns, 0)
+
+    def test_base_exception_after_public_watchdog_latch_preserves_latch(self):
+        # BaseException 恢复路径也必须保留真实锁存（不只普通异常）。
+        class _ClockAbort(BaseException):
+            pass
+
+        clock = _ManualClock()
+        a, _ = _build(clock_ns=clock)
+
+        def latch_then_base_abort():
+            clock.mutate = None
+            try:
+                a.runner.trigger_watchdog()
+            except WatchdogSafeCommit:
+                pass
+            raise _ClockAbort()
+
+        clock.mutate = latch_then_base_abort
+        with self.assertRaises(ReadinessClockError) as raised:
+            a.apply_readiness(_readiness())
+        self.assertIsInstance(raised.exception.__cause__, _ClockAbort)
+        self.assertFalse(a.safety_state.read().watchdog_ok)
+        self.assertFalse(a.startup_controller.released)
+        self.assertEqual(a.startup_controller.last_seen_ns, 0)
+
+    def test_default_snapshots_are_independent_of_public_constant_pollution(self):
+        a1, _ = _build()
+        original = COLD_START_SAFETY.scan_ok
+        try:
+            object.__setattr__(COLD_START_SAFETY, "scan_ok", False)
+            a2, _ = _build()
+            self.assertTrue(a1.safety_state.read().scan_ok)
+            self.assertTrue(a2.safety_state.read().scan_ok)
+        finally:
+            object.__setattr__(COLD_START_SAFETY, "scan_ok", original)
+
+    def test_two_assemblies_have_independent_startup_windows(self):
+        clock_a, clock_b = _ManualClock(), _ManualClock()
+        a, _ = _build(clock_ns=clock_a)
+        b, _ = _build(clock_ns=clock_b)
+        a.apply_readiness(_readiness())
+        clock_a.advance_ms(500)
+        self.assertTrue(a.apply_readiness(_readiness()).system_ready)
+        self.assertFalse(b.startup_controller.system_ready)
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +987,10 @@ class TestPublicExport(unittest.TestCase):
         self.assertIn("COLD_START_SAFETY", rt.__all__)
         self.assertIs(rt.TaskRuntimeAssembly, TaskRuntimeAssembly)
         self.assertIs(rt.build_task_runtime, build_task_runtime)
+        for name in ("ReadinessSnapshot", "StartupState", "ReadinessError",
+                     "ReadinessConfigError", "ReadinessClockError",
+                     "StartupReadinessController"):
+            self.assertIn(name, rt.__all__)
 
 
 if __name__ == "__main__":
