@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 import re
 from typing import Iterable
+import unicodedata
 
 
 # 人类可见的角色统一称呼：Claude / Codex / 用户。
@@ -274,6 +275,7 @@ class WorkPackage:
     base_commit: str | None = None
     latest_implementation_at: str | None = None
     latest_review_at: str | None = None
+    latest_review_round: int | None = None
     last_updated_at: str | None = None
     current_handler: str | None = None
     write_access: str | None = None
@@ -484,6 +486,7 @@ class HandoffParser:
         if reviews:
             latest = reviews[-1]
             package.latest_review_at = latest.fields.get("reviewed_at")
+            package.latest_review_round = latest.round
             package.latest_review_verdict = latest.fields.get("verdict")
             package.review_started_sha256 = _record_hash(latest, "review_started_sha256")
             package.review_finished_sha256 = _record_hash(latest, "review_finished_sha256")
@@ -753,9 +756,142 @@ def _records(section: str) -> list[Record]:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
         body = section[match.end():end]
-        round_match = re.search(r"Round\s+(\d+)", heading, re.IGNORECASE)
-        records.append(Record(kind, heading, int(round_match.group(1)) if round_match else None, _record_fields(body), body))
+        if kind == "review":
+            round_number = _strict_single_review_round(heading)
+        else:
+            round_match = re.search(r"Round\s+(\d+)", heading, re.IGNORECASE)
+            round_number = int(round_match.group(1)) if round_match else None
+        records.append(Record(kind, heading, round_number,
+                              _record_fields(body), body))
     return records
+
+
+_ROUND_TOKEN = "Round"
+_MAX_REVIEW_ROUND_DIGITS = 64
+
+
+def _is_unicode_attachment(character: str) -> bool:
+    """Return whether a character can visually/lexically extend an identifier."""
+    category = unicodedata.category(character)
+    return category[0] in {"L", "N", "M"} or category in {"Pc", "Cf"}
+
+
+def _is_numeric_continuation_separator(character: str) -> bool:
+    """Recognize any punctuation/symbol that could continue a range, ratio,
+    decimal, or list between two numbers.
+
+    这是**失败关闭**判定：分隔符按 Unicode 通用类别识别（标点 ``P*`` 或符号
+    ``S*``），不再逐字符枚举具体逗号/点号。因此跨脚本的逗号、分号、中点、
+    点运算符（如 U+060C/U+061B/U+055D/U+1363/U+1802/U+30FB/U+00B7/U+22C5/
+    U+3001 等）夹在两个数字之间都会被识别为续写而拒绝，避免枚举漏列。桥接字符
+    （空格/Tab/``Zs``/组合标记/``Cf``/``Cc`` 控制字符）由 :func:`_is_numeric_bridge`
+    单独处理，与本类别集合不重叠；``Pc``/``Cf`` 这类可粘连标识符的字符仍先由
+    :func:`_is_unicode_attachment` 在数字紧邻处拒绝。分隔符后若紧跟的是普通说明
+    文字（字母而非数字），:func:`_continues_numeric_expression` 不会判为续写，
+    故 ``Round 2，返修``、``Round 2、返修`` 等合法标题不受影响。
+    """
+    return unicodedata.category(character)[0] in {"P", "S"}
+
+
+def _is_numeric_bridge(character: str) -> bool:
+    """Return whether an ignorable character may hide numeric continuation.
+
+    这是**失败关闭**判定：bridge 按 Unicode 类别族识别，而不是逐子类枚举——凡
+    分隔符类 ``Z*``（含 ``Zs`` 空白、``Zl`` 行分隔符 U+2028、``Zp`` 段落分隔符
+    U+2029）、其它类 ``C*``（含 ``Cc`` 控制字符、``Cf`` 格式字符、``Cn`` 未分配码位、
+    ``Co`` 私用区、``Cs`` 代理）与组合标记 ``M*`` 都视为可嵌入 Markdown 标题且不可见
+    或不可审计的 bridge。逐子类枚举必然漏列（如此前遗漏 ``Zl``/``Zp``/``Cn``/``Co``，
+    使 ``Round 2<U+2028>3`` 被误接受为轮次 2）；改按类别族后新出现的同族字符不必再
+    追列即被识别为隐藏续写。分隔符（``P*``/``S*``）另由
+    :func:`_is_numeric_continuation_separator` 处理，与本类别族不重叠；bridge 后若跟
+    的是普通说明文字（字母而非数字），:func:`_continues_numeric_expression` 不判为续写，
+    故 ``Round 2，返修``、``Round 2、返修`` 等合法标题不受影响。
+    """
+    if character in " \t":
+        return True
+    category = unicodedata.category(character)
+    return category[0] in {"Z", "C"} or category.startswith("M")
+
+
+def _has_numeric_value(character: str) -> bool:
+    """Return whether a character reads as another number.
+
+    不能只按通用类别 ``N*`` 判断：类别为 ``Lo`` 却带 Unicode 数值的数词（如
+    三 U+4E09、五、十、百）同样是数字，续写到它们就是范围/列表表达式。仅按 ``N*``
+    会漏掉这些，使 ``Round 2、三`` 被误接受为轮次 2。
+    """
+    if unicodedata.category(character).startswith("N"):
+        return True
+    return unicodedata.numeric(character, None) is not None
+
+
+def _continues_numeric_expression(heading: str, start: int) -> bool:
+    """Reject punctuation chains after N when they lead to another number."""
+    cursor = start
+    saw_bridge = False
+    while cursor < len(heading) and _is_numeric_bridge(heading[cursor]):
+        saw_bridge = True
+        cursor += 1
+    saw_separator = False
+    while (cursor < len(heading)
+           and _is_numeric_continuation_separator(heading[cursor])):
+        saw_separator = True
+        cursor += 1
+        while cursor < len(heading) and _is_numeric_bridge(heading[cursor]):
+            cursor += 1
+    return ((saw_bridge or saw_separator) and cursor < len(heading)
+            and _has_numeric_value(heading[cursor]))
+
+
+def _single_bounded_round_start(heading: str) -> int | None:
+    """Find one ``Round`` marker whose Unicode attachment boundaries are clear."""
+    single_start: int | None = None
+    search_from = 0
+    while True:
+        token_start = heading.find(_ROUND_TOKEN, search_from)
+        if token_start < 0:
+            return single_start
+        token_end = token_start + len(_ROUND_TOKEN)
+        left_ok = (token_start == 0
+                   or not _is_unicode_attachment(heading[token_start - 1]))
+        right_ok = (token_end == len(heading)
+                    or not _is_unicode_attachment(heading[token_end]))
+        if left_ok and right_ok:
+            if single_start is not None:
+                return None
+            single_start = token_start
+        search_from = token_end
+
+
+def _strict_single_review_round(heading: str) -> int | None:
+    """Return one unambiguous ASCII ``Round N`` token, otherwise no evidence."""
+    token_start = _single_bounded_round_start(heading)
+    if token_start is None:
+        return None
+
+    cursor = token_start + len(_ROUND_TOKEN)
+    whitespace_start = cursor
+    while cursor < len(heading) and heading[cursor] in " \t":
+        cursor += 1
+    if cursor == whitespace_start:
+        return None
+
+    digit_start = cursor
+    while cursor < len(heading) and "0" <= heading[cursor] <= "9":
+        cursor += 1
+    digit_count = cursor - digit_start
+    if digit_count == 0 or heading[digit_start] == "0":
+        return None
+    if digit_count > _MAX_REVIEW_ROUND_DIGITS:
+        return None
+    if cursor < len(heading) and _is_unicode_attachment(heading[cursor]):
+        return None
+    if _continues_numeric_expression(heading, cursor):
+        return None
+    try:
+        return int(heading[digit_start:cursor])
+    except ValueError:
+        return None
 
 
 def _record_fields(body: str) -> dict[str, str]:

@@ -9399,3 +9399,2185 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
 - merged_scope: WP-052 已审核六文件产物、交接记录、用户关闭记录及已由后继包闭合的历史来源包顶层行政收口；提交前显式暂存 7 个文件，没有 `src/**` 产品代码。
 - host_validation_before_publish: `ClaudeNamingTests` 27/27、`test_ai_handoff` 155/155、正式 tests 1568/1568、`prototype_05` 68/68、全仓 1636/1636、Runbook 冒烟与 `git diff --check` 全部通过。
 - boundary: Git/GitHub 收尾只把工程协作基建落入主线；不新增软 PLC 产品语义，不改变 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全验证状态。
+
+---
+
+## WP-20260731-060
+
+- title: 干净基线阶段 1 startup/readiness 与可信快照 TOCTOU 原子收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: TRIAD_BLOCKED_ROUND_5_MAX_ROUNDS
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- function_matrix_ids: L5-11、L34-11
+- expected_matrix_axes: 只允许把 L5-11 与 L34-11 的实现/WP/Python 轴登记为“Codex 人工三角色候选、待 Claude 回审”；Git 保持未提交，PLC/CODESYS、HAL/现场保持未验证，风险不得转 resolved
+- scope:
+  - src/runtime/startup.py
+  - src/runtime/task_runtime.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_startup.py
+  - tests/test_runtime_task_runtime.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: 2ebf90ab6bb0fdc1fdad2246d1b8cfa55dc18a2339c84750ecd4743c4176e45b
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 用户授权、恢复边界与人工三角色标记
+
+- 用户于 2026-07-31 明确授权按既定计划从最后 GitHub 干净基线重新实施，并要求 WP-053～056 的重要能力与修复不得遗漏。当前 `main == origin/main == HEAD == aa73c56b5f07ed5bd87a6b0c4447d137f0474b04`，工作树干净；旧未合并候选只保存在 `stash@{0}: pre-rollback-wp053-059-20260731-complex-fallback-abandoned`，只可读取规格与反证，不得恢复、apply、pop 或把旧候选冒充可信实现。
+- Claude 本周额度不可用。本包采用用户已授权的人工轻量三角色 bootstrap：高等级 Planner 只读规划、单一 Delivery 仅写 scope、高等级 Reviewer 独立只读审核；主 Codex 负责冻结哈希与控制记录。正式五字段始终保持 `BLOCKED / user / user`，人工 Reviewer 只能给 `PROVISIONALLY_APPROVED / TRIAD_CHANGES_REQUESTED / TRIAD_BLOCKED`，不得写正式 `APPROVED/CLOSED`，不得执行 Git/GitHub 写操作。
+- 任一人工候选最终都必须进入 Claude 回审队列。Claude 恢复额度后须从候选终态重新完整阅读、可在 scope 内修改不合理内容、亲自运行宿主测试并完成结构化 v2 自审/原子交接；之后再由新的 Codex 独立审核。Claude 回审与后续正式 Codex 审核完成前，本包不可作为 Git 或产品可信基线。
+- 创建前协调器为 stopped、无活动协调器进程与 8765 监听；旧 30 分钟轮询保持暂停且 `legacy_polling_resume_authorized=false`。本包不启动协调器或 Claude。
+- 基线测试：`test_runtime_task_runtime + test_runtime_output_policy + test_runtime_scan_runner + test_runtime_monitor` 为 237/237，`test_runtime_parameters + test_runtime_executor` 为 192/192，`git diff --check` 通过。
+- baseline manifest（按 scope 顺序；新文件为 `ABSENT`）：
+  - `ABSENT  src/runtime/startup.py`
+  - `d5ea1c68c131af889c7bb5df81f98b5ec55a80d8b946f364a6f5676d89a7029e  src/runtime/task_runtime.py`
+  - `e0b893c793a1c6bd9d78e81e4da6603ccb0ac2eedfdefba3527ec6d9778ad227  src/runtime/__init__.py`
+  - `ABSENT  tests/test_runtime_startup.py`
+  - `383d481ad0b26e33a7d3d4e3ac15b16a2f646b1b45d094c31ca36f32856b4445  tests/test_runtime_task_runtime.py`
+  - `c5f90c4633096ad0a4a9a57d5168e3f7c7cbcbebfc9ed71830c5810d4f94e255  docs/RISKS.md`
+  - `78dfd632694c2ab9f8e9d0ecb12664e46139fb31aa6d48b5b5c9741b300e05e5  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+
+### 唯一产品目标与冻结工程契约
+
+1. 新增公开、冻结 `ReadinessSnapshot`，精确承载 `io_ready / bus_ready / comm_ready / safety_ok / interlock_ok / output_enable` 六个 exact-bool；前五项共同决定 startup 前置条件，`output_enable` 是独立操作员门，不计入稳定窗口。拒绝 bool 之外的值、子类/伪对象、被反射篡改或删除的字段，拒绝诊断不得读取攻击者 `repr/str/bool`。
+2. 新增确定性 `StartupReadinessController`：只使用注入式 exact-int 非负纳秒时钟，无线程、sleep、OS timer 或浮点累计。首次五前置全真起窗；释放前任一为假清零；`elapsed_ns >= startup_inhibit_ms*1_000_000` 释放；零窗口仍须一次完整合法全真观察；释放后任一为假同次撤销并重新要求完整窗口；回退/非法时钟稳定失败关闭。
+3. **第一版即修复 WP-054 最终 TOCTOU**：必须在调用任何不可信 `clock_ns()` 前，把六个已验证字段复制成内部私有、不可变、exact-bool 可信副本；时钟返回后 controller 计算、返回结构与装配层安全状态写入只能使用该副本，绝不得重读原公开 readiness 对象。
+4. controller 状态采用“先验证与计算候选、后一次提交”的事务顺序。readiness/时钟/结果构造任一失败时，`_last_seen_ns`、窗口起点与 released 状态均不得半推进。若为装配层提供内部 prepare/commit 边界，令牌必须绑定同一 controller、一次性且不可由公开伪对象冒充；不得暴露可让调用方跳过校验直接推进的入口。
+5. `TaskRuntimeAssembly` 接入同一个 controller、同一个已校验 `startup_inhibit_ms`、同一注入时钟源和现有 `SafetyStateService`。每拍由调用方显式 `apply_readiness()` 后再扫描；未调用就永不自动释放。整包替换外部字段，并保留已经锁存的 `scan_ok/watchdog_ok`，不得新建第二套安全状态、Store、策略或提交监督器。
+6. 装配级失败原子性必须同时覆盖 controller 与 SafetyState：在任何不可信时钟调用前验证并复制 readiness 与待保留锁存；时钟回调修改/删除原 readiness 字段不得影响本拍；若回调替换当前 SafetySnapshot 或破坏待保留锁存，必须在 controller 提交前检测并稳定失败关闭，controller 与 SafetyState 均不推进。成功路径在后续不再调用不可信代码，预构造安全快照后再完成两域提交。阶段 1 只承诺单线程逐拍模型；并发 HAL writer 留后续事务契约。
+7. 默认冷启动继续失败关闭且默认 shadow/write-disable 不变。每个默认装配获得独立冷启动快照，不复用可能被 `object.__setattr__` 污染的公开常量别名；污染一个装配或公开常量不得传染其它已建/后建装配，也不得绕过 startup inhibit。
+8. 公开 API、docstring、RISKS 与矩阵必须区分：上述是项目工程约定和 Python 确定性证据，不是 CODESYS 官方 startup 语义，也不是外部信号真实性、HAL、实时调度、硬件 watchdog 或现场证明。
+
+### 测试优先反证与回归
+
+- 新增 startup 单元测试必须覆盖：六字段 exact-bool/字段删除/恶意值零观察；非法 inhibit/clock；阈值前、恰阈值、零窗口；抖动清零；释放后撤销重计；同刻幂等；时钟回退失败原子性；双 controller 隔离；`output_enable` 独立。
+- TOCTOU 必须至少锁定三条旧反证：时钟回调把 `io_ready=True` 改为整数 `1` 不得错误释放；回调删除 readiness 字段不得泄漏 `AttributeError` 或推进 `_last_seen_ns`；回调把 `output_enable` 改为非法值不得造成 controller ready / SafetyState 未替换的半更新。三条成功路径均只能使用时钟前可信副本。
+- 装配集成必须覆盖：默认不注入不释放；稳定窗口释放；同一对象图；保留 scan/watchdog 锁存；SafetySnapshot exact 容器/字段删除/敌意值失败关闭；时钟回调替换 SafetyState 的漂移检测；独立冷启动快照与公开常量污染隔离；双 assembly 交错隔离；默认 shadow 零驱动；显式实写仍经原 OutputPolicy/CommitSupervisor；scan/commit/watchdog 故障层级不回归。
+- Delivery 必须先新增反证并记录预期红灯，再实现；不得复制旧 WP-054 的 37/37、1619/1619 或 1687/1687 计数冒充本轮证据。
+- 最低宿主测试：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_startup`
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime`
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_output_policy tests.test_runtime_scan_runner tests.test_runtime_monitor`
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_executor`
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+  9. 公开导入冒烟与 `git diff --check`。
+
+### 明确排除项与停笔条件
+
+- 不修改 `src/runtime/output_policy.py`、`parameters.py`、monitor/scan/commit 核心、`src/blocks/**`、`src/primitives/**`、IR/Registry/Store/Executor、协调器或工作包解析器；不恢复 stash 文件。
+- 不实现真实周期线程、调度优先级、连续 deadline miss、在途扫描异步抢占、多任务/GVL 工程装配、真实 readiness 信号源、并发 HAL 合并、HAL/真实 I/O/可信反馈、硬件 watchdog、边沿重新武装、持久化、F2、ST/CFC 前端、CODESYS/黄金轨迹或现场部署。
+- 若正确修复必须扩大到上述冻结文件、改变既有 `SafetyStateService`/OutputPolicy 公共合同、引入锁或并发模型、裁决 ready 前命令重新边沿，Delivery 必须停止并由主控报告，不得自行扩 scope。
+- Planner/Reviewer 只读；Delivery 是唯一 scope writer。任何越界写入、Git/GitHub 写操作、scope 漂移、未解释测试失败或无法证明双状态域失败原子性，均转 `TRIAD_BLOCKED`。
+
+### Codex 人工三角色规划记录（Fallback Round 1）
+
+- planner_role: high-capability read-only planner
+- planner_scope_writes: none
+- planner_decision: 从干净 GitHub 基线新建实现；旧 WP-053/054/055 只作规格与反证证据。把 WP-055 的时钟回调可信副本要求纳入第一版，并进一步要求装配层在 controller 提交前检测 SafetyState 被时钟回调替换，避免跨两个状态域的半提交。
+- planner_handoff: 可进入单一 Delivery，严格限于七文件 scope；完成后必须停止写入并交独立 Reviewer。
+
+### Codex 人工三角色交付记录（Fallback Round 1）
+
+- delivery_role: single scope writer
+- delivery_model_route: balanced coding model / high reasoning
+- delivery_scope_writes: 仅七个 scope 文件；未修改本交接载体、scope 外产品文件、协调器、Git/GitHub 或 stash
+- 完成内容: 从干净主线新建确定性 startup/readiness 控制器；时钟前复制六个 exact-bool 到私有可信值，时钟后不重读外部 readiness；controller 采用私有 prepare/commit；`TaskRuntimeAssembly.apply_readiness()` 检测时钟回调造成的 SafetyState 身份或锁存漂移后才提交 controller 与安全快照；默认冷启动快照按装配新建；加入三条 WP-055 TOCTOU 反证及集成回归。
+- 首次失败: `tests.test_runtime_startup` 因模块尚不存在得到 `ModuleNotFoundError: src.runtime.startup`；`tests.test_runtime_task_runtime` 因新公开类型尚未从 `src.runtime` 导出而失败。随后完成实现并重跑。
+- 实际测试命令与结果:
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_startup` —— Ran 8 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_task_runtime` —— Ran 26 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_output_policy tests.test_runtime_scan_runner tests.test_runtime_monitor` —— Ran 214 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_parameters tests.test_runtime_executor` —— Ran 192 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff` —— Ran 155 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .` —— Ran 1579 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .` —— Ran 68 tests, OK
+  - `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .` —— Ran 1647 tests, OK
+  - 公开导入冒烟 —— OK
+- 交付方原始 aggregate 证据错误: Delivery 报告 `94dc9e5e…`，主控按工作包规范文本（`<sha256>  <path>\n`，双空格、scope 顺序）独立复算为 `b4fd4363…`；逐文件哈希全部与 Delivery 报告一致，错误仅在其聚合算法/报告。该差异原样保留，不把错误 aggregate 冒充候选身份；Reviewer 只以主控复算的 `b4fd4363…` 为审核起点。
+- triad_delivery_scope_sha256: b4fd4363cd99f19b12f107ac78ecd1bd98a76eb04d237acf41c91b98d2a8d832
+- triad_delivery_manifest:
+  - `1135aea87ff19df4889e6d6fee2d433dfb59ec6ee1c07e2de01c3c5a5c18ea5a  src/runtime/startup.py`
+  - `1370215f2747a2b56b74c39fb55634780d7425147ee9e93bca4674c773b8caa5  src/runtime/task_runtime.py`
+  - `22ae564b43c1745873ecc2452224c921fd27be7e916f1abf9cb1bc847a4d437c  src/runtime/__init__.py`
+  - `8cce3ccf98910ce7ead5cfa80217658430644b803b98857f878c53f117e23d40  tests/test_runtime_startup.py`
+  - `d0ac1fab4951feb4d836dcde436ed5c96e0b7d24a8681ac66e8c5300068d1fdc  tests/test_runtime_task_runtime.py`
+  - `262b5be27bcf290a104620732ce827003ec606cc992520a5d5ab1d36945ad132  docs/RISKS.md`
+  - `3ce2526113161d606be94c8cdfc1b99912d259f1eb6ddaa62fa3e14fce56128e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控附加验证: `git diff --check` 通过。
+- 已知疑问: 尚未由独立 Reviewer 检查 prepare/commit 令牌不可伪造、两状态域提交顺序、时钟回调替换/原位篡改 SafetyState 的所有变体；测试通过不等于候选获批。
+- 未验证边界: Claude 回审、正式 Codex 审核、Git/GitHub、PLC/CODESYS、真实 readiness/HAL、实时调度、硬件 watchdog 与现场安全均未验证。
+
+### Codex 人工三角色独立审核结论（Fallback Round 1）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- reviewer_model_route: high-capability reviewer / maximum reasoning
+- triad_review_started_sha256: b4fd4363cd99f19b12f107ac78ecd1bd98a76eb04d237acf41c91b98d2a8d832
+- triad_review_finished_sha256: b4fd4363cd99f19b12f107ac78ecd1bd98a76eb04d237acf41c91b98d2a8d832
+- scope_drift: false
+- P0: 无。
+- P1:
+  1. `src/runtime/startup.py` 的模块级 `_PreparedReadiness`、`_prepare_from_copy()` 与 `_commit()` 形成可直接调用的校验旁路。`_commit()` 只核对 `type/owner/used`，不核对该令牌是否由 controller 当前真实签发、nonce 是否匹配或提交顺序；调用方可构造内部对象并令任意 `(last_seen, window_start, released)` 生效，`_prepare_from_copy()` 也接受非 exact-bool tuple。主控独立反证实际输出 `invalid_internal_object_committed True 123 True` 与 `unchecked_private_input_prepared True 1`。必须删除可绕过的 token 入口或让所有内部事务入口仍完整执行同一公开校验且不能提交非当前真实候选；优先采用“controller 内部计算候选 → 调用受控提交回调 → 回调成功后原子写 controller”的无可携带 token 设计。
+  2. `src/runtime/task_runtime.py::apply_readiness()` 只检测时钟回调期间 SafetyState 漂移并抛错，却不恢复调用前可信值；现有测试甚至断言替换后的 `injected` 继续留在服务中。这与 WP-060 明确的 controller + SafetyState 双域零推进冲突。必须在时钟回调正常返回、抛普通异常或 `BaseException` 的所有路径恢复/保持调用前语义；对整包替换、原对象 `scan_ok/watchdog_ok` 篡改/删除均需用时钟前可信副本恢复，且 controller 的 last_seen/window/released 不推进。
+  3. 相较用户要求不得遗漏的 WP-053/054 已形成公共诊断契约，候选把 `StartupState` 缩成仅两字段的 `StartupReadinessResult`，缺少 `preconditions_ok / in_window / window_elapsed_ns / inhibit_ns / observed_ns`；同时缺少 controller 的 `system_ready / inhibit_ns / startup_inhibit_ms / in_stable_window` 只读诊断和 `ReadinessConfigError / ReadinessClockError` 分层稳定错误。工作包未授权缩减这些重要能力，必须恢复等价公开诊断与分层错误，并由导出测试锁定。
+- P2:
+  1. `src/runtime/task_runtime.py` 模块 docstring 仍写 startup inhibit 计时/`system_ready` 自动释放未实现，与本候选新增能力冲突；须改为“确定性显式注入已实现，真实信号源/调度/HAL 未实现”。
+  2. `tests/test_runtime_task_runtime.py::test_default_snapshots_are_independent_of_public_constant_pollution` 修改公开 `COLD_START_SAFETY` 后不恢复，制造跨测试进程污染；必须用 cleanup/finally 恢复规范字段，并覆盖污染一个默认装配、污染公开常量、已建/后建双实例均不传播。
+  3. 集成漂移测试使用 `assertRaises(Exception)`，无法锁定稳定失败类型；Delivery 的七文件聚合也错算为 `94dc…`。返修须使用精确异常类型、补完整规范聚合，并扩充缺失的构造/字段删除/同刻幂等/双实例/非法与抛异常时钟/状态恢复反证。
+- 已验证事实: 七文件逐项哈希与 Delivery manifest 一致，审核起止规范聚合均为 `b4fd4363…`，无 scope 漂移。交付方九组宿主测试记录均全绿；Reviewer/主控定向重跑 startup + task runtime 为 34/34、`git diff --check` 通过，但全绿未覆盖上述反例。Reviewer 因系统误判其详细反例措辞而未能形成原始最终消息；主控保留其只读中期发现，并独立复现两条校验旁路及公共 API 缺失后形成本结论，没有让 Reviewer 写 scope。
+- 项目工程约定: startup 稳定窗口、readiness 六信号与双状态域事务是本项目阶段 1 工程契约，不是 CODESYS 官方语义。人工三角色审核只能形成临时候选结论，不能转正式 APPROVED。
+- 待真机验证假设: PLC/CODESYS SP16.1、真实 readiness 信号、HAL/物理 I/O、实时调度、硬件 watchdog 与现场安全均未验证。
+- 必须返修: 上述 3 个 P1 与 3 个 P2；严格保持七文件 scope，不修改 OutputPolicy/SafetyState 核心或并发/HAL 合同。
+- reviewer_writes: 无；Reviewer 全程只读，主控仅写本交接载体。
+
+### Codex 人工三角色返修交付记录（Fallback Round 2）
+
+- delivery_role: 原单一 scope writer（同包返修）
+- 完成内容: 删除可携带 `_PreparedReadiness` 与未校验 tuple prepare/commit 入口；恢复 `StartupState` 完整诊断、`ReadinessError/ReadinessConfigError/ReadinessClockError` 分层错误与 controller 只读状态；`observe()`/`apply()` 复用同一完整校验路径。`TaskRuntimeAssembly.apply_readiness()` 在普通异常、`BaseException`、SafetyState 整包替换、原位篡改或字段删除时，用时钟前可信副本恢复调用前安全语义，controller 不提交；修正文档与公开冷启动常量测试 cleanup。
+- 首次失败: 新公开 API 测试先因 `ReadinessError` 尚未实现产生 `ImportError`；重构后旧测试仍错误期待被异常回调替换的 SafetySnapshot 留存，按工作包双域零推进改为锁定恢复语义；定向运行还发现旧错误名残留导致 `NameError`，已改为分层 `ReadinessConfigError`。
+- 实际测试命令与结果:
+  - startup 13/13 OK；task runtime 30/30 OK；output policy + scan runner + monitor 214/214 OK；parameters + executor 192/192 OK；AI handoff 155/155 OK；正式 tests 1588/1588 OK；prototype 68/68 OK；全仓 1656/1656 OK；公开导入冒烟与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 1db5eeb0217a77d248e5f3349b3cce520b9c935eefc48b1051eeff74c119b044
+- triad_delivery_manifest:
+  - `4b5ef5e49df79fde01b8df0dab47fe23b595297a76e3166047ebafae336b5b0b  src/runtime/startup.py`
+  - `b5c3052bbd6382374f1a91c665a0ce325e0b1b8a656802091bf2f121c22c4784  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `edbf046125663baa624805002f0ee9813cbc21a8d3f49314276ac7121f139edf  tests/test_runtime_startup.py`
+  - `61d8122ed5dbf201c88318054a50ea092d61e13deba2b28cc7ccacd1765995a7  tests/test_runtime_task_runtime.py`
+  - `5db4aa04adb6afcb3056f889c84c1d4b172da4639d576ab6514d86bd190a26c0  docs/RISKS.md`
+  - `b6b8600cf389adf5b2f31e5e822522cc4717db1deb280c25aff6e29ca558dfea  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: 七文件逐项与规范聚合均精确等于交付记录，`git diff --check` 通过；scope 已冻结，Delivery 停止写入。
+- 已知疑问: 私有 callback 事务边界必须由 Round 2 Reviewer 验证始终执行 public readiness 校验、callback 失败后 controller 不推进、callback 成功后无可达异常形成半提交。
+- 未验证边界: 与 Round 1 相同；正式状态继续 BLOCKED，待独立 Reviewer 和未来 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 2）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 1db5eeb0217a77d248e5f3349b3cce520b9c935eefc48b1051eeff74c119b044
+- triad_review_finished_sha256: 1db5eeb0217a77d248e5f3349b3cce520b9c935eefc48b1051eeff74c119b044
+- scope_drift: false
+- Round 1 返修核验: `_PreparedReadiness`/tuple 旁路已删除；完整 `StartupState`、分层错误与只读诊断已恢复；异常回调后的 SafetyState 语义恢复、常量 cleanup、精确异常测试和文档主体均有实质改进。Round 1 三个 P1 的主要设计方向成立，但失败原子性和稳定窗口诊断仍有两个未收口缺口。
+- P1:
+  1. `TaskRuntimeAssembly.apply_readiness()` 的 `except BaseException` 无条件调用 `restore()`。当 readiness 在时钟前精确校验阶段被拒，或 clock/callback 失败但 SafetyState 根本没有变化时，服务仍把原快照替换为字段相等的新对象，破坏“拒绝调用对 SafetyState 无进展”的身份/别名边界。主控反证输出 `identity_preserved_on_rejected_readiness False`。必须只在 SafetyState 实际发生身份或字段漂移时恢复；未漂移失败须保持原对象身份不变。恢复判断本身必须 exact-container/exact-bool、不得读取不可信表示。
+  2. controller 达阈值释放时没有消费 `_window_start_ns`。后续前置条件持续全真时 `in_window=False`，但 `window_elapsed_ns` 继续从旧起点增长；独立反证为首次释放 `1000000`、下一次稳定观察变 `2000000`。这与已冻结的“释放当次返回触发 elapsed；释放后保持 ready、不再计时、后续 elapsed=0”不一致。释放提交候选时须把窗口起点清空，并新增重复释放后观察反证。
+- P2:
+  1. `tests/test_runtime_task_runtime.py` 顶部模块说明仍把 startup inhibit 计时列为未实现，和当前候选矛盾；须改为显式注入确定性子范围已实现，真实信号源/调度/HAL 仍排除。
+- 独立测试: Reviewer 开始哈希门禁通过并逐文件确认以上缺口；主控独立运行两条最小反证稳定复现，startup + task runtime 43/43 OK、`git diff --check` 通过。由于已确认两个 P1，本轮按 fail-fast 停止扩大完整九组复跑；Delivery 的 1588/1656 全绿证据原样保留，但不能覆盖未测试反例。
+- 必须返修: 仅上述 2 个 P1 与 1 个 P2；不得重新设计 controller、扩大 API 或触碰 scope 外文件。Round 3 Reviewer 仍须全范围检查未知边界，而非只确认三处修改。
+- reviewer_writes: 无；Reviewer 只读，主控仅写本交接载体。
+
+### Codex 人工三角色返修交付记录（Fallback Round 3）
+
+- delivery_role: 替补单一 scope writer（原 balanced delivery model 服务容量不足且零写入后，按用户模型路由授权改用高能力 coding model / high reasoning）
+- 完成内容: 仅修改 `startup.py`、`task_runtime.py` 与两个对应测试。`apply_readiness()` 现在只在 SafetyState 实际发生身份/字段/字段缺失漂移时用时钟前可信副本恢复；invalid readiness、非法/异常时钟或 callback 失败但 SafetyState 未漂移时保持原 snapshot identity。controller 在释放拍返回触发 elapsed 后消费窗口起点，后续持续全真保持 ready 且 `window_elapsed_ns=0/in_window=False`，变假后重新要求完整窗口；修正测试模块陈旧说明。
+- 首次失败: tests-first 新增反证后 startup + task runtime 46 项中 5 failures，分别锁定释放窗口未消费，以及四类未漂移失败破坏 SafetySnapshot identity；修复后 46/46 OK。
+- 实际测试命令与结果: startup 14/14 OK；task runtime 32/32 OK；output policy + scan runner + monitor 214/214 OK；parameters + executor 192/192 OK；AI handoff 155/155 OK；正式 tests 1591/1591 OK；prototype 68/68 OK；全仓 1659/1659 OK；公开导入冒烟和 `git diff --check` 通过。
+- triad_delivery_scope_sha256: fce631110b91a6977c398b77817c5767cbdebbffcf06237288f5d67d963e7cdb
+- triad_delivery_manifest:
+  - `f296d5dab4380d4b853df33e5e40afd20b163c4acc3b94c0b76991866feda901  src/runtime/startup.py`
+  - `3024ea34ffac4a22f1feccc168a90a3955532d88ee53c40e41dad4a74fc1fc80  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `673b91666d5e4e2c7f0d1186e6472337e09d266a1a2f973a81e86df7a7103fef  tests/test_runtime_startup.py`
+  - `4dcacae576e44272f8f5d8c5d9292c5df0bc2b5776d4e7ce9d9b7ce4e39cd781  tests/test_runtime_task_runtime.py`
+  - `5db4aa04adb6afcb3056f889c84c1d4b172da4639d576ab6514d86bd190a26c0  docs/RISKS.md`
+  - `b6b8600cf389adf5b2f31e5e822522cc4717db1deb280c25aff6e29ca558dfea  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: 逐项哈希、规范聚合与 `git diff --check` 均精确一致；scope 已冻结，Delivery 停止写入。
+- 未验证边界: 正式状态继续 BLOCKED；待 Round 3 独立 Reviewer 和未来 Claude 回审。真实并发/HAL/PLC/现场边界不变。
+
+### Codex 人工三角色独立审核结论（Fallback Round 3）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: fce631110b91a6977c398b77817c5767cbdebbffcf06237288f5d67d963e7cdb
+- triad_review_finished_sha256: fce631110b91a6977c398b77817c5767cbdebbffcf06237288f5d67d963e7cdb
+- scope_drift: false
+- P1: 0。Round 2 的两个 P1 与陈旧测试说明均已正确修复；定向验证确认未漂移失败身份保持、实际漂移语义恢复、窗口消费/撤销重计、callback 提交顺序和分层错误均成立。
+- P2:
+  1. 冻结验收清单要求显式覆盖 `output_enable` 独立门控，但当前测试始终默认其为 `True`；缺少 `output_enable=False` 且五项前置条件全真时仍释放 `system_ready`、同时装配层把 `output_enable=False` 写入 SafetyState 的持久回归。实现静态行为正确，但强制验收测试不得省略。
+  2. `docs/RISKS.md` 与功能矩阵仍写“Round 2 候选”，未同步当前 Round 3 身份保持/窗口消费修复事实；未提交、待 Claude 回审、PLC/HAL/现场未验证等实质边界仍正确，禁止提前升级。
+- 独立测试: 九组真实结果依次为 14、32、214、192、155、1591、68、1659，全部 OK；公开导入冒烟与 `git diff --check` 通过。全绿不能替代缺失的强制反证。
+- 必须返修: 只补上述 output_enable 独立门控测试并把两份文档候选轮次/事实同步到 Round 4；不改生产代码，不扩大 scope。Round 4 Reviewer 继续做未知边界检查。
+- reviewer_writes: 无。
+
+### Codex 人工三角色返修交付记录（Fallback Round 4）
+
+- delivery_role: 原替补单一 scope writer（同包极窄返修）
+- 完成内容: 产品源码零改；仅在 `tests/test_runtime_task_runtime.py` 新增 `output_enable=False` 独立门控集成反证，锁定五项 readiness 前置全真且稳定窗口完成后 `system_ready=True`，同时返回值与 SafetyState 的 `output_enable=False`，实际 OutputPolicy 输出仍落 `safe_value`。`docs/RISKS.md` 与矩阵 L34-11/L5-11 同步为 Fallback Round 4 候选，保持待独立 Reviewer 与未来 Claude 回审、未批准/未关闭/未提交以及 PLC/HAL/现场未验证。
+- 首次失败: 本轮补的是缺失的强制持久回归，而非已知实现失败；新增单测首次运行 1/1 OK。该结果只证明当前实现满足该反证，不替代独立审核。
+- 实际测试命令与结果: startup 14/14 OK；task runtime 33/33 OK；output policy + scan runner + monitor 214/214 OK；parameters + executor 192/192 OK；AI handoff 155/155 OK；正式 tests 1592/1592 OK；prototype 68/68 OK；全仓 1660/1660 OK；公开导入冒烟和 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 1941ed049f0cd34bd555d4393240e7e1e537b47619a19eec7e53a15ea71ceaf7
+- triad_delivery_manifest:
+  - `f296d5dab4380d4b853df33e5e40afd20b163c4acc3b94c0b76991866feda901  src/runtime/startup.py`
+  - `3024ea34ffac4a22f1feccc168a90a3955532d88ee53c40e41dad4a74fc1fc80  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `673b91666d5e4e2c7f0d1186e6472337e09d266a1a2f973a81e86df7a7103fef  tests/test_runtime_startup.py`
+  - `e086744abdba2976ba7909628a845488c84dafa1d4ba231efd3ea8c41b92852e  tests/test_runtime_task_runtime.py`
+  - `46fefdda7a1f077e3a821e32ad0b4f66adf5487328d0359d6c37cc874772f314  docs/RISKS.md`
+  - `793bb66dc7500ceaeb142ec140a1b213d55cdf7e6d886ae0c4649ab7f8780e6f  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控门禁: Round 4 开工聚合精确等于 Round 3 审核结束值 `fce631110b91a6977c398b77817c5767cbdebbffcf06237288f5d67d963e7cdb`；仅上述测试与两份事实文档发生变化，三个 `src/runtime/**` 哈希保持不变。交付已停止写入，七文件以 `1941ed04…eaf7` 冻结交独立 Reviewer。
+- 未验证边界: 正式状态继续 `BLOCKED / user / user`；待 Round 4 独立 Reviewer 与未来 Claude 回审。真实 readiness、并发/HAL、PLC/CODESYS、实时调度、硬件 watchdog 与现场安全不变。
+
+### Codex 人工三角色独立审核结论（Fallback Round 4）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 1941ed049f0cd34bd555d4393240e7e1e537b47619a19eec7e53a15ea71ceaf7
+- triad_review_finished_sha256: 1941ed049f0cd34bd555d4393240e7e1e537b47619a19eec7e53a15ea71ceaf7
+- scope_drift: false
+- Round 3 返修核验: `output_enable=False` 独立门控反证成立；五项 readiness 前置全真且稳定窗口完成后 `system_ready=True`，返回值与 SafetyState 的 `output_enable=False`，真实 OutputPolicy 路径仍输出 safe value。两份文档的 Round 4 候选、待 Claude 回审、未提交及 PLC/HAL/现场未验证边界均准确。
+- P1:
+  1. 不可信 `clock_ns` 可经公开 `TaskRuntimeAssembly.apply_readiness()` 在同一线程重入。内层调用可以先推进 controller/替换 SafetyState；外层随后检测 SafetyState 身份漂移并抛错、恢复 SafetyState，却不会回滚已经由内层提交的 controller。默认 500ms 反证使 controller 从 `(last_seen=0, window_start=None, released=False)` 变为 `(0, 0, False)`；`startup_inhibit_ms=0` 时外层失败后可形成 `controller_ready=True / safety_ready=False`。这违反冻结契约 #4/#6 的双域失败原子性，且不是排除的并发 HAL，而是单线程公开入口重入。必须使用不引入线程/锁的同 controller 重入门禁，在读取第二次公开输入、时钟或写任一状态前稳定拒绝；普通异常和 `BaseException` 路径均须 finally 清门，失败时两个状态域及原 SafetySnapshot identity 不动。还须覆盖 SafetyState 受控提交回调内重入，不能因回调捕获内层异常、静默不写或部分污染而让外层 controller 单独提交。
+- P2: 0。
+- 独立测试: 工作包九组依次为 14、33、214、192、155、1592、68、1660，全部 OK；另有 19 组未预告反证通过；公开导入 11 项、`git diff --check` 通过。最后新增的单线程重入反证稳定失败，故全绿既有回归不能覆盖该 P1。
+- 必须返修: Fallback Round 5 仅收口上述重入/回调提交原子性；优先在现有 controller 事务边界增加私有非锁式 guard，并在装配回调返回后验证 SafetyState 确实提交预构造 exact `SafetySnapshot`。不得引入线程、锁、并发模型、HAL 或新公共业务功能。Round 5 Reviewer 仍必须全范围检查未知边界；若再发现 P1，按五轮上限停止本包，不无限续轮。
+- reviewer_writes: 无；Reviewer 全程只读，主控仅写本交接载体。
+
+### Codex 人工三角色返修交付记录（Fallback Round 5）
+
+- delivery_role: 原替补单一 scope writer（同包最后一轮返修）
+- 完成内容: `StartupReadinessController` 在现有事务边界增加私有非锁式重入门禁，嵌套观察在读取第二次 readiness/clock 或写状态前拒绝，且普通异常与 `BaseException` 均由 `finally` 清门；未引入线程、锁或新公共 API。装配层受控提交在实例 `replace()` 返回后验证预构造 exact `SafetySnapshot` 的身份与七字段，并在失败恢复时调用可信类方法，避免再次进入已被替换的实例回调。新增 controller 直调重入、clock 普通/BaseException 重入、零 inhibit、replace 回调传播/吞错/污染后抛错等六条持久反证；事实文档同步为 Fallback Round 5 候选。
+- 首次失败: 六条 tests-first 反证在 Round 4 旧实现上得到 4 failures + 2 errors，覆盖无限重入、零窗口半提交、静默吞写和污染恢复复入；最小返修后 6/6 OK。
+- 实际测试命令与结果: startup 15/15 OK；task runtime 38/38 OK；output policy + scan runner + monitor 214/214 OK；parameters + executor 192/192 OK；AI handoff 155/155 OK；正式 tests 1598/1598 OK；prototype 68/68 OK；全仓 1666/1666 OK；公开导入 11 项和 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 7f05c22f5f259290231f5436458384a4226a6f6a4929a37fc162a9df86f0104f
+- triad_delivery_manifest:
+  - `2a309c5f4c313fc790f55d4e3c2505ab065d17bbce7b4d6496c14b5351bc4de9  src/runtime/startup.py`
+  - `3a3f879c38cfbc12663ab25ce0494a4c3124f4d14ad02850fa7d0543b5b4fefc  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `edf255ef3ff8e7827e0b7041a5dbea8448afbdca093305ca2bf47aa82f29d208  tests/test_runtime_startup.py`
+  - `8934e213d6b546bf648ae1b9ed83615628e0fec953d603aec46ab1025e7553ad  tests/test_runtime_task_runtime.py`
+  - `30c2e1f2f9c0bc070f9f88f5c687e30fde69b3a121c3f767944594ad0e17b3ee  docs/RISKS.md`
+  - `65b38a70bf4e68e689dd774cd2e60869910720d879a9d6315c2cfeb103a6bb68  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控门禁: 开工聚合精确等于 Round 4 审核结束值 `1941ed04…eaf7`；主控独立复算逐文件与规范聚合均精确等于本记录，`git diff --check` 通过。交付已停止写入，以 `7f05c22f…104f` 冻结交 Round 5 Reviewer。
+- 未验证边界: 正式状态继续 `BLOCKED / user / user`；待 Round 5 独立 Reviewer 与未来 Claude 回审。反射直接改 controller 私有字段、真实并发/HAL、PLC/CODESYS、实时调度、硬件 watchdog 与现场安全均不由本包证明。
+
+### Codex 人工三角色独立审核结论（Fallback Round 5）
+
+- triad_verdict: TRIAD_BLOCKED
+- triad_review_started_sha256: 7f05c22f5f259290231f5436458384a4226a6f6a4929a37fc162a9df86f0104f
+- triad_review_finished_sha256: 7f05c22f5f259290231f5436458384a4226a6f6a4929a37fc162a9df86f0104f
+- scope_drift: false
+- P1: 1。Round 4 的 controller 单线程重入缺陷与新增六条反证已修复；但装配事务的验证与恢复仍调用可替换的实例级 `SafetyStateService.read()`。因此实例级受控回调可以让事务验证视图与服务内部可信真实状态分叉，controller 接受错误的写后确认并单独提交，仍违反双状态域失败原子性。恢复包必须让事务内初始读取、漂移判断、写后确认和恢复均经冻结的可信类实现读取/替换，并锁定实例级读写包装不能伪造提交结果。
+- P2: 0。
+- 独立测试: 九组依次为 15、38、214、192、155、1598、68、1666，全部 OK；公开导入 11 项、`git diff --check` 通过；另有 17 条未预告边界检查，其中新增的可信真实状态/验证视图分叉反证稳定暴露上述 P1。既有全绿未覆盖该边界，不能据此批准。
+- 五轮裁决: 本包 Fallback Round 5 已达到用户约定上限，不开启 Round 6、不在冻结候选上继续打补丁。WP-060 正式轴保持 `BLOCKED / user / user`；以 `7f05c22f…104f` 封存，后续只能由新的极窄恢复包承接。
+- reviewer_writes: 无；Reviewer 只读，主控仅写本交接载体。Claude 回审、正式 Codex 审核、Git/GitHub、PLC/CODESYS、HAL/现场仍未完成。
+
+## WP-20260801-061
+
+- title: WP-060 SafetyState 可信类实现绑定与双域事务视图分叉恢复
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- recovery_from: WP-20260731-060 / Fallback Round 5 / TRIAD_BLOCKED
+- function_matrix_ids: L5-11、L34-11
+- scope:
+  - src/runtime/task_runtime.py
+  - tests/test_runtime_task_runtime.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: cf3e6ab8935a2e048fe304c1893d531dddf4418bab993d25a49519cbec779a87
+- inherited_wp060_checkpoint_sha256: 7f05c22f5f259290231f5436458384a4226a6f6a4929a37fc162a9df86f0104f
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 用户授权、承接边界与 Planner 裁决
+
+- 用户已授权按既定计划恢复 WP-053～056 的重要能力并采用人工三角色备用流程。本包只承接 WP-060 第五轮确认的最后一个 P1；WP-060 保持 `BLOCKED / user / user` 与 `TRIAD_BLOCKED` 历史，不创建 Round 6、不改写其证据。
+- 高能力只读 Planner 已完整复核 WP-060、SafetyStateService 与相关测试，裁决正确修复只需四文件 scope；`src/runtime/startup.py`、`tests/test_runtime_startup.py`、`src/runtime/__init__.py`、`src/runtime/output_policy.py` 均为冻结只读依赖，不修改 SafetyStateService/OutputPolicy 公共合同。
+- 四文件 baseline manifest:
+  - `3a3f879c38cfbc12663ab25ce0494a4c3124f4d14ad02850fa7d0543b5b4fefc  src/runtime/task_runtime.py`
+  - `8934e213d6b546bf648ae1b9ed83615628e0fec953d603aec46ab1025e7553ad  tests/test_runtime_task_runtime.py`
+  - `30c2e1f2f9c0bc070f9f88f5c687e30fde69b3a121c3f767944594ad0e17b3ee  docs/RISKS.md`
+  - `65b38a70bf4e68e689dd774cd2e60869910720d879a9d6315c2cfeb103a6bb68  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 冻结依赖: `startup.py=2a309c5f…c4de9`、`test_runtime_startup.py=edf255ef…9d208`、`__init__.py=fac9566c…65e4b4`、`output_policy.py=b6289e8b…2f495`。任一漂移立即停止。
+
+### 唯一恢复目标与工程契约
+
+1. `TaskRuntimeAssembly.apply_readiness()` 事务内的时钟前初始读取、时钟后漂移判断、成功整包替换、写后确认与异常恢复，必须统一绑定模块装载时冻结的 `SafetyStateService.read/replace` 可信类实现；不得再次通过可被实例属性遮蔽的 `self.safety_state.read/replace` 分派，也不得直接无锁访问 `_snapshot`。
+2. 保持 WP-060 全部既定语义：readiness 时钟前 exact-bool 复制、controller 非锁式重入门禁、SafetyState 可信提交确认后才提交 controller、实际漂移恢复时钟前语义、未漂移拒绝保持原 SafetySnapshot identity、scan/watchdog 锁存、稳定窗口、`output_enable` 独立门控、双实例隔离、默认 shadow 和错误分层均不得回退。
+3. 私有冻结类实现别名不新增公共 API；不修改 `SafetyStateService`、OutputPolicy、startup controller、runner/monitor/commit、Store/Executor 或其它产品层。实例级读写包装属于事务不可信视图，正确行为是完全不观察；类级反射篡改不纳入公开输入边界。
+4. RISKS 与矩阵只登记 WP-061 人工三角色候选、四阶段可信类实现绑定、未提交和待 Claude 回审；保留 WP-060 历史，不更新 PROJECT_STATE，不升级风险，不推导 PLC/HAL/现场证明。
+
+### tests-first 反证与回归
+
+- 先在 `7f05c22f…104f` 检查点稳定复现并记录：实例级初始读取伪视图不得覆盖真实 scan/watchdog 锁存；实例级读写包装不得串通伪造成功提交；时钟期间真实 SafetyState 漂移不得被实例视图隐藏；普通异常与 `BaseException` 后恢复不得再次进入实例读写包装。包装调用计数必须为零。
+- 重写而非删除 WP-060 的三条实例 `replace` 回调测试，使其锁定“完全不观察实例包装”；controller direct/clock 重入、零 inhibit、TOCTOU、identity、窗口消费、output_enable、cold-start/shadow、scan/commit/watchdog 回归继续保留。
+- 最低宿主测试沿用 WP-060 九组：startup；task runtime；output policy+scan runner+monitor；parameters+executor；AI handoff；正式 tests；prototype；全仓；公开导入、四项冻结依赖复核与 `git diff --check`。必须报告本轮真实计数，不复制历史数字。
+
+### 停笔与审核规则
+
+- 若需修改四个冻结依赖、扩到其它 runtime/blocks/primitives、改变公共 API、引入新锁/线程/并发/HAL、发现规格歧义、冻结哈希漂移或完整测试出现未解释失败，Delivery 立即停止，不扩 scope。
+- Planner/Reviewer 只读，Delivery 是唯一 scope writer。交付后冻结四文件哈希，由高能力 Reviewer 做全范围未知边界审核；最多五轮。
+- 人工 Reviewer 即使通过也只能给 `TRIAD_PROVISIONALLY_APPROVED / PENDING_CLAUDE_REAUDIT`。Claude 恢复后必须从 WP-061 最终候选完整回审、可在四文件 scope 内修改、亲自运行宿主测试并走 v2 自审/原子交接；之后再由新的 Codex 独立审核。此前不得 CLOSED、Git/GitHub 收尾或作为正式阶段 1 基线。
+
+### Codex 人工三角色规划记录（Fallback Round 1）
+
+- planner_role: high-capability read-only planner
+- planner_scope_writes: none
+- planner_decision: 四文件极窄恢复成立；使用冻结的 SafetyStateService 类实现完成有锁真实状态读写与确认，不改 SafetyStateService 或 startup controller，不把 WP-060 第五轮缺陷混入阶段 1 总验收。
+- planner_handoff: 可进入单一 Delivery；先红灯反证，完成后停止写入并交独立 Reviewer。
+
+### Codex 人工三角色交付记录（Fallback Round 1）
+
+- delivery_role: single scope writer / high reasoning
+- 完成内容: 在 `task_runtime.py` 模块加载时冻结 `SafetyStateService.read/replace` 私有类实现引用；`apply_readiness()` 的初始读取、漂移判断、可信整包提交、写后确认与异常恢复全部经冻结类实现调用，继续复用 SafetyStateService 自有锁且不直接访问 `_snapshot`。实例级 `read/replace` 包装在该事务中零观察；WP-060 的 controller 重入门禁、TOCTOU、窗口、output_enable、锁存、identity 与 shadow 语义不变。两份事实文档同步为 WP-061 人工三角色候选。
+- 首次失败: 在 WP-060 冻结检查点上先加入 17 条定向组合，得到 3 failures + 5 errors，稳定覆盖实例视图被观察、真实漂移被隐藏及恢复再次进入实例包装；实现后同组 17/17 OK，最终 task-runtime 40/40 OK。
+- 实际测试命令与结果: startup 15/15 OK；task runtime 40/40 OK；output policy + scan runner + monitor 214/214 OK；parameters + executor 192/192 OK；AI handoff 155/155 OK；正式 tests 1600/1600 OK；prototype 68/68 OK；全仓 1668/1668 OK；公开导入 11 项与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 550f4d33bcbafd35c5ea258356f3a87744438b916493bab94b20b6e6f5d09266
+- triad_delivery_manifest:
+  - `a5941de31afcd4a414d05159694dc25c997f1658b5fb35917aae2b7f44990def  src/runtime/task_runtime.py`
+  - `04f6cce2e847883298885d385525dbdfb257168e5912888a46c6e6eaf4724a67  tests/test_runtime_task_runtime.py`
+  - `e9429981ecc6131a5a94a51fc8568dcaf4c4c1c2c4008bf9cba0ae73fd922db5  docs/RISKS.md`
+  - `bc24dbf62cc45442cd38b1fa755908e64c39d9a2981c786e9d2caf9cdec4a95b  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 冻结依赖复核: `startup.py=2a309c5f…c4de9`、`test_runtime_startup.py=edf255ef…9d208`、`__init__.py=fac9566c…65e4b4`、`output_policy.py=b6289e8b…2f495`，均精确未变。主控独立复算四文件 manifest/聚合与 `git diff --check` 一致；交付停止写入，以 `550f4d33…9266` 交 Reviewer。
+- 未验证边界: 正式轴继续 `BLOCKED / user / user`；待独立 Reviewer 与未来 Claude 回审。模块私有别名反射篡改、类级 monkeypatch、真实并发/HAL、PLC/CODESYS、实时调度、硬件 watchdog 与现场安全不由本包证明。
+
+### Codex 人工三角色独立审核结论（Fallback Round 1）
+
+- triad_verdict: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- triad_review_started_sha256: 550f4d33bcbafd35c5ea258356f3a87744438b916493bab94b20b6e6f5d09266
+- triad_review_finished_sha256: 550f4d33bcbafd35c5ea258356f3a87744438b916493bab94b20b6e6f5d09266
+- scope_drift: false
+- P1: 0。
+- P2: 0。
+- 已验证事实: 冻结可信类实现完整覆盖初读、漂移检查、提交、写后身份/七字段确认与恢复，并继续经过 `SafetyStateService` 自有锁；事务内实例级 `read/replace` 包装零观察。14 条未预告反证全部通过，覆盖时钟阶段实例包装变化、真实提交身份/字段、隐藏漂移拒绝与恢复、普通/BaseException 后合法再调用、WP-060 视图串通模式失效及双 assembly 交错隔离。WP-060 的 controller 重入、TOCTOU、identity、稳定窗口、`output_enable`、scan/watchdog 锁存和默认 shadow 契约无回归。
+- 独立测试: 九组依次为 15、40、214、192、155、1600、68、1668，全部 OK；公开导入 11 项、四项冻结依赖末尾哈希与 `git diff --check` 均通过。
+- reviewer_writes: 无。
+- 状态边界: 本结论只允许作为后续人工备用流程的暂定依赖；正式五字段继续 `BLOCKED / user / user`，不得 CLOSED、Git/GitHub 收尾或升级 PROJECT_STATE。Claude 恢复后须对 WP-061 最终四文件候选完整回审、可在 scope 内修改、亲自跑测试并走 v2 交接，再由新的 Codex 独立审核。Python 证据不构成 PLC/CODESYS、HAL、实时调度、硬件 watchdog 或现场安全证明。
+
+## WP-20260801-062
+
+- title: 阶段 1 Python 内部总验收与跨组件证据矩阵
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- provisional_dependency: WP-20260801-061 / 550f4d33bcbafd35c5ea258356f3a87744438b916493bab94b20b6e6f5d09266 / TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- scope:
+  - tests/test_runtime_stage1_acceptance.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: e5d3df341dd2d01b4d26e83314761712b319a33660a8d7adcf27be7c8c663108
+- frozen_runtime_tree_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 授权、性质与冻结边界
+
+- 用户授权继续既定计划。本包是纯验收包，只新增跨组件公开证据，不修改任何 `src/**`、PROJECT_STATE 或 ROADMAP；若红灯暴露产品缺陷，立即停笔并另建单一缺陷簇返修包，不在验收测试中修产品或复制实现。
+- `tests/test_runtime_stage1_acceptance.py` 基线为 `ABSENT`；`RISKS=e9429981…2db5`、矩阵=`bc24dbf6…a95b`。全部 22 个 `src/runtime/**` 文件按排序规范聚合冻结为 `b9054151…ce36`；任何漂移均停止。
+- WP-061 只是待 Claude 回审的暂定依赖。本包人工通过也只能形成阶段 1 Python 内部“暂定验收证据”，不得宣称正式阶段关闭、Git 可收尾、PLC/CODESYS/HAL/现场已验证。
+
+### 验收矩阵与实现纪律
+
+1. 只使用公开 API、真实 `build_default_registry()`、真实正式 IR Task 与 `build_task_runtime()`；不得从其它测试模块导入私有 helper、不得复制产品算法。
+2. 机器可验证 capability→test 映射必须覆盖：22/22 engineering Registry 键与 F2 缺变体失败关闭；真实 Task 的 Registry→Loader→Store→Executor→ScanEngine→OutputPolicy→CommitSupervisor→默认 shadow→OuterScanRunner→monitor→startup 同一对象图。
+3. 覆盖冷启动 startup inhibit、默认 write-disable、readiness 窗口阈值/撤销、`output_enable` 独立且不自动退出 shadow；显式退出 shadow后仍经 OutputPolicy/CommitSupervisor 与驱动回执。
+4. 代表性 TON/状态块 N 拍直接调用对照、五步顺序与 prev 推进；scan fault 与 commit/channel fault 分层、故障安全提交与锁存；软件 monitor 正常/超时/一次性派发/下一周期隔离；双 assembly 的 Store/块状态/startup/monitor/safety/supervisor/驱动完全隔离。
+5. 启动失败关闭覆盖非法 `startup_inhibit_ms`、构造参数与 `numeric_mode`，均须在 assembly 暴露和驱动调用前拒绝，失败后 Registry 仍可合法复用。
+6. 所有测试仅用手动 exact-int 时钟和内存驱动，不启动线程、sleep、端口、网络、真实 I/O 或硬件 watchdog；不要求一个 Task 人为装入全部复杂授权块。
+7. RISKS 新增 `RUNTIME-STAGE1-PY-ACCEPTANCE` 独立风险行，只允许登记 Python 内部跨组件证据；矩阵复用现有 L2/L34/L5 功能 ID，不虚构产品能力，全部保持候选/未提交/待 Claude 回审，PLC/HAL/现场未验证。
+
+### 测试、停笔与审核
+
+- 九组: 新验收模块；startup+task runtime+验收；descriptors+parameters+loader+store+executor+验收；engine+policy+runner+supervisor+monitor+验收；shadow/故障安全/双实例相关组；AI handoff；正式 tests；prototype；全仓+公开导入+runtime 树哈希+`git diff --check`。报告本轮真实计数。
+- 需要修改 `src/**`/冻结规范、runtime 树漂移、发现语义或原子性缺陷、需要真实调度/HAL/PLC/现场、只能依赖测试私有 helper、或出现未解释回归时立即停止；不通过放宽断言制造总验收通过。
+- Planner/Reviewer 只读，Delivery 只写三文件 scope。独立 Reviewer 必须核查映射完整、跨组件真实性和未知边界。人工通过只可标 `TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT`；WP-061 与 WP-062 均经 Claude 回审及后续 Codex 正式审核前，不更新 PROJECT_STATE/ROADMAP、不 CLOSED、不 Git/GitHub 收尾。
+
+### Codex 人工三角色规划记录（Fallback Round 1）
+
+- planner_role: high-capability read-only planner
+- planner_scope_writes: none
+- planner_decision: 纯验收三文件 scope；产品 runtime 全树冻结。阶段 1 已有能力应通过公开端到端组合证明，若暴露缺陷转窄返修，不在验收包继续开发。
+- planner_handoff: 可进入单一 Delivery，完成 tests-first 与九组验证后冻结交 Reviewer。
+
+### Codex 人工三角色交付记录（Fallback Round 1）
+
+- delivery_role: single scope writer / high reasoning
+- 完成内容: 新增完全自包含的公开 API 阶段 1 验收模块，使用真实默认 Registry、正式 IR Task、`build_task_runtime()`、手动时钟与内存驱动；未导入其它测试私有 helper。`CAPABILITY_TEST_MATRIX` 精确映射十个能力簇到实际测试，覆盖 22/22+F2 失败关闭、同一对象图、冷启动/shadow、readiness/output_enable、显式实写回执、TON+SR 五步 N 拍、scan/commit/channel fault、monitor 一次性事件、双 assembly 隔离与启动失败关闭/Registry 复用。两份文档新增独立 `RUNTIME-STAGE1-PY-ACCEPTANCE` 候选证据并保持六轴边界。
+- 首次验收: 新文件首次运行 11/11 OK，未发现产品缺陷；随后补强冷启动多拍不自动释放及 scan fault 后公开 `engine.prev` 身份不推进，仍 11/11 OK。`src/**` 零修改。
+- 实际测试命令与结果: 新验收 11/11；startup+task runtime+验收 66/66；descriptors+parameters+IR/loader+store+executor+验收 365/365；engine+policy+runner+supervisor+monitor+验收 308/308；shadow+runner+supervisor+task runtime+验收 176/176；AI handoff 155/155；正式 tests 1611/1611；prototype 68/68；全仓 1679/1679；公开导入 13 项与 `git diff --check` 均通过。
+- triad_delivery_scope_sha256: feb9560d064d0e06b01c3f08bd2fa7e8deb427d6314503fd8e7bc53f986b473e
+- triad_delivery_manifest:
+  - `b662a2b8cd6d044aeec0e46fd845a02d03a7032ca03a1d9d9f6e95404e8ee5c3  tests/test_runtime_stage1_acceptance.py`
+  - `68fc8262fe13aaadf772b8b4982044a0695ee30aaca7d8276dab55666b07f69d  docs/RISKS.md`
+  - `ceef3ac4a918b924bb80ae174bb5a88fe0ad6357288cfb07d742a49a4f5fdfd6  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: 22 文件 runtime 树结束聚合仍为 `b9054151…ce36`；主控独立复算三文件 manifest/聚合与 `git diff --check` 一致。交付停止写入，以 `feb9560d…473e` 冻结交 Reviewer。
+- 未验证边界: 正式轴继续 `BLOCKED / user / user`；WP-061/062 均待 Claude 回审。真实调度、HAL/物理 I/O、硬件 watchdog、PLC/CODESYS、黄金轨迹和现场安全未验证。
+
+### Codex 人工三角色独立审核结论（Fallback Round 1）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: feb9560d064d0e06b01c3f08bd2fa7e8deb427d6314503fd8e7bc53f986b473e
+- triad_review_finished_sha256: feb9560d064d0e06b01c3f08bd2fa7e8deb427d6314503fd8e7bc53f986b473e
+- runtime_tree_started_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- runtime_tree_finished_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- scope_drift: false
+- P1: 0。
+- P2:
+  1. shadow→实写用例在任何 shadow 扫描前就切换，且只使用 BOOL/无限速策略；把边界重建标记改成空操作后仍假绿。须先形成非 safe 的 shadow 历史，并以带 `rate_limit` 的数值输出锁定显式实写首拍从 `safe_value` 重建，而不是沿用 shadow 历史。
+  2. commit/channel fault 用 `commit_fault_retry_n=1`，首错同时置两层 fault；把所有阈值强制为 1 后仍假绿。须用 `n>=2` 分别锁定首错 `commit_fault=true/channel_fault=false`、阈值次才锁存 channel fault，并验证故障安全改写与无意外重复提交。
+  3. monitor 用例只看 `WatchdogSafeCommit` 类型和事件消费；若回调直接抛同类异常而不锁存/不 staging/adopt safe image，测试仍假绿。须断言 safe image、shadow/adoption 诊断、`watchdog_ok=false`、业务 Store/prev 不推进及后续拍继续安全。
+  4. 双 assembly 用例只覆盖部分对象身份和 TON/monitor/driver行为，未证明安全域行为隔离；单向污染另一个 SafetyState 时仍假绿。须补 layout/engine/output_policy/commit_port/write-gate/driver 身份，并在 first 的 startup/safety/watchdog/fault/supervisor/write mode 各域变化后断言 second 精确不变。
+- 变异反证: 四个变异对应验收均继续通过，证明是证据完整性缺口而非风格意见。RISKS 当前对故障分层、monitor 与全状态域隔离存在过称，须随测试同步收窄/补证据。
+- 独立测试策略: 开工双哈希门禁、静态全读和四个变异反证已完成；因 P2 已稳定确认，按 fail-fast 不重复九组。Delivery 的九组全绿事实原样保留，但不能覆盖上述假绿。
+- 必须返修: 仅增强新验收测试与两份文档，不修改任何 `src/**`。Round 2 Reviewer 仍须重新全范围审核未知边界。
+- reviewer_writes: 无；正式轴继续 `BLOCKED / user / user`。
+
+### Codex 人工三角色返修交付记录（Fallback Round 2）
+
+- delivery_role: 原单一 scope writer（纯验收返修）
+- 完成内容: 仍保持 runtime 树零改。shadow→实写改为 REAL 限速输出，先形成 2/4/6/8 的 shadow 历史，再锁定实写首拍从 safe 0 经限速到 2；commit 使用 `retry_n=2` 区分首错瞬时 fault 与第二次 channel latch，并锁定命令/override；monitor 锁定 safe image、shadow adoption、watchdog 锁存、Store/prev 不推进、后续继续安全及不重放；双 assembly 补齐 layout/engine/policy/port/write-gate/driver 身份，并在 first 改变 startup、watchdog、commit fault、write mode 后验证 second 全域精确不变。RISKS 明确 scan fault 只证明 prev 不推进，不承诺已执行 Store/块状态整拍回滚。
+- 首次返修验证: 四项定向初次为 3 green + 1 red；唯一红灯来自测试先冻结 second 基线、后又让 second 自己扫描的编排错误，改为先建立 second 独立一拍状态再冻结基线后 4/4 OK；未发现产品缺陷。
+- 实际测试命令与结果: 九组依次为 11、66、365、308、176、155、1611、68、1679，全部 OK；公开导入 13 项、`git diff --check` 通过。
+- triad_delivery_scope_sha256: 3b4813a5c84ecaaae71d824ba94de0aa3c6d1b5d56ce39e9d6226940f1b5587c
+- triad_delivery_manifest:
+  - `8aaff30abd1a2bf94a41efbcbe720ab0fe0e8e8c998408779a9e64f60ce15878  tests/test_runtime_stage1_acceptance.py`
+  - `7d3f8a4f40e08f61baea14dae0d5becfd2b00c7765d4d3055d1a19a35503d3bf  docs/RISKS.md`
+  - `ec4fc06ddc27b0ef7f768e42d91edd9acb9dd223d2414b926eeedb524cbe3c39  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: runtime 树结束聚合仍为 `b9054151…ce36`；主控独立复算三文件 manifest/聚合和 `git diff --check` 一致。交付停止写入，以 `3b4813a5…587c` 冻结交 Reviewer。
+- 未验证边界: 正式轴与外部验证边界不变；WP-061/062 均待 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 2）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 3b4813a5c84ecaaae71d824ba94de0aa3c6d1b5d56ce39e9d6226940f1b5587c
+- triad_review_finished_sha256: 3b4813a5c84ecaaae71d824ba94de0aa3c6d1b5d56ce39e9d6226940f1b5587c
+- runtime_tree_started_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- runtime_tree_finished_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- scope_drift: false
+- P1: 0。
+- P2:
+  1. monitor 用例触发 watchdog 前只执行一拍 TON，OutputPolicy 的 `last_effective` 本来就是 safe False；把 shadow safe-image adoption 改为空操作后仍假绿。须先用两拍形成并断言非安全逻辑历史 `DO0=True`，再触发并锁定 adoption 后变为 False。
+  2. 双 assembly 用例冻结 second 的 Store/prev 后不再让它扫描；即使两个 Executor 隐藏共享同一 TON/SR 块对象，first 后续推进/复位造成的污染也不会映射回 second Store，测试仍假绿。须在 first 多域变更后让 second 再执行一拍，并与 second 自己的独立 TON/SR 历史或控制 assembly 对照。
+- 已验证事实: Round 1 四个变异本轮全部按预期断言转红。未打补丁正向变体确认真实产品在两拍非安全历史后能正确 shadow adopt safe image，真实双 assembly 继续交错时块状态也保持隔离；故上述是测试完整性缺口，不需修改 runtime。
+- 静态与定向: capability 映射十项唯一且可发现，无其它测试模块导入、无私有产品属性、无线程/网络；六轴文档诚实，scan fault 只声明 prev 不推进。定向验收 11/11、公开导入 13 项、`git diff --check` 通过。因 P2 已确认按 fail-fast 未重复九组 2～9。
+- 必须返修: 仅三文件 scope 补上述两项反证和事实文档；runtime 继续冻结。Round 3 Reviewer 重新检查未知边界。
+- reviewer_writes: 无；正式轴继续 `BLOCKED / user / user`。
+
+### Codex 人工三角色返修交付记录（Fallback Round 3）
+
+- delivery_role: 原单一 scope writer（纯验收返修）
+- 完成内容: monitor 用例先以两拍 TON 形成并断言 `DO0=True / last_effective=True` 的非安全逻辑历史，再触发 watchdog safe-image adoption 并锁定诊断变 False；双 assembly 用例在 first 多域变化后让 second 继续扫描一拍，并与 second 自己的独立 TON/SR 两拍轨迹对照 `ET=1000/Q=True/Q1=True`，使隐藏共享块实例必然暴露。两份文档同步为 Round 3 候选，runtime 零改。
+- 定向与完整验证: 两项定向 2/2、验收模块 11/11；九组依次为 11、66、365、308、176、155、1611、68、1679，全部 OK；公开导入 13 项、`git diff --check` 通过。
+- triad_delivery_scope_sha256: 377533b9a56c7af8827a11306737fec7633d413138b413cd7c8bb4aaab5f72c8
+- triad_delivery_manifest:
+  - `1b5500a891b1f250615b49c80a6f39c5f9de1ccd21142d8093062fd0a97f479c  tests/test_runtime_stage1_acceptance.py`
+  - `c8a80d8c5f8d1bae2441f4df9bfd6f404b4db92a5f5d215bbd8af390bc541ef6  docs/RISKS.md`
+  - `527e9b3f158f446de0a9a7d371f6a3be58f7d990390573a31477cb46e273eadd  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: runtime 树结束聚合仍为 `b9054151…ce36`；主控独立复算三文件 manifest/聚合和 `git diff --check` 一致。交付停止写入，以 `377533b9…72c8` 冻结交 Reviewer。
+- 未验证边界: 正式轴与外部验证边界不变；WP-061/062 均待 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 3）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 377533b9a56c7af8827a11306737fec7633d413138b413cd7c8bb4aaab5f72c8
+- triad_review_finished_sha256: 377533b9a56c7af8827a11306737fec7633d413138b413cd7c8bb4aaab5f72c8
+- runtime_tree_started_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- runtime_tree_finished_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- scope_drift: false
+- P1: 0；未发现冻结 runtime 产品缺陷。
+- P2:
+  1. capability 映射只验键集合、非空和目标可调用；十项全部指向同一个合法测试仍假绿。须锁定 `target == TestStage1PublicAcceptance.test_{capability}` 或等价精确 dict，并验证目标唯一。
+  2. readiness 用例只断言 controller 返回值；若 `apply_readiness()` 不再把结果提交到共享 SafetyState，整套仍假绿。须断言 SafetyState 整包传播，并在 ready 后切换 `output_enable=True/False` 时证明 OutputPolicy 输出相应变化且仍保持 shadow 零驱动。
+  3. scan-fault 可只锁 `scan_ok` 并伪造含 safe_image 的异常载荷、跳过 staging/同一 CommitPort/shadow adoption，整套仍假绿。须锁定 signal 的 shadow/write-suppressed/adopted/failed-stage 等事务诊断与 OutputPolicy `last_effective` 的真实安全采用。
+  4. 五步 `prev` 只验身份变化；每拍返回新身份但内容保持冷启动、或 commit 失败后错误前移 prev，整套均假绿。须在成功拍逐拍断言 `result.prev` 内容等于提交后 Store，并在两次 commit 失败前后分别断言 prev 身份与内容不变。
+- 已验证事实: Round 2 的 safe-image adoption no-op 与同类型块全局共享两个变异均已按预期断言转红。静态目标十项当前实际唯一可发现、无其它测试私有 helper/产品私有属性/线程网络；文档六轴和 Store 非整拍回滚边界诚实，但相关证据称谓须随测试闭合。
+- 独立测试策略: 正向验收 11/11、公开导入 13 项、`git diff --check` 通过；P2 确认后 fail-fast 未重复九组 2～9。
+- 必须返修: Round 4 一次性收口上述四簇，仅三文件 scope；Reviewer 仍全范围审查未知边界。
+- reviewer_writes: 无；正式轴继续 `BLOCKED / user / user`。
+
+### Codex 人工三角色返修交付记录（Fallback Round 4）
+
+- delivery_role: 原单一 scope writer（纯验收返修）
+- 完成内容: capability 映射锁定十个精确且唯一的 `test_{capability}` 目标；readiness 验收锁定 controller→共享 SafetyState 整包传播及 ready 后 output_enable True/False 对 OutputPolicy 的实际影响，同时保持 shadow 零驱动；scan fault 锁定完整 shadow safe-image 事务诊断和 policy `last_effective` 的真实采用；成功五步逐拍锁定 `prev` 内容等于 Store 提交后快照，两次 commit 失败分别锁定 prev 身份/内容不变。文档同步证据且继续声明 Store 非整拍回滚边界，runtime 零改。
+- 定向与完整验证: 四簇定向 4/4；九组依次为 11、66、365、308、176、155、1611、68、1679，全部 OK；公开导入 13 项、`git diff --check` 通过。
+- triad_delivery_scope_sha256: d52ce8f4a69b582547ea4e171524455993ba91c8a64da2721c489c206e9792eb
+- triad_delivery_manifest:
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `b23f796cf801e04bd4e4b3a37e67c82d35df6ed49799c341a4dd6fe7e7b5f1b0  docs/RISKS.md`
+  - `44a6285b9e177664792bac002c490f65c766b81b68c14dbbcdd8aac3b22a327d  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: runtime 树结束聚合仍为 `b9054151…ce36`；主控独立复算三文件 manifest/聚合和 `git diff --check` 一致。交付停止写入，以 `d52ce8f4…92eb` 冻结交 Reviewer。
+- 未验证边界: 正式轴与外部验证边界不变；WP-061/062 均待 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 4）
+
+- triad_verdict: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- triad_review_started_sha256: d52ce8f4a69b582547ea4e171524455993ba91c8a64da2721c489c206e9792eb
+- triad_review_finished_sha256: d52ce8f4a69b582547ea4e171524455993ba91c8a64da2721c489c206e9792eb
+- runtime_tree_started_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- runtime_tree_finished_sha256: b90541517c31728aff28a6d8d44d2e77d0d69413354e0b69001235557008ce36
+- scope_drift: false
+- P1: 0。
+- P2: 0。
+- 已知反证: Round 3 四簇五次变异全部产生预期 assertion failure 且 0 errors——映射全同 target、readiness 断 SafetyState、scan fault 伪 payload 跳过事务、prev 新身份但冷内容、commit 失败仍前移，均已实质封堵。
+- 未知复审: 十个 capability 精确同名一一映射且全部可发现，197 条断言；无其它 tests helper、产品私有属性、线程/sleep/网络。逐簇复核 Registry、对象图、冷启动、readiness 双域传播、REAL 实写边界、TON/SR+prev、scan/commit/channel 事务、monitor、双实例续跑与启动失败关闭均与任务边界吻合；文档不声称 scan fault Store/块整拍回滚，formal/Claude/PLC/HAL 六轴诚实。
+- 独立测试: 九组依次为 11、66、365、308、176、155、1611、68、1679，全部 OK；公开导入 13 项、`git diff --check` 通过。第三组首次误写不存在的 `tests.test_runtime_loader` 得 loader error；按仓库真实模块集合更正后完整重跑 365/365 OK，属审核命令错误而非产品回归。
+- reviewer_writes: 无。
+- 状态边界: 本结论只允许作为人工备用流程的阶段 1 Python 内部暂定验收证据；正式五字段继续 `BLOCKED / user / user`，`fallback_formal_baseline_eligible=false`。WP-061/062 均须未来 Claude 完整回审及新的 Codex 独立审核，之前不得 CLOSED、Git/GitHub 收尾或外推 PLC/CODESYS、真实调度、HAL、硬件 watchdog、现场安全。
+
+## WP-20260801-063
+
+- title: AI Handoff 双执行入口默认墙钟 60 分钟收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- scope:
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: 396d54733448c20cdb8be2cb160c672802610db9cf56e38567e7f11111b71d13
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 唯一目标、工程契约与排除项
+
+- 同时把 `CodexCommandAdapter` 与 `ClaudeEndpointAdapter` 构造器的默认 `timeout_seconds` 从 1800 改为 3600；显式 override 必须逐值透传，不允许取整、夹断或覆盖。两个角色默认墙钟保持对称。
+- `ExecutionPlan`、`SafeProcessRunner` 超时/进程组终止/失败终态、认证探针 15 秒、测试注入 0.1/2/40 秒等显式短超时均不改变。`--max-turns=80`、工作包 `max_rounds=5`、3600 秒墙钟与账户额度是四个独立上限，任一先到均停止。
+- 测试锁定两个默认计划均为 3600、Codex 321 与 Claude 654 override 不变、dry-run/live 不重写、短超时失败关闭仍成立；当前生产/运维表述不得残留把主执行默认值写成 1800，但历史记录不改写。
+- 文档只同步当前 60 分钟契约和矩阵工程支持事实，不更新 RISKS/PROJECT_STATE/ROADMAP/CODEX_GUIDE，不修改 `src/**`，不混入轮次后置校验、证据新鲜度、authority、备用三角色、租约/DAG/API/Dashboard 或执行器重构。
+- scope baseline manifest:
+  - `013106c7fcd0fed17d51bc46ac5e077ff306c60344c17ba876dfc86d6d3a677d  tools/ai_handoff/scheduler.py`
+  - `44e6186330a426d912904630467ac31ebe4d1f5ce5cafde2eef3023eb1a12e10  tests/test_ai_handoff.py`
+  - `782c13258bd4c2f0bdca2916e732f536b6c22be2e2629b39b6ad9e0ea2ed8513  docs/AI_HANDOFF_OPERATIONS.md`
+  - `44a6285b9e177664792bac002c490f65c766b81b68c14dbbcdd8aac3b22a327d  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 需要扩到 scheduler 外执行核心、改变终止语义、发现第三个主默认入口、触碰轮次/备用机制、出现无关测试失败或 scope 漂移时立即停止。
+
+### 验证与人工流程
+
+- 最低验证: `tests.test_ai_handoff`；正式 tests；prototype；全仓；两个默认+两个 override 公开构造 smoke；当前 1800 表述检索；`git diff --check`。报告真实计数。
+- Planner/Reviewer 只读，Delivery 只写四文件。人工通过仍只可 `TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT`，不得 Git/关闭。
+
+### Codex 人工三角色规划记录（Fallback Round 1）
+
+- planner_role: high-capability read-only planner
+- planner_scope_writes: none
+- planner_decision: 双 adapter 默认必须同步 3600；override 与执行失败关闭语义保持。严格四文件常量/测试/文档收口。
+- planner_handoff: 可进入单一 Delivery。
+
+### Codex 人工三角色交付记录（Fallback Round 1）
+
+- delivery_role: single scope writer / high reasoning
+- 完成内容: `CodexCommandAdapter` 与 `ClaudeEndpointAdapter` 默认墙钟同时由 1800 改为 3600；scheduler 源码差异精确两行。Codex 321、Claude 654 及现有 0.1/2/40 秒显式值、认证探针 15 秒、max_turns 80、max_rounds 5、ExecutionPlan/SafeProcessRunner 语义保持。运维文档与矩阵登记 60 分钟候选，历史 30 分钟轮询不改写。
+- 首次失败: 新增/调整定向八项中四项在旧默认上按预期因 `1800 != 3600` 失败，四项 override/探针保持通过；仅改两处默认后 8/8 OK。
+- 实际测试命令与结果: AI handoff 160/160；正式 tests 1616/1616；prototype 68/68；全仓 1684/1684；公开构造 smoke `(3600, 3600, 321, 654)`；`py_compile` 与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: d8c61c9e35d675fa7c96022621ab676d47195aa0224551f1a68b6090a5e8c67f
+- triad_delivery_manifest:
+  - `a41a13207d721c3f6d003c0271b7bb17a51da83faf1fc767956ebf9760acdd68  tools/ai_handoff/scheduler.py`
+  - `c505610707ad7799eb998e208082b931d4b85190e27604d90626c7bf4e6502e6  tests/test_ai_handoff.py`
+  - `602aaa26b2bd601dd4eb7a4ea6030a69715bd6154e3c3133d5d2d91a86301820  docs/AI_HANDOFF_OPERATIONS.md`
+  - `cbf41655e13c67c9f7c20b79489a26561b49841a19ffea55137af5ba348c306b  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- 主控复核: 逐文件与聚合精确一致，`git diff --check` 通过；交付停止写入，以 `d8c61c9e…c67f` 冻结交 Reviewer。
+- 未验证边界: 正式轴继续 BLOCKED；外部服务稳定性、账户额度与无人值守完成率不由延长墙钟证明，候选待 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 1）
+
+- triad_verdict: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- triad_review_started_sha256: d8c61c9e35d675fa7c96022621ab676d47195aa0224551f1a68b6090a5e8c67f
+- triad_review_finished_sha256: d8c61c9e35d675fa7c96022621ab676d47195aa0224551f1a68b6090a5e8c67f
+- scope_drift: false
+- P1: 0。
+- P2: 0。
+- 已验证事实: AST/静态枚举确认工具包 timeout 默认只有 Codex=3600、Claude=3600 与认证 probe=15，无第三主执行入口；321/654 override 经 dry/live 原样进入 ExecutionPlan。ExecutionPlan、SafeProcessRunner wait/进程组终止/失败终态、0.1/2/40 秒短超时、max_turns=80、max_rounds=5 保持。当前代码/运维/矩阵无主执行 1800 残留，30 分钟只描述旧轮询。
+- 变异反证: 单入口保留旧默认、dry 重写 321、live 重写 654、runner 忽略短超时四项均使目标测试按预期转红。
+- 独立测试: AI 160/160；正式 1616/1616；prototype 68/68；全仓 1684/1684；smoke `(3600,3600,321,654)`；`py_compile` 与 `git diff --check` 通过。审计辅助脚本首次硬编码错误 probe 行号导致自身断言，去除脆弱行号后通过，非产品失败。
+- reviewer_writes: 无。
+- 状态边界: 正式轴继续 `BLOCKED / user / user`，候选待 Claude 回审；不得据此保证外部服务可用或任务一定运行满 60 分钟。
+
+## WP-20260801-064
+
+- title: AI Handoff 轮次准入与动作后置合同收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- function_matrix_ids: ENG-02、ENG-05（本包不改矩阵状态轴）
+- scope:
+  - tools/ai_handoff/parser.py
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+- scope_baseline_sha256: cb833921eaec0421938fa48ac657f647687ae06dc8e778afd3f3126ed79ba620
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 根因、唯一目标与动作公式
+
+- 历史故障不是完成公式错误，而是 `CHANGES_REQUESTED` 启动返修前顶层 round 被人工预增；当前 main 因未投影最近 Codex review 的 Round，只在外部进程结束后才发现 validator 又期望下一轮。本包把该错误前移到 coordinator.start 之前拒绝。
+- parser 为 WorkPackage 投影最近一条 review 的 `latest_review_round`；review 标题须有且仅有一个严格 ASCII `Round N` token，缺失、冲突、多 token、`Round 2x` 或 Unicode 数字不得作为轮次证据。不得回写历史标题。
+- 三公式冻结：Claude 首轮 `N→N`；Codex review `N→N`；Claude rework `N→N+1`。`CHANGES_REQUESTED` 启动必须 `top round=N == latest_review_round` 且 `N < max_rounds`，幂等键继续使用源轮次 N；只有 Claude 完成返修、自审与交接时才原子写 N+1。
+- `DispatchResult` 可增加只读 `source_round/target_round` 以机器展示公式，但不得写入 plan/lease/history；这属于后续执行绑定包。`round/max_rounds` 必须为 exact 正 int，手工 WorkPackage 的 bool/零/负数同样失败关闭。
+- completion validator 锁定：首轮与 Codex review 不增 round，Claude rework 只增 1；Codex 完成的最新 review round 必须等于动作轮次。`round==max_rounds` 仍允许最后一次 Codex review；`CHANGES_REQUESTED round==max_rounds` 只通知用户、不启动 Claude。
+
+### 测试、文档、排除与停笔
+
+- 反证覆盖预增/回退/跳轮/缺 Round/冲突 token/非法 token/非正 exact-int；合法 source/target；首轮、Codex、返修三类完成后置公式；dry/live 同一准入；上限边界与历史语料兼容；非法项须在 coordinator.start 前拒绝。
+- Operations 与 Claude Runbook 明确 Codex 不增轮、CHANGES_REQUESTED 保持审核轮次、Claude 不得接手前预增、完成返修时才原子 N+1、source round 用于幂等键/target round 用于完成后置。
+- scope baseline manifest: parser=`51966ce6…9d60`、scheduler=`a41a1320…dd68`、tests=`c5056107…02e6`、Operations=`602aaa26…1820`、Runbook=`f79de3d3…bb9b`。
+- 明确排除证据新鲜度、verdict/终态绑定、authority 字节快照、准入后重读、Popen 紧前门禁、execution id/prompt/plan/lease/history 绑定、fallback 平台与 60 分钟默认值。需触及这些或发现规格歧义时停止。
+- 验证: Parser/Scheduler/EventDriven 定向；AI 全量；正式、prototype、全仓；解析当前完整 handoff；`py_compile`、`git diff --check`。人工通过仍待 Claude 回审。
+
+### Codex 人工三角色规划记录（Fallback Round 1）
+
+- planner_role: high-capability read-only planner
+- planner_scope_writes: none
+- planner_decision: 五文件轮次合同窄包；把历史预增错误从执行后移到进程启动前，严格排除 freshness/authority/prelaunch。
+- planner_handoff: 可进入单一 Delivery。
+
+### Codex 人工三角色交付记录（Fallback Round 1）
+
+- delivery_role: 单一 scope writer / high reasoning。
+- 完成内容: parser 投影 `latest_review_round`，最近 review 标题只接受唯一严格 ASCII `Round N`；scheduler 拒绝非正 exact-int 轮次，并在启动前强制 `CHANGES_REQUESTED` 顶层 round 等于最近 Codex 审核轮次。完成后置条件锁定 Claude 首轮 `N→N`、Codex 审核 `N→N`、Claude 返修 `N→N+1`。`source_round/target_round` 只在 DispatchResult 展示，未写入 plan/history/lease。
+- tests-first: 旧实现在 16 项新反证下出现预期 12 failures + 7 errors；实施后全部转绿。最终重跑时曾发现一个新测试误把 JSONL 整文件当单 JSON 读取，已改为逐行解析且未弱化反证，修正后完整重跑通过。
+- 实际测试命令与结果: Parser/Scheduler/EventDriven/Round 定向 56/56；AI handoff 176/176；正式 tests 1632/1632；prototype 68/68；全仓 1700/1700；完整 handoff 解析 57 包/71 条 review 标题兼容；`py_compile` 与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: bd04a418732d54e24342b4aa7f5b85a6899423c4c6318a280dc9633d55fd4918
+- triad_delivery_manifest:
+  - `5701040479138ad0b796139d23b151fd94afca87eaf00318f60249e2cbfc84cd  tools/ai_handoff/parser.py`
+  - `a1edff727f00b6942c8923477b8cf33b42ce887a71b125bf3c5227b74f4afba5  tools/ai_handoff/scheduler.py`
+  - `71a4a0ff02b3cb4cfc43c4ba1f471ac07a356ed408d36626a8bd0482b7da6f4b  tests/test_ai_handoff.py`
+  - `772fc074613b8631f2a98c8b61c602af1b31ab4ab23a4b41a92a8be61cd4c00d  docs/AI_HANDOFF_OPERATIONS.md`
+  - `d63438fc201ea7c888ed588b109cd3c6f77b086e31b9f54d3ad267d7689d32ed  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+- 未验证边界: 证据新鲜度、verdict/终态绑定、authority/启动前门禁仍依计划留待 WP-065/066；正式轴仍 `BLOCKED / user / user`，候选待 Claude 回审。
+
+### Codex 人工三角色独立审核结论（Fallback Round 1）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: bd04a418732d54e24342b4aa7f5b85a6899423c4c6318a280dc9633d55fd4918
+- triad_review_finished_sha256: bd04a418732d54e24342b4aa7f5b85a6899423c4c6318a280dc9633d55fd4918
+- scope_drift: false
+- P1:
+  1. `_validate_basic` 在 exact-int 门禁前的缺字段判断执行 `value == ""`；恶意 `round/max_rounds` int 子类可以通过 `__eq__` 让异常逃逸，未结构化 `rejected-invalid`。不信任对象也不得在拒绝结果中继续被 repr/asdict/deepcopy/JSON 观察。
+  2. `latest_review_round` 只做宽松等值比较；`True`、`1.0`、`IntSubclass(1)` 均可以冒充顶层 `round=1`，在 live 路径真正调用 `coordinator.start`并形成错误 `1→2` 候选。
+- P2:
+  1. strict review token 仍接受 `Round 02`、`Round 2.0`、`Round 2/3`；需拒绝前导零、小数和斜线续写等非规范/歧义形式。
+- 反证结果: `round/max_rounds` 恶意 `__eq__` 两字段均 100% 复现异常逃逸；`latest_review_round=True/1.0/int子类` 三项均得到 `execution-scheduled` 且 coordinator.start 各调用一次；三种标题变体均被 parser 误接受。
+- 已运行验证: 定向 56/56 OK；发现 P1 后按 fail-fast 未重复跑 AI/formal/prototype/full，交付方的 176/1632/68/1700 绿灯不能覆盖未预告绕过。
+- 必须返修: 在任何比较、格式化、asdict 或序列化前，共享门禁验证 `round/max_rounds/latest_review_round` 均为 exact 正 int；非法结果不携带原恶意对象；Codex completion 也锁定 latest review exact-int；strict token 收紧为规范正十进制。新增 `__eq__/__repr__/__deepcopy__`、bool/float/int 子类及标题变体反证，live 必须 coordinator.start 零调用。
+- reviewer_writes: none。正式轴继续 `BLOCKED / user / user`，本轮不可通过。
+
+### Codex 人工三角色返修交付记录（Fallback Round 2）
+
+- delivery_role: 原单一 scope writer / high reasoning。
+- 完成内容: `_validate_basic` 的 exact positive built-in int 门禁移到任何轮次对象比较、格式化、深拷贝或序列化之前；非法 `round/max_rounds` 拒绝结果不携带原始不可信轮次对象。`CHANGES_REQUESTED` 准入和 Codex completion 均对 `latest_review_round` 执行 exact positive int 门禁。review 标题只接受无前导零的正十进制 `Round N`。
+- tests-first: 旧候选对非规范标题出现 3 failures，恶意 `__eq__` 出现 2 errors，live latest-review 伪造出现 3 failures，completion latest-review 伪造出现 3 failures；修复后全部转绿，live 反证锁定 coordinator.start 零调用。
+- 实际测试命令与结果: 定向 59/59；AI handoff 179/179；正式 tests 1635/1635；prototype 68/68；全仓 1703/1703；完整 handoff 57 包/71 条 review/0 缺失轮次；`py_compile` 与 `git diff --check` 通过。两次 unittest loader ImportError 源于交付方误写不存在的测试模块名，已用仓库真实命令完整重跑，不冒充产品失败或通过。
+- triad_delivery_scope_sha256: 928d3d86e53693b6d88749511ab8fa0bac4891fc15e863f6b223fc6c34a25a72
+- triad_delivery_manifest:
+  - `d12a9d0513d1e7e184515c03bc431b4008ba182f542a6dfc560899e66e2098d2  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `b5c01acfd06ad4d7aa21015570a7d4d96977819c4d44390015672348e2bb8351  tests/test_ai_handoff.py`
+  - `3519f9d03e6ecb72529ab8692799fad0ed00969427780ace7b2e882552835d76  docs/AI_HANDOFF_OPERATIONS.md`
+  - `1903ff593adedf64e553becf17ab0ac8db1011deb5cb445aa78122141fe6ee97  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+- 未验证边界: 仍不包含 WP-065 证据新鲜度、WP-066 authority 重读或 WP-067 Popen 最终门禁；正式轴继续 `BLOCKED / user / user`。
+
+### Codex 人工三角色独立审核结论（Fallback Round 2）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 928d3d86e53693b6d88749511ab8fa0bac4891fc15e863f6b223fc6c34a25a72
+- triad_review_finished_sha256: 928d3d86e53693b6d88749511ab8fa0bac4891fc15e863f6b223fc6c34a25a72
+- scope_drift: false
+- P1: 0。Round 1 两个 P1 已关闭：恶意 `round/max_rounds` 的 `__eq__/__repr__/__deepcopy__` 零观察，拒绝结果的 round/source/target 全为 None，deepcopy/to_dict/JSON/runs/failure 均安全；`latest_review_round` 伪造值在 dry/live/completion 全部拒绝，live coordinator.start 零调用。
+- P2:
+  1. strict token 尾边界仍仅是 ASCII-aware；`Round 2２/2²/2₂/2\u0301/2返修/2α`、`Round 2-3/+3/:3/;3` 及全角/短横线变体仍误投影为 2，左边界 `轮Round 2` 也被误接受。这不符合唯一严格 ASCII `Round N` token。
+- 必须返修: 使用 Unicode-aware 字符类别锁定双侧边界；数字后直接附着 Letter/Number/Mark/connector/format 必须拒绝，分隔标点/水平空白后若进入数字范围、小数、比例或列表续写也必须拒绝；仍保留 `Round 2）`、`Round 2，返修`、`Round 2。`、`Round 2；返修`、`Round 2: 返修`、`【Round 2】` 等合法分隔。
+- 已运行验证: hostile/序列化/dry-live-completion 定向探针与 Round 标题 fuzz，`git diff --check` 通过；稳定 P2 后 fail-fast，未重复跑完整组。
+- reviewer_writes: none。正式轴仍 `BLOCKED / user / user`。
+
+### Codex 人工三角色返修交付记录（Fallback Round 3）
+
+- delivery_role: 原单一 scope writer / high reasoning。
+- 完成内容: parser 使用清晰的 `unicodedata` helper 取代单一正则承担 Unicode 边界；拒绝 `Round` 左侧及数字右侧 Unicode L/N/M/Pc/Cf 附着，拒绝连字符、加号、冒号、分号、小数点、斜线及 Unicode 对应符继续数字，保留任务书指定的六种合法标题。Round 3 未修改 scheduler，未扩到 WP-065/066/067。
+- tests-first: 两个成对 fuzz 方法在旧候选上产生 35 个预期 failures；实施后全部转绿。
+- 实际测试命令与结果: Parser 19/19；AI handoff 181/181；正式 tests 1637/1637；prototype 68/68；全仓 1705/1705；完整 handoff 57 packages/71 reviews/0 missing round；`py_compile` 与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 9f3df53404b29e6e5a232c9908788f3972d23f269a77109c0b631c7ae9e84dec
+- triad_delivery_manifest:
+  - `8145ec5925bcdfcede2e7037543f06c4abbd80b2186ffd6efd3eecbe2addb7ed  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `17f9df8ee6d59b61ef2a362f547c71c13bc1a50fef74ad3c090a6728f5ba6508  tests/test_ai_handoff.py`
+  - `f0d86d50912b56e299497ef5b95cbb751373a2e1546249444f75aa1d688beeb1  docs/AI_HANDOFF_OPERATIONS.md`
+  - `4250cc7daa96b7fef5da4c668267b5bb0819d1d79af3edab3900f7e49e44845e  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+- 未验证边界: 证据新鲜度、authority 和 Popen 最终门禁继续属于后续独立包；正式轴仍 `BLOCKED / user / user`。
+
+### Codex 人工三角色独立审核结论（Fallback Round 3）
+
+- triad_verdict: TRIAD_CHANGES_REQUESTED
+- triad_review_started_sha256: 9f3df53404b29e6e5a232c9908788f3972d23f269a77109c0b631c7ae9e84dec
+- triad_review_finished_sha256: 9f3df53404b29e6e5a232c9908788f3972d23f269a77109c0b631c7ae9e84dec
+- scope_drift: false
+- P1: 0。Round 1 两项 P1 继续关闭，exact-int 零观察门禁、latest dry/live/completion 拒绝、coordinator.start=0 及三动作轮次公式未回归。
+- P2:
+  1. numeric continuation scanner 仅跳过 ASCII 空格/Tab；Cf控制符、combining Mark 和 Unicode Zs 空格可插入分隔符前后绕过数字续写检测。同时无边界统计所有 `Round` substring，误拒 `Round 2，修复 Roundtrip 兼容`。
+  2. 无保护 `int(digits)` 在受支持的 Python 3.11+ 上对 4301 位及更长数字抛出未捕获 `ValueError`；parser 可被极长 review heading 异常逃逸。
+- 未预告反证: 15 类 Cf、3 类 Mark、NBSP/FIGURE/NNBSP/THIN/IDEOGRAPHIC SPACE 稳定绕过；143 个非法样本中 23 个误接受，14 个合法样本中 2 个 Roundtrip 误拒；Python 3.13.5 下 4301/10000 位均异常逃逸。L/N/M/Pc/Cf 直接附着、Nd/Nl/No、28 个 NFKC 分隔符与 25 个 Pd 其余路径正常。
+- 必须返修: 数字右侧直接 M/Cf 附着继续先行拒绝；scanner 在分隔符前后将 ASCII Tab、Unicode Zs、M*、Cf 视为 bridge，若后续首个实质字符为 N* 则拒绝；`Round` 只统计双侧边界合格 marker；数字转换前设可信长度上限并捕获 ValueError 返回无证据。
+- 已运行验证: 独立 fuzz 和性能探针，`git diff --check` 通过；稳定 P2 后 fail-fast 未重复全套。
+- reviewer_writes: none。正式轴仍 `BLOCKED / user / user`。
+
+### Codex 人工三角色返修交付记录（Fallback Round 4）
+
+- delivery_role: 原单一 scope writer / high reasoning。
+- 完成内容: numeric scanner 将 ASCII 空格/Tab、Unicode Zs、M*、Cf 作为 bridge，但数字后直接 M*/Cf 仍由 attachment 门禁先行拒绝；marker 只统计双侧 Unicode 边界合格的 exact `Round`，`Roundtrip` 不再制造伪重复；轮次数字限制 64 位并捕获 ValueError 返回无证据。scheduler 未改。
+- tests-first: 旧候选出现 27 failures + 2 errors，精确覆盖 23 个 bridge 绕过、2 个合法 Roundtrip 误拒、65 位误接受、4301/10000 位异常逃逸和合法长正文误拒；实施后全部转绿。
+- 实际测试命令与结果: Parser 21/21；AI handoff 183/183；正式 tests 1639/1639；prototype 68/68；全仓 1707/1707；完整 handoff 57 packages/71 reviews/0 missing round；`py_compile` 与 `git diff --check` 通过。
+- triad_delivery_scope_sha256: 55ec99075f6e8692a093a16c15c125b2270b78cdedcee4f6c3f10fe1305783c1
+- triad_delivery_manifest:
+  - `4fd6accfb7d410bc8794559c0844de3947543e7f794bd882ad09e729b60412af  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `97c0af7bff6f1edf4eb2cc0f7d5ae7990465650c16b1fbfac4e40edfa8e50400  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+- 未验证边界: 后续 WP-065/066/067 继续独立；正式轴仍 `BLOCKED / user / user`。
+
+### Codex 人工三角色独立审核结论（Fallback Round 4）
+
+- triad_verdict: TRIAD_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- triad_review_started_sha256: 55ec99075f6e8692a093a16c15c125b2270b78cdedcee4f6c3f10fe1305783c1
+- triad_review_finished_sha256: 55ec99075f6e8692a093a16c15c125b2270b78cdedcee4f6c3f10fe1305783c1
+- scope_drift: false
+- P1: 0。
+- P2: 0。
+- 独立审查: Round 标题 Unicode 边界、Zs/M*/Cf bridge、N* 续写、Pd/NFKC 分隔符、64 位上限、exact-int 零观察、latest-review dry/live/completion 准入与三动作轮次公式未发现新缺陷。fuzz 首个失败是审核探针误把合法 `Round 20` 当作 `Round 2` 附着数字；parser 正确返回 20，不是产品失败。
+- 独立验证: Reviewer 完成 Parser 21/21、AI 183/183、formal 1639/1639 及 Unicode 全码点诊断；主控在同一冻结候选上补齐 prototype 68/68、full 1707/1707、`py_compile`、`git diff --check` 与 800,008 字符长标题 smoke（返回 2，0.0175s）。主控结束逐文件 manifest 与聚合精确等于开工哈希。
+- reviewer_writes: none。
+- 状态边界: 本结论只是人工备用流程的暂定通过；正式五字段仍 `BLOCKED / user / user`，`fallback_formal_baseline_eligible=false`，必须经 Claude 回审和新 Codex 审核后才能关闭/Git 收尾。
+
+## WP-20260802-065
+
+- title: startup/readiness Python 3.9 导入兼容性返修
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- function_matrix_ids: L5-11、L34-11
+- scope:
+  - src/runtime/startup.py
+  - tests/test_runtime_startup.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - tests/test_ai_handoff.py
+- scope_baseline_sha256: dff38819f565fba637a59f0357c2b4f4936d758a00e6f3b3fc53b41f422a8c8c
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 根因、唯一目标与最小修复
+
+- 仓库 `README.md` 与 `requirements.txt` 公开声明 Python 3.9+；系统 `python3=3.9.6` 实测导入 `src.runtime.startup` 时，两处 `@dataclass(frozen=True, slots=True)` 因 Python 3.9 `dataclass()` 不支持 `slots` 而稳定抛 `TypeError`，startup/task-runtime 及 formal discovery 在收集期失败。
+- 唯一产品修复是使 `ReadinessSnapshot` 与 `StartupState` 的 dataclass 声明兼容 Python 3.9；保留 `frozen=True`、字段、构造签名、等值/repr、exact-bool/exact-int 校验、TOCTOU 可信副本、controller/SafetyState 双域原子性与公开导出不变。不为保留 slots 引入自定义 dataclass/元类/兼容层。
+- `slots=True` 从安全合同中没有被当作不可篡改证明；现有边界本就把公开 snapshot 字段当作不可信并重新校验/复制。测试须确认去掉 slots 不会让额外属性、`object.__setattr__` 或子类绕过 exact 边界。
+- baseline manifest: startup=`2a309c5f…c4de9`、startup tests=`edf255ef…d208`、RISKS=`b23f796c…f1b0`、matrix=`cbf41655…306b`、AI handoff tests=`97c0af7b…50400`。第五文件是建立 WP-065 后发现的受控 scope 补充：WP-064 测试误把当前包 ID 固定为 WP-064，使任何合法后续包都破坏 formal discovery。只允许删除该当前 ID 耦合，保留完整历史 review 轮次兼容验收；不修改 parser/scheduler。
+
+### 验收、排除与效率约束
+
+- tests-first 先在 Python 3.9 复现 import/loader 失败；修复后运行 Python 3.9 的 startup + task-runtime 定向及 formal discovery，再用项目 Python 3.13 运行 startup/task-runtime、formal、prototype、full 与 `git diff --check`。报告两个解释器的真实版本和计数。
+- 新增行为反证只锁定 dataclass 字段/冻结语义、额外属性不影响六字段复制、子类仍拒绝，不建设通用 Python 版本平台或大规模重构。
+- 明确排除 task-runtime 其他语义、WP-064 parser/scheduler 轮次实现、WP-066+ 证据/authority/Popen、真实调度、HAL、PLC/CODESYS 和现场验证。除上述单条 AI handoff 测试解耦外，任何需扩到其它文件或改变 readiness 语义的发现必须停笔。
+- 本包取消常驻三 Agent：主控完成一次规划，单一 Delivery 只写 scope，交付后主控独立审核。只在发现真实缺陷时返修；定向测试用于迭代，完整全仓只在最终候选运行一次。通过仍只能记为待 Claude 回审的暂定候选。
+
+### Codex 轻量备用流程交付记录（Fallback Lite Round 1）
+
+- delivery_role: 单一 Delivery Agent / medium reasoning，五文件唯一 writer。
+- tests-first: 系统 Python 3.9.6 在收集 `src.runtime.startup` 时因 `dataclass(slots=True)` 稳定抛 `TypeError: unexpected keyword argument 'slots'`，未进入测试。移除两处 `slots=True` 后，startup + task-runtime 定向 57/57 OK。
+- 完成内容: `ReadinessSnapshot` / `StartupState` 仅从 `@dataclass(frozen=True, slots=True)` 改为 `@dataclass(frozen=True)`；字段、API、frozen、校验和 readiness 语义未改。startup 测试新增 fields/frozen、额外属性/`object.__setattr__`、子类仍不放宽 `_copy_readiness` 的六字段 exact-copy 反证。RISKS 与 L5-11/L34-11 只登记待回审候选。
+- scope 补充原因: 合法新建 WP-065 后，WP-064 测试中 `current.work_package_id == WP064` 硬编码导致 Python 3.9/3.13 formal 均只剩同一个失败。受控纳入 `tests/test_ai_handoff.py`，仅改为 `current is result.packages[-1]`，保留全部 review round 非 None 断言；未修 parser/scheduler。
+- 实际测试命令与结果: Python 3.9.6 startup+task-runtime 57/57、formal 1641/1641；Python 3.13.5 startup+task-runtime 57/57、AI 183/183、formal 1641/1641、prototype 68/68、full 1709/1709；两版本 `py_compile` 与 `git diff --check` 通过。首次 formal 的唯一 WP ID 失败按上述 scope 补充处理后全绿。
+- fallback_delivery_scope_sha256: c97c510bdac54996579baed801863b34283ff92199247b94e2ba55dd93e0a29f
+- fallback_delivery_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `c03cb6abfac47e907307c1da565f832cf82e5d9d716e0d3ad4f5f479f8d164d4  docs/RISKS.md`
+  - `054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db  tests/test_ai_handoff.py`
+- 未验证边界: 本候选不是 PLC/CODESYS、真实调度、HAL、硬件 watchdog 或现场证明；待主控独立审核和未来 Claude 回审。
+
+### Codex 轻量备用流程独立审核（Fallback Lite Round 1）
+
+- fallback_verdict: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- review_started_sha256: c97c510bdac54996579baed801863b34283ff92199247b94e2ba55dd93e0a29f
+- review_finished_sha256: c97c510bdac54996579baed801863b34283ff92199247b94e2ba55dd93e0a29f
+- scope_drift: false
+- P1: 0。
+- P2: 0。
+- 独立审查: 产品差异仅两处去除 dataclass `slots=True`；`frozen=True`、字段顺序、构造/API、exact 校验、TOCTOU 副本和 controller/SafetyState 交互未改。公开 snapshot 新增 `__dict__` 不被当作可信边界：额外属性不参与六字段复制，`object.__setattr__` 篡改字段仍由 exact-bool 门禁拒绝，子类仍由 exact-type 门禁拒绝。AI 测试仅解除当前 WP ID 硬绑定，仍锁定 `current is packages[-1]` 与全历史 review round 有效。
+- 主控独立验证: Python 3.9.6 startup+task-runtime 57/57、formal 1641/1641；Python 3.13.5 startup+task-runtime 57/57、当前包解耦定向 1/1、formal 1641/1641；两版本 `py_compile` 与 `git diff --check` 通过；交付方的 prototype 68/68 和 full 1709/1709 在同一冻结候选上通过，本审核未重复消耗该两组。behavior smoke 确认 frozen 异常、六字段列表与 extra-attribute 不影响复制。
+- reviewer_writes: 仅本控制面审核记录；未改五个 scope 文件。
+- 状态边界: 正式五字段继续 `BLOCKED / user / user`，`fallback_formal_baseline_eligible=false`；必须经 Claude 回审和新 Codex 审核后才能 CLOSED/Git/GitHub 收尾。
+
+## WP-20260802-066
+
+- title: 可复用人工多 Agent 轻量备用流程落库
+- status: BLOCKED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_BOOTSTRAP_V1
+- fallback_status: FALLBACK_LITE_DOCUMENTED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- function_matrix_ids: ENG-01、ENG-02、ENG-05（本包不改矩阵，待正式回审后行政同步）
+- scope:
+  - docs/MANUAL_TRIAD_FALLBACK_LITE.md
+- scope_baseline_sha256: a237b8c803925930374936b50c27251b2345d367c468e488c2be2a71a714e784
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 唯一目标、强制约束与排除
+
+- 只新增一份独立、可跨功能/项目复制的手工备用流程：Claude 因配额/服务不可用时，保留 scope 哈希、唯一 writer、独立 Reviewer、待 Claude 回审标记与正式轴失败关闭，同时避免常驻三 Agent 每包自动全员工作、每轮重复全仓和平台化自动编排成本。
+- 文档必须定义触发条件、C0–C3 复杂度路由、按需角色、唯一 writer、定向—最终测试分层、两轮/时间/规模升级阈值、必填 manifest/证据、Claude 回审队列与 Git/现场边界。
+- 三个角色身份可以常驻但只按 C0–C3 唤醒；简单包由主控直接处理或唤醒一个 Delivery，只有高风险/跨组件包才由 Planner/Delivery/Reviewer 全部参与。迭代只跑定向测试，批次/阶段门禁才运行扩展或全仓测试；审核方优先做未预告反证，不机械重复交付方已在同哈希上运行的低价值测试。
+- 不修改任何现有文档/代码/测试/矩阵，不建设自动外部进程、lease/history、DAG、API、Dashboard、无人值守或崩溃恢复。原 WP-057 废弃平台仍只在 stash 保全，不恢复。
+- 本包由主控直接编写单文档，只做结构/内部链接/边界复核，不再另起 Agent；只可标记 `FALLBACK_LITE_DOCUMENTED_PENDING_CLAUDE_REAUDIT`，不得自审为正式 APPROVED/CLOSED。
+
+### Codex 轻量流程落库与自检记录（Fallback Lite Round 1）
+
+- implementation_role: 主控直接实施；单文件唯一 writer，未启动 Planner/Delivery/Reviewer 子 Agent。
+- 完成内容: 新增 `docs/MANUAL_TRIAD_FALLBACK_LITE.md`，冻结启用条件、C0–C3 路由、唯一 writer/哈希交接、定向—最终测试分层、过度设计停笔阈值、必填证据、Claude 回审队列和 Git/PLC/HAL/现场边界。明确 `max_rounds=5` 是失败关闭上限，不是必须耗尽的返修预算。
+- 效率裁决: C0 由主控直接实施和定向复核；C1 默认只使用一个 Delivery；仅 C2 才启动独立高等级 Planner/Reviewer；C3 默认停止并拆成独立产品。文档包不机械重跑产品全仓测试。
+- 实际验证: 当前完整 handoff 解析兼容定向 1/1；文档 7 个章节、必填标记和边界结构检查通过；`git diff --check` 通过。
+- fallback_delivery_scope_sha256: 2c2ca2f3be7eccfca629251d24c8fef36eae87b938ecc9534f2cc54a14e14646
+- fallback_delivery_manifest:
+  - `5d6a9a2c1e742544cce07b26091de0d12c4f1773952e5a07f66fb758b49886df  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+- P1: 0。
+- P2: 0。
+- scope_drift: false。
+- 未验证边界: 这是人工流程文档，不证明 Claude/外部服务可用，不包含自动进程、lease、DAG、API、Dashboard 或无人值守执行；正式轴继续 `BLOCKED / user / user`，必须经 Claude 回审和新 Codex 独立审核后才能关闭或 Git/GitHub 收尾。
+
+### 用户裁决后的规则修订记录（Fallback Lite Round 2）
+
+- decision_source: 用户明确要求保留受控的三常驻角色，按 C0–C3 唤醒；全仓阅读和全套测试改为批次/阶段门禁；两轮新增 P1 改为重新规划闸门，不得理解为停止修复漏洞。
+- 修订内容: 定义 Planner/Delivery/Reviewer/主控的固定职责和禁止项；“常驻”只保留角色身份与上下文，不持续运行或自动取得写入权；每次唤醒只读本规范、Guide、当前工作包和 scope 直接依赖。新增包级验收映射、包内定向测试、工作包功能完整组、3–5 个相关包的批次回归和阶段全仓总验收。
+- P1 裁决: 两轮仍新增 P1 时先暂停 writer、冻结证据并区分实现/合同/架构/测试/审核范围根因；随后可在同包继续完整修复、局部重构、拆承接包或等待规格/PLC 证据。未解决 P1 始终阻塞，不得通过、关闭或 Git/GitHub 收尾。
+- scope_drift: false；仍只修改 `docs/MANUAL_TRIAD_FALLBACK_LITE.md`，未修改产品代码、测试、矩阵或其它长期协议。
+- 实际验证: 文档 7 个主章节、91 行；三角色、最小必读集、四级测试节奏、重新规划五类决策与失败关闭标记结构检查通过；`git diff --check` 通过。
+- fallback_delivery_scope_sha256: 816b1500deb06e917dd3d827e1ee4a3742944b453526cc4dfb51254a2f589af3
+- fallback_delivery_manifest:
+  - `c9f58f4cd8c9de970cefd8c56b09444d71bc53ff3a15725c083dc9cba26b549b  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+- fallback_status: FALLBACK_LITE_DOCUMENTED_PENDING_CLAUDE_REAUDIT；正式轴继续 `BLOCKED / user / user`。
+
+### 主控补充风险控制记录（Fallback Lite Round 3）
+
+- 补充动机: 在用户已裁决的三常驻角色与分层测试基础上，继续收口常驻上下文陈旧、Reviewer 确认偏差、缺陷越界、三方重复劳动、额度耗尽和跨项目假设污染风险；不新增自动平台。
+- 上下文规则: 常驻角色每次唤醒仍须复核项目根、HEAD/工作区、当前工作包、scope manifest 和 writer；旧上下文只作导航。跨项目仅复制流程骨架，必须重新声明权威文件、测试、风险、权限和项目边界。
+- 审核分类: Reviewer 先依据合同/规格/差异形成独立清单，再读 Delivery 自审；发现分为当前包阻塞缺陷、相邻既存风险和改进建议。只有违反当前验收、由本包引入/改变的回归或使本包依赖安全边界失效者进入 P1/P2；真实阻塞依赖仍不得绕过。
+- 资源规则: 每次唤醒只允许一个有明确输入/输出/scope/验证/停止条件的任务，三个角色不得重复回答同一开放问题；规模翻倍、C0/C1 超过 60 分钟或长期无可检查产物时停表重分级；空闲 Agent 不轮询或自行找活。
+- 阶段分工: 阶段总验收由 Planner 查路线与覆盖、Reviewer 查冻结差异与关键路径、Delivery 只处理已裁决返修，主控汇总并运行一次完整测试，避免三份重复全仓阅读和测试。
+- scope_drift: false；产品代码、测试、矩阵和其它长期协议未改。
+- 实际验证: 文档 7 个主章节、110 行；上下文新鲜度、三类发现、两阶段 Reviewer、阶段角色分工、执行停表和跨项目隔离必填结构检查通过；`git diff --check` 通过。
+- fallback_delivery_scope_sha256: 35d954aca35025045e60fb18e0dd5259db5ea41dd8ed15a4438dde2af8fd0a26
+- fallback_delivery_manifest:
+  - `47cc3b799a9183a7fc019865425971c2722ae146bdf2ccc4e9cc95c0783ad00c  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+- fallback_status: FALLBACK_LITE_DOCUMENTED_PENDING_CLAUDE_REAUDIT；正式轴继续 `BLOCKED / user / user`。
+
+## WP-20260803-067
+
+- title: 阶段 2 CFC 载体分支与确定性定序核心
+- status: BLOCKED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_V1
+- fallback_status: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- complexity: C2
+- function_matrix_ids: USR-01（本包不改脏矩阵；正式回审/行政同步后再更新状态轴）
+- dependencies: 已合并阶段 1 主线 `aa73c56b5f07ed5bd87a6b0c4447d137f0474b04`；WP-060～066 待 Claude 回审候选保持原样，本包不得依赖其产品语义
+- scope:
+  - src/runtime/cfc_order.py
+  - tests/test_runtime_cfc_order.py
+- scope_baseline_sha256: 090963834b6a085594274610e34f685c8040b4148ce4dcdbd24d06bc9ffbb33d
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/cfc_order.py`
+  - `ABSENT  tests/test_runtime_cfc_order.py`
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 目标、模型与算法合同
+
+- 只建立阶段 2 首个纯函数基础：不可变 `CFCOrderNode(node_id, execution_order_id=None, feedback_marker=False)`、`CFCOrderEdge(source, target)`、`CFCOrderGraph(nodes, edges, carrier, execution_order_mode, order_source)`、稳定诊断和 `resolve_execution_order(graph) -> tuple[str, ...]`。这是 CFC 完整框/管脚/连线源模型的**定序视图**，不冒充完整 loader 或最终用户入口。
+- 平台新建图只接受 `carrier=user_defined / execution_order_mode=auto / order_source=user_defined`：对无环依赖图使用 Kahn 拓扑排序；同时 ready 的节点按 exact `node_id` 的 Python Unicode 码点升序，形成不依赖节点/边输入排列的项目工程约定。该 tie-break 只定义本平台新建图，不声称等于 CODESYS `.export` 自动模式算法。
+- PLCopen XML 显式顺序只接受 `carrier=plcopen_xml / execution_order_mode=explicit / order_source=exported`；每个节点的 `execution_order_id` 必须是 exact 内建非负 `int`（拒绝 bool/子类）、全量存在且唯一；按原值排序，允许空洞，不重编号、不用拓扑改写显式顺序。
+- 平台新建显式顺序接受 `carrier=user_defined / execution_order_mode=explicit / order_source=user_defined`，沿用同一 exact-int/唯一/保留空洞合同。
+- `.export` 自动模式 `export_native/auto/reconstructed` 必须以稳定 `UNSUPPORTED_RECONSTRUCTION` 失败关闭，绝不借用平台新建图拓扑算法；`.export` 显式模式因无样本也失败关闭。
+- 节点 ID 必须为 exact 非空 `str` 且唯一；nodes/edges 必须为 tuple；边端点必须存在，完全重复边、自环与任意环拒绝。先汇总结构/配置诊断，再排序；失败时不返回部分顺序、不修改输入。
+- `feedback_marker` 只按 exact bool 保存为源数据；本包不据其剪边。任何仍成环的图都拒绝，不生成或修改 `LoadPrev`。反馈起点哪些入边 lower 为 `LOAD_PREV` 继续受 `PLATFORM-CFC-FEEDBACK-MAP-1` 阻塞。
+
+### 错误、验收映射与测试层级
+
+- 错误模型采用 `CFCOrderDiagnostic(code, message, node_id=None, edge=None)` 与 `CFCOrderError.errors: tuple[...]`；诊断顺序稳定。至少区分 graph/config、duplicate-node、duplicate-edge、dangling-edge、invalid-order-id、duplicate-order-id、cycle、unsupported-reconstruction/unsupported-carrier-mode。
+- 目标→实现→验证：新建图确定性→Kahn+node_id tie-break→线性/菱形/多 ready/节点与边排列置换；显式顺序保真→原 ID 排序且不重编号→空洞和依赖逆序；失败关闭→聚合诊断→重复/悬空/自环/双节点环/非法组合；载体隔离→固定错误→`.export` 自动/显式拒绝；反馈边界→不剪边→带 marker 的环仍拒绝；纯函数→冻结 dataclass/tuple 输出→输入等值与内容不变。
+- Delivery 只运行 `tests.test_runtime_cfc_order`、相关 `tests.test_runtime_ir` 与 `py_compile`/`git diff --check`；不运行全仓。Reviewer 独立运行新增定向组和未预告排列/非法组合反证，不重复无关测试。
+
+### 排除、停笔与后续拆包
+
+- 不改 `src/runtime/__init__.py`、现有 IR/loader/executor/Store、startup/task-runtime、标准库块、原语、WP-060～066 候选、PROJECT_STATE/ROADMAP/RISKS/矩阵或协作工具；测试从 `src.runtime.cfc_order` 直接导入。
+- 不实现 CFC 节点到 IR lowering、完整框/管脚/连线 loader、`LOAD_PREV` 反馈映射、PLCopen/.export 解析、`.export` 顺序重建、ST、UI、HAL、实时调度、持久化、F2、CODESYS/现场证明。若必须触及 scope 外文件或需要改变 D3/反馈规格，停笔交主控重新规划。
+- 后续依赖顺序：WP-068 无环 CFC 定序结果→现有全类型 IR lowering + `validate_task`；WP-069 在样本/规格裁决后处理反馈边→`LOAD_PREV`；`.export` 重建仍属阶段 5。阶段 2 批次完成后再做一次扩展回归和文档/矩阵行政同步。
+
+### Planner 只读规划记录（Fallback Lite Round 1）
+
+- planner_role: 独立高能力只读 Planner；零文件写入、零测试执行。
+- planner_decision: 首包拆为两个新文件的纯定序核心，规避所有既有脏候选；不让完整 CFC loader/lowering/反馈/导入器进入同包。
+- source_evidence: `docs/PLATFORM_ROADMAP.md` 阶段 2；`docs/IR_SPEC.md` §4/§6；`docs/ENGINE_SCAN_SPEC.md` §5.1/§5.2；`docs/RISKS.md::PLATFORM-CFC-AUTOORDER-1/PLATFORM-CFC-FEEDBACK-MAP-1`；`src/runtime/ir.py` 已有 IR 指令与 `POUDefinition.source` 占位、`src/runtime/loader.py` 已有后续可复用的 `validate_task`。
+- planner_handoff: 可唤醒单一 Delivery；Reviewer 必须等 Delivery 冻结 scope 后再启动。
+
+### Delivery 交付记录（Fallback Lite Round 1）
+
+- delivery_role: 单一 Delivery Agent / medium reasoning；两个 scope 文件唯一 writer，Planner 已停止、Reviewer 尚未启动。
+- tests_first: `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_cfc_order` 在实现文件不存在时稳定 `ModuleNotFoundError: No module named 'src.runtime.cfc_order'`，`Ran 1 test`、`FAILED (errors=1)`；随后才新增实现。
+- 完成内容: 新增冻结 `CFCOrderNode/CFCOrderEdge/CFCOrderGraph/CFCOrderDiagnostic`、聚合 `CFCOrderError` 与纯 `resolve_execution_order`。新建 auto 图使用 Kahn + Unicode `node_id` heap；PLCopen/user-defined explicit 保留 exact 非负唯一序号和空洞且不按依赖改写；export_native 两模式失败关闭；结构/配置/序号诊断聚合，任意环和未裁决 feedback 环拒绝。
+- 验收映射: 线性/菱形/多 ready 与排列置换锁定确定性；Unicode ID 锁定 tie-break；显式空洞及依赖逆序锁定不重编号；非法配置/重复/悬空/自环/双节点环锁定失败关闭；feedback marker 不剪边；冻结 dataclass、tuple 输出和调用前后输入等值锁定纯函数边界。
+- 实际测试命令与结果: `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_cfc_order` → `Ran 9 tests, OK`；`PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_ir` → `Ran 63 tests, OK`；`python -m py_compile src/runtime/cfc_order.py tests/test_runtime_cfc_order.py` → OK；`git diff --check` → OK。
+- fallback_delivery_scope_sha256: fb3fb5367a84aba9688b2724d65c1bc5d066eede66c46bb3dccb768ec1d2b833
+- fallback_delivery_manifest:
+  - `e96d7c02cf768c8e30a323d6a21ed23ec2c7bb48c2c3dd6610b824fe48444e71  src/runtime/cfc_order.py`
+  - `1be5d90358e5ca65f1bc56d0f616be3b23140de89d3676d3683655a6d1cb781b  tests/test_runtime_cfc_order.py`
+- scope_drift: false；主控独立复算逐文件与聚合完全一致。
+- 已知疑问: 无 scope 内规格冲突；tie-break 是本平台新建图工程约定，不是 CODESYS 结论。
+- 未验证边界: 完整 CFC loader/IR lowering、反馈边→`LOAD_PREV`、PLCopen/.export 解析与重建、真实 CODESYS/HAL/现场语义均未覆盖。
+- delivery_finished_at: 2026-08-03 00:37:10 CST
+
+### 主控合同反证裁决（Fallback Lite Round 1）
+
+- reviewer_attempts: 首个独立高能力 Reviewer 与后续极窄 Reviewer 均因超过本包执行预算、未及时形成可检查 verdict 而被主控中断；两者均未写文件。不得把中断冒充独立审核结论。
+- fallback_verdict: FALLBACK_LITE_CHANGES_REQUESTED
+- review_started_sha256: fb3fb5367a84aba9688b2724d65c1bc5d066eede66c46bb3dccb768ec1d2b833
+- review_finished_sha256: fb3fb5367a84aba9688b2724d65c1bc5d066eede66c46bb3dccb768ec1d2b833
+- scope_drift: false。
+- P1:
+  1. 合法 `user_defined/auto/user_defined` 图可携带 exact-int `execution_order_id`，当前实现静默忽略该显式元数据并返回拓扑序。`IR_SPEC §4` 只允许载体显式提供顺序时填写该字段；静默接受会让调用者误认为顺序被采用，必须以 `INVALID_ORDER_ID` 失败关闭。
+- P2:
+  1. `carrier/execution_order_mode/order_source` 任一为 list 等不可哈希非法类型时，`config not in set` 泄漏原生 `TypeError`，违反稳定 `CFCOrderError.errors` 配置诊断合同。三字段须先做 exact-str 结构门禁，再进入组合判断。
+  2. `export_native/explicit/exported` 当前错误报告 `UNSUPPORTED_RECONSTRUCTION`；显式分支不是自动顺序重建，应稳定报告 `UNSUPPORTED_CARRIER_MODE`。只有 `export_native/auto/reconstructed` 使用 `UNSUPPORTED_RECONSTRUCTION`。
+- 未预告反证: 三个内存探针分别稳定得到 `TypeError`、`ACCEPTED ('n',)`、错误的 `UNSUPPORTED_RECONSTRUCTION`，均直接命中本包公开模型/错误合同，不属于范围外威胁模型。
+- 必须返修: 在两个原 scope 文件内修复三项并新增反证；补齐 Planner 已要求但 Delivery 测试遗漏的空图与孤立节点合法用例。保持 Kahn/显式顺序/反馈拒绝/其它诊断不变。
+- reviewer_writes: 仅本控制记录；两个 scope 文件零写入。正式轴继续 `BLOCKED / user / user`。
+
+### Delivery 定向返修记录（Fallback Lite Round 1）
+
+- rework_basis: 仅处理本轮主控反证确认的 1 个 P1、2 个 P2，并补齐空图/孤立节点测试；不扩展功能或 scope。
+- tests_first: 在旧候选上先新增 3 项缺陷反证，`python -m unittest tests.test_runtime_cfc_order` 得到 `Ran 12 tests`、`FAILED (failures=2, errors=1)`，分别锁定 auto exact-int 被静默接受、非法配置泄漏 `TypeError`、export explicit 错分为 reconstruction。
+- 修复内容: auto 模式只接受 `execution_order_id is None`；carrier/mode/source 在集合判断前执行 exact-str 门禁并聚合稳定诊断；仅 `export_native/auto/reconstructed` 使用 `UNSUPPORTED_RECONSTRUCTION`，其它 export-native 组合使用 `UNSUPPORTED_CARRIER_MODE`；新增空图与孤立节点合法用例。
+- 修复后重跑结果: `python -m unittest tests.test_runtime_cfc_order` → `Ran 12 tests, OK`；`python -m unittest tests.test_runtime_ir` → `Ran 63 tests, OK`；`python -m py_compile src/runtime/cfc_order.py tests/test_runtime_cfc_order.py` → OK；`git diff --check` → OK。
+- fallback_delivery_scope_sha256: bed3e12e891ef3b73c735c31e6e5d26851056755be0af42ce23ae6c645bd3d26
+- fallback_delivery_manifest:
+  - `da05fbb0d8520ca4073ae0ccc75c51f3cb046c8f3b5f2b1c106dd0cc2ae0e7f8  src/runtime/cfc_order.py`
+  - `614a3ca1bd229ceb423a6b2da7bb3738dac0ec96d85b027fd9442474f883ad61  tests/test_runtime_cfc_order.py`
+- scope_drift: false；Delivery 仍为两个 scope 文件的唯一 writer。
+- 未验证边界: 与原记录相同；未实现 lowering、反馈映射、PLCopen/.export 解析或任何 PLC/HAL/现场语义。
+- delivery_rework_finished_at: 2026-08-03 00:49:00 CST
+
+### 独立 Reviewer 与主控最终裁决（Fallback Lite Round 1）
+
+- reviewer_continuation: 前述被预算中断的极窄 Reviewer 在同一上下文上受控续作；未重新冷启动、未扩大阅读范围、未写文件。此前中断事实保持原样，不冒充审核证据。
+- fallback_verdict: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- review_started_sha256: bed3e12e891ef3b73c735c31e6e5d26851056755be0af42ce23ae6c645bd3d26
+- review_finished_sha256: bed3e12e891ef3b73c735c31e6e5d26851056755be0af42ce23ae6c645bd3d26
+- reviewer_findings: 无 P1/P2；三项返修、确定性拓扑、显式保序以及重复/悬空/自环/任意环失败关闭均与工作包合同一致。
+- reviewer_tests: `python -m unittest tests.test_runtime_cfc_order tests.test_runtime_ir` → `Ran 75 tests, OK`；两文件 `py_compile` → OK；`git diff --check` → OK；非法配置、auto exact-int 与两个 export-native 分支未预告反证 → 全部通过。
+- main_recalculation: 两文件 manifest 与聚合哈希同 Reviewer 完全一致；主控独立重跑新增 12/12、既有 IR 63/63、`py_compile`、`git diff --check`，并完成 144 组 DAG 节点/边排列、5 组失败关闭及显式依赖逆序保序反证，全部通过。
+- scope_drift: false；reviewer_writes: none；main_product_writes: none。
+- 边界裁决: 本结论只批准当前 Python 纯定序候选进入 Claude 回审队列，不升级正式轴、不构成 PLC/CODESYS、`.export` 重建、反馈语义、HAL 或现场证明。
+- formal_status: `BLOCKED / user / user` 保持不变；`fallback_requires_claude_reaudit: true`、`fallback_formal_baseline_eligible: false` 保持不变。Claude 恢复后必须独立回审本包，方可决定正式关闭和 Git/GitHub 收尾。
+- review_finished_at: 2026-08-03 00:51:12 CST
+
+## WP-20260803-068
+
+- title: 阶段 2 无环 CFC 节点输入绑定到正式 typed IR lowering
+- status: BLOCKED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_V1
+- fallback_status: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- complexity: C2
+- function_matrix_ids: USR-01（矩阵已有未审核候选，本包不并发改写）
+- dependencies: WP-20260803-067 冻结候选聚合 `bed3e12e891ef3b73c735c31e6e5d26851056755be0af42ce23ae6c645bd3d26`；正式主线仍为 `aa73c56b5f07ed5bd87a6b0c4447d137f0474b04`
+- scope:
+  - src/runtime/cfc_lowering.py
+  - tests/test_runtime_cfc_lowering.py
+- scope_baseline_sha256: 87b278d4ed2acd5b4da134a630ed45c40d7c44f7a6a72146aca04cac657f6c43
+- scope_baseline_manifest:
+  - `ABSENT  src/runtime/cfc_lowering.py`
+  - `ABSENT  tests/test_runtime_cfc_lowering.py`
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 目标与公开合同
+
+- 新增冻结值对象 `CFCInputBinding(source_node_id, source_key, target_key, iec_type, feedback=False)`、`CFCNodeIR(node_id, inputs=(), body=())`、`CFCLoweringDiagnostic`、聚合 `CFCLoweringError` 与 `CFCLoweringResult(task, pou_name, execution_order, code)`。
+- `lower_cfc_task(graph, nodes, task, pou_name, registry=None)` 必须先通过 WP-067 `resolve_execution_order`，再按顺序为每节点生成全部 current-input 的 `LoadVar(source_key, iec_type) → StoreVar(target_key, iec_type)`，随后追加该节点已经全类型化的正式 IR `body`；最终形成目标 CFC POU 的代码并调用既有 `validate_task`。
+- `source_node_id=None` 表示 GVL/POU/常量预置等图外当前拍来源，不产生 CFC 依赖边；非空来源的 `(source_node_id, target node_id)` 集合必须与 `graph.edges` 精确一致。允许同一节点对有多条管脚绑定，但图依赖边仍唯一。
+- node/fragments 必须 exact tuple、每个 graph node 恰有一个 exact `CFCNodeIR`，不得缺失、重复或未知；node_id/source/target/type 必须 exact 非空 str；inputs/body 必须 tuple；body 项必须是 exact 正式 `INSTRUCTION_TYPES`。
+- 本包所有 `feedback` 必须 exact `False`，body 中禁止 `LoadPrev`；graph 上任何 `feedback_marker=True` 也失败关闭。反馈边留给 WP-069，不能在无环包中绕过。
+- task/pou 必须是 exact `Task`/`POUDefinition`；目标 POU 名称与 `pou_lib` 键一致、`language=CFC`、`source is graph`、`code is None`。lowering 构造新的 POU/Task 容器并验证，绝不原位修改调用方 task；验证失败不得暴露部分结果。`CFCLoweringResult.code` 与 `execution_order` 为 tuple，结果值对象冻结；Task 仍遵守既有可变 IR 容器模型，不冒充不可变。
+- 结构/lowering 错误使用稳定聚合 `CFCLoweringError.errors`；WP-067 图定序错误保持 `CFCOrderError`；最终 IR 类型/栈/声明/调用错误保持既有 `IRValidationError`，不包掉诊断类别。
+
+### 验收映射、测试与排除
+
+- 确定性 lowering → graph order + node mapping → 节点/边/fragment 排列置换得到相同代码；输入传送必须位于对应 node body 前。
+- 正式 IR 接入 → clone target POU/Task + `validate_task` → 合法多节点 `CALL_STD`/赋值和库块调用通过，类型错、未知变量、栈残留由 `IRValidationError` 拒绝。
+- 全覆盖/失败关闭 → 一对一 fragment 与 exact edge-binding 集合 → 缺失/重复/未知 fragment、缺/多依赖边、非法容器/字段/指令、LoadPrev/feedback marker 全部稳定拒绝，无部分 task。
+- 原子与隔离 → 原 task/source/code/集合保持不变 → 成功返回独立顶层容器，失败前后原对象等值且 code 仍为 None；两个 task 连续 lowering 不串扰。
+- Delivery 只运行新增定向组、`tests.test_runtime_cfc_order`、`tests.test_runtime_ir`、必要的 descriptors/loader 定向回归、两文件 `py_compile` 与 `git diff --check`。不运行全仓。
+- 明确排除：完整 CFC XML/.export parser、UI、自动 pin 类型推导、ST lowering、控制流图生成、反馈推断/`LoadPrev`、`.export` 顺序重建、执行器/Store/扫描语义、HAL/I/O、持久化、F2、CODESYS/现场证明；不改 `src/runtime/__init__.py` 或任何现有运行时核心。
+
+### Fallback Lite 规划裁决
+
+- planner_attempt: 复用常驻只读角色，但在执行预算内未形成新的可检查规划产物，主控已中断；零文件写入。不得将旧 WP-067 消息冒充本包 Planner 证据。
+- main_decision: 采用“typed input binding + typed node body + immutable-result metadata + cloned Task + validate_task”的最小完整边界；它不是单纯 list 拼接，因为连接语义、graph dependency 一致性、POU/source 绑定、反馈排除和正式加载期验证均为强制门禁。
+- stop_conditions: 需要修改既有 IR/loader/executor、需要猜测 pin 类型/反馈映射、或 scope 超过两个新文件时立即停笔；WP-069 必须等待本包冻结审核。
+
+### Delivery 交付记录（Fallback Lite Round 1）
+
+- writer: 单一 Delivery；仅新增两个 scope 文件，交付后停笔。
+- tests_first: `python -m unittest tests.test_runtime_cfc_lowering` 在实现文件不存在时得到 `Ran 1 test, FAILED (errors=1)` 与 `ModuleNotFoundError`。
+- 完成内容: 实现 typed input binding、node IR fragment、稳定聚合诊断、无反馈 lowering、target POU/Task 克隆、正式 `validate_task` 门禁及冻结结果元数据。
+- 实际测试命令与结果: 新增组 8/8、WP-067 order 12/12、既有 IR 63/63；两文件 `py_compile` 与 `git diff --check` 通过。
+- fallback_delivery_scope_sha256: 849c2d40c758f6e4d6eca5417db8359fd863acc5962adcd9e46dfcf502a4757a
+- fallback_delivery_manifest:
+  - `5a87b1a1d2ad10049293e755178f2dc99c095f16b5403e618041ea9e8f944e43  src/runtime/cfc_lowering.py`
+  - `fa8dafc6723298642ffb63e9541976549d4c8d03bb4120c2f00247692547c8dd  tests/test_runtime_cfc_lowering.py`
+- scope_drift: false；Git/GitHub writes: none。
+- 未验证边界: parser/pin inference、反馈、`.export` 重建、执行器/扫描/HAL/CODESYS/现场语义均未覆盖。
+
+### 独立 Reviewer Round 1
+
+- fallback_verdict: FALLBACK_LITE_CHANGES_REQUESTED
+- review_started_sha256: 849c2d40c758f6e4d6eca5417db8359fd863acc5962adcd9e46dfcf502a4757a
+- review_finished_sha256: 849c2d40c758f6e4d6eca5417db8359fd863acc5962adcd9e46dfcf502a4757a
+- P1: `_clone_task_with_code()` 对 `task.pou_lib` 全部值无条件 `_clone_pou()`；合法目标 POU 旁存在 `Broken: object()` 时，在 `validate_task()` 前泄漏 `AttributeError`。这违反失败关闭和既有 `IRValidationError` 类别保留合同。必须只克隆目标 POU，保留其它条目给 Loader 聚合校验，并新增红灯反证。
+- P2: 无。其余 fragment/edge/current-binding/feedback/exact-type/原对象不变/双 task 合同暂定通过。
+- reviewer_tests: 新增+order+IR 合计 83/83；三个内存反证、`py_compile`、`git diff --check` 通过。
+- scope_drift: false；reviewer_writes: none；正式轴继续 `BLOCKED / user / user`。
+
+### Delivery P1 返修与最终测试加固（Fallback Lite Round 1）
+
+- tests_first: 新增 `Broken: object()` sibling 反证后，旧候选得到 `Ran 9 tests, FAILED (errors=1)`，原生 `AttributeError` 精确命中 Reviewer P1。
+- 修复内容: `_clone_task_with_code()` 改为复制 `pou_lib` 后只 clone/替换目标 CFC POU，其余条目原样留给 `validate_task`；失败后原目标 `code is None` 且 sibling 对象身份不变。主控发现初版测试的 `isinstance(x, object)` 为永真断言后，进一步以保存引用 + `assertIs` 加固，不改变产品实现。
+- 修复后结果: 新增 9/9、order 12/12、IR 63/63，合计 84/84；两文件 `py_compile` 与 `git diff --check` 通过。
+- fallback_delivery_scope_sha256: 4dd82786eb5f95fb852bb34f2f9cb4c5c2dfffae6cf5933a7781f5cb7772a654
+- fallback_delivery_manifest:
+  - `e1973d5e32925566b81265165ffa73f260f3b3e8ea7971a9eadf124511ae815d  src/runtime/cfc_lowering.py`
+  - `1053dc0b35dab553d9b7c0a7e1f4e3624d01c12460aa91e3b10aaae41b6c6cf4  tests/test_runtime_cfc_lowering.py`
+- scope_drift: false；Delivery 停笔；Git/GitHub writes: none。
+
+### 独立 Reviewer 最终裁决（Fallback Lite Round 1）
+
+- fallback_verdict: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- review_started_sha256: 4dd82786eb5f95fb852bb34f2f9cb4c5c2dfffae6cf5933a7781f5cb7772a654
+- review_finished_sha256: 4dd82786eb5f95fb852bb34f2f9cb4c5c2dfffae6cf5933a7781f5cb7772a654
+- P1/P2: 无；sibling 异常已稳定交由 `IRValidationError`，身份断言有效，其余 lowering 合同无漂移。
+- reviewer_tests: 84/84 与 `git diff --check` 通过；reviewer_writes: none。
+- formal_status: 正式轴继续 `BLOCKED / user / user`；本候选只能进入 Claude 回审队列，不能关闭、提交或升级为 PLC/CODESYS/HAL/现场证明。
+
+## WP-20260803-069
+
+- title: PLCopen 显式逐输入反馈边到 LOAD_PREV 的保守 lowering
+- status: BLOCKED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_V1
+- fallback_status: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- complexity: C2
+- function_matrix_ids: USR-01（矩阵留待 Claude 回审/行政同步）
+- dependencies: WP-067 定序候选 `bed3e12e…bd3d26`；WP-068 lowering 候选 `4dd82786…2a654`；真实 SP16.1 PLCopen 自反馈样本与 `RISKS::PLATFORM-CFC-FEEDBACK-MAP-1` 仍为单样本、in-progress
+- scope:
+  - src/runtime/cfc_lowering.py
+  - tests/test_runtime_cfc_lowering.py
+  - tests/test_runtime_cfc_feedback.py
+- scope_baseline_sha256: e224bbf4ae31ffd6cd3dbb6f596281db021dce35f2d72feb6cefe38854701a95
+- scope_baseline_manifest:
+  - `e1973d5e32925566b81265165ffa73f260f3b3e8ea7971a9eadf124511ae815d  src/runtime/cfc_lowering.py`
+  - `1053dc0b35dab553d9b7c0a7e1f4e3624d01c12460aa91e3b10aaae41b6c6cf4  tests/test_runtime_cfc_lowering.py`
+  - `ABSENT  tests/test_runtime_cfc_feedback.py`
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 证据等级与公开合同
+
+- 已证实事实：仓库真实 `test_fb_feedback.xml` 是 CODESYS V3.5 SP16 Patch 1 PLCopen XML；ADD.In2 经 connector 接回自身输出，ADD `executionOrderId=1` 且该输入读取上一拍；PLCopen XML 本身没有 `IsFeedbackStart` 字段。
+- 项目保守合同：新增 `lower_cfc_feedback_task(graph, nodes, task, pou_name, registry=None)`，**只**接受 `plcopen_xml/explicit/exported`，并要求调用方在 `CFCInputBinding.feedback` 上逐输入显式声明反馈。编译器不根据环或 executionOrderId 自动替用户选择 feedback input。
+- 每个 `feedback=True` 必须有非空 `source_node_id`，对应 pair 必须存在于原 graph.edges；目标 `CFCOrderNode.feedback_marker` 必须 exact True，且 marker 集合与拥有 feedback input 的 target 集合精确一致。未标记、悬空标记、external feedback 均拒绝。
+- 同一 source→target pair 不得同时包含 current 与 feedback binding；允许同 pair 多个 binding 全部为 feedback。删除全部显式反馈 pair 后形成 current-dependency projection；每条反馈 pair 的 target 必须能在 projection 中沿 current edges 到达 source（即该边真实闭合一个环，自环按零长度路径成立），projection 必须能由 WP-067 正常定序。
+- 每条反馈 input 的 source `execution_order_id >= target execution_order_id`；这锁定当前真实 PLCopen 样本支持的“稍后/同一元素输出回接较早元素输入”方向，不推广为所有 CODESYS 反馈算法。任何缺失/非法/重复显式 ID 继续由 WP-067 失败关闭。
+- lowering 顺序由 projection 的显式 ID 得到；current input 生成 `LoadVar→StoreVar`，仅显式 feedback input 生成 `LoadPrev→StoreVar`，随后追加 typed body。body 自带 `LoadPrev` 继续拒绝，防止绕过逐输入审计。
+- 函数构造原 graph/source 绑定的全新 POU/Task，最终再次调用 `validate_task`；成功/失败均不修改原 task，异常类别沿用 WP-068。结果 `task.pou_lib[pou_name].source is graph`，不得把内部 projection 暴露为用户源模型。
+
+### 验收、反证与边界
+
+- 样本形态 → PLCopen explicit ADD 自环 → 精确生成一组 `LoadPrev(source)→StoreVar(In2)`，projection 定序与最终 source 身份正确，`validate_task` 通过。
+- current/feedback 并存 → 两节点 current 边 + 一个回边 → current 使用 `LoadVar`、反馈使用 `LoadPrev`，顺序按显式 ID；节点/边/fragment 输入排列不改变最终节点顺序和逐节点代码。
+- 失败关闭 → auto/user-defined/export-native、无 feedback、external feedback、edge 缺失、marker 不对应、混合 pair、非闭环标记、source order 早于 target、删除后仍有环、body LoadPrev、非法 exact bool 全部稳定拒绝，原 task 不变。
+- 回归 → WP-068 无反馈 API 的 9 项合同必须零退化；WP-067 order、IR loader 与现有 Engine 两拍 `LOAD_PREV` 定向回归通过。
+- Delivery 运行新反馈组、WP-068 组、order、IR、Engine 的 LoadPrev 定向类、三文件 `py_compile` 与 `git diff --check`；不跑全仓。
+- 明确未验证/排除：PLCopen parser 正式化、connector 解引用、自动反馈推断、原生 `.export IsFeedbackStart` 落点、多环/跨环通用规则、user_defined feedback、`.export` 自动顺序重建、ST/UI、Executor/Store/扫描改动、HAL/I/O、真机对拍与现场证明。风险条目不得转 resolved。
+
+### 停笔条件
+
+- 若实现必须修改 WP-067 定序器、正式 IR/loader/executor，或必须从现有样本猜测“哪些入边是反馈”，立即停止并报告；不得为支持更多载体扩大当前包。
+- WP-069 是 WP-068 的有记录后继，会改变 `cfc_lowering.py` 最终哈希；Claude 回审时按 WP-067→WP-068 历史边界→WP-069 最终叠加顺序审核，不把 WP-068 旧哈希误报为当前文件哈希。
+
+### Delivery 候选与主控连续性接管记录（Fallback Lite Round 1）
+
+- initial_delivery: Delivery 在三个 scope 内实现首版显式反馈 projection/lowering，并运行合并定向 87 项；但主动披露反馈失败矩阵只含样本 happy path，不满足任务书，故未交 Reviewer、未被主控冒充完整交付。
+- continuation_attempts: Delivery 后续补到 3～5 个反馈 test methods，并把 projection 改为复用 WP-068 `lower_cfc_task` 门禁；它连续多次因单次执行窗口结束而明确报告 A–K 反证仍未补齐。主控据执行预算停止机械重放；Delivery 此后零写入。
+- main_writer_takeover: 主控在确认 Delivery 停止后成为唯一 writer，保留其可用 projection 方向，重写反馈函数的前置结构/Task/source 门禁与完整反馈特有不变量，并把反馈测试重写为 12 个可审查方法，覆盖任务书全部失败簇。未改 `tests/test_runtime_cfc_lowering.py`，未触及 scope 外产品文件。
+- 完成内容: 仅接受 PLCopen explicit/exported + 显式逐 input feedback；marker/target、pair/edge、current-feedback 混合、闭环路径、order 方向、projection DAG、body 绕过、原 Task/source、Loader 异常类别全部失败关闭；current 使用 `LoadVar`、反馈使用 `LoadPrev`；最终 Task 绑定原 graph。
+- pre_review_tests: feedback 12 + lowering 9 + order 12 + IR 63 + Engine LoadPrev 2 = 98/98；三文件 `py_compile` 与 `git diff --check` 通过。
+- pre_review_scope_sha256: 35db10d8e368d6a9440b7017ecf33525b53545e75aa6eca9a2c0d1fcd8f5d150
+- pre_review_manifest:
+  - `343553607f53f26ff92eeac14bf0d5dd2c64969cddf1b02ea8a3fca49b03fa97  src/runtime/cfc_lowering.py`
+  - `1053dc0b35dab553d9b7c0a7e1f4e3624d01c12460aa91e3b10aaae41b6c6cf4  tests/test_runtime_cfc_lowering.py`
+  - `3bf0a2be712a7a49efe33b02fb6159950bf65d1025117d5516a34716495b8d0a  tests/test_runtime_cfc_feedback.py`
+- scope_drift: false；Git/GitHub writes: none。
+
+### 独立 Reviewer 初审（Fallback Lite Round 1）
+
+- fallback_verdict: FALLBACK_LITE_CHANGES_REQUESTED
+- review_started_sha256: 35db10d8e368d6a9440b7017ecf33525b53545e75aa6eca9a2c0d1fcd8f5d150
+- review_finished_sha256: 35db10d8e368d6a9440b7017ecf33525b53545e75aa6eca9a2c0d1fcd8f5d150
+- P1: 同一合法 source→target pair 的多个 feedback inputs 交换 tuple 顺序会交换最终 `LoadPrev→StoreVar` 顺序，违反本包输入排列稳定合同。
+- P2: 仓库测试未覆盖该同 pair 多 feedback inputs 排列反证。Reviewer 报告中的“完整命令实际只有 96”经主控实盘复核为计数遗漏：feedback/lowering/order/IR 为 96，另有命令中 Engine `TestLoadPrevAcrossScans` 2 项，故初审前完整输出确为 `Ran 98 tests`；这不影响 P1/P2 的成立。
+- reviewer_writes: none；scope_drift: false。
+
+### 主控 P1 返修与独立 Reviewer 最终裁决（Fallback Lite Round 1）
+
+- 根因与修复: CFC input 是以 target pin 为身份的连接。先新增 `DUPLICATE_TARGET_BINDING` 拒绝同一节点目标管脚重复绑定，消除 last-write-wins 歧义；随后仅对 inputs 按 `(target_key, source_node_id, source_key, iec_type, feedback)` 规范排序，node body 指令顺序保持原样。
+- 新增反证: 同 pair 两个 feedback inputs 正反排列必须生成完全相同代码且按 target pin 稳定；重复 target pin 必须稳定拒绝。
+- fallback_verdict: FALLBACK_LITE_PROVISIONALLY_APPROVED_PENDING_CLAUDE_REAUDIT
+- review_started_sha256: c1dc6b1ae225e7612fec33ac7787b9b4cd8f4e9f52fda32c6d1dc5abf22b3f98
+- review_finished_sha256: c1dc6b1ae225e7612fec33ac7787b9b4cd8f4e9f52fda32c6d1dc5abf22b3f98
+- final_manifest:
+  - `29c0552b7c77a261270eb1cf494f1bc3822af95c8c80b4fd321e41fde7153155  src/runtime/cfc_lowering.py`
+  - `1053dc0b35dab553d9b7c0a7e1f4e3624d01c12460aa91e3b10aaae41b6c6cf4  tests/test_runtime_cfc_lowering.py`
+  - `2ceb91afb4b738b36095dafe6f9879f77b82f5629de18d3041bc77cbb294ed52  tests/test_runtime_cfc_feedback.py`
+- final_tests: feedback 14 + lowering 9 + order 12 + IR 63 + Engine LoadPrev 2 = 100/100；三文件 `py_compile` 与 `git diff --check` 通过。
+- P1/P2: 无；reviewer_writes: none；scope_drift: false。
+- evidence_boundary: 这是单一真实 PLCopen 自反馈样本支持下的保守、显式逐输入项目合同，不是 CODESYS 通用反馈算法证明；风险 `PLATFORM-CFC-FEEDBACK-MAP-1` 继续 in-progress。
+- formal_status: `BLOCKED / user / user` 保持不变；当前结果只进入 Claude 回审队列，未经 Claude→Codex 正式链、用户关闭与 Git/GitHub 收尾不得升级正式基线。
+- review_finished_at: 2026-08-03 15:04:26 CST
+
+## WP-20260804-070
+
+- title: Fallback Lite 调度、完成门禁与上下文隔离加固
+- status: BLOCKED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- fallback_protocol: MANUAL_TRIAD_FALLBACK_LITE_V1
+- fallback_status: FALLBACK_LITE_DOCUMENTED_PENDING_CLAUDE_REAUDIT
+- fallback_requires_claude_reaudit: true
+- fallback_formal_baseline_eligible: false
+- complexity: C1
+- function_matrix_ids: N/A（协作基建，不改变软 PLC 产品功能轴）
+- scope:
+  - docs/MANUAL_TRIAD_FALLBACK_LITE.md
+- scope_baseline_sha256: 35d954aca35025045e60fb18e0dd5259db5ea41dd8ed15a4438dde2af8fd0a26
+- scope_baseline_manifest:
+  - `47cc3b799a9183a7fc019865425971c2722ae146bdf2ccc4e9cc95c0783ad00c  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+
+### 用户裁决、根因与范围
+
+- 用户要求落实 WP-068/069 协作复盘建议，并说明规划、执行、审核 Agent 的实际模型。该改动只加固手工备用规范，不建设自动编排平台，不修改调度器、解析器、产品运行时、测试或项目外文件。
+- 已确认根因不是系统给 Agent 的执行窗口过短：Planner 受旧上下文和角色切换污染且在主控较短观察后被显式中断；Delivery 没有系统 timeout，却多次把中间检查点主动作为最终完成消息。`wait_agent` 返回控制权不得再被解释为 Agent 超时。
+- 本包采用 C1 主控直接实施与定向复核；没有唤醒新的 Planner/Delivery/Reviewer，避免为一份规范文件再次制造三方重复阅读。正式状态保持失败关闭，等待 Claude 回审。
+
+### 完成内容与模型事实
+
+- 新增 C2 Planner 一页开工卡硬门禁：精确 scope/API/验收映射/反证/测试/停笔条件齐全前，Delivery 不得启动。
+- 新增 5/15/30 分钟状态型检查点；明确等待调用超时只把控制权交还主控，只有真实权限漂移、工具故障、错误工作包、书面检查点长期无产物或用户要求才可中断。
+- 新增同一工作包 A（核心接受路径）/B（失败矩阵与硬化）/C（冻结证据）里程碑，以及包含验收结论、精确测试计数、manifest、`py_compile`、`git diff --check` 和未验证边界的 FINAL 机械门禁。
+- 新增提前 FINAL 处置：首次只允许同 writer 受控续作一次；第二次仍提前结束即冻结产物并更换 writer 或由主控显式接管，历史不得抹除。
+- C2 Planner/Reviewer 默认使用新鲜上下文；复用时先声明丢弃旧未交付结果、当前角色/工作包/基线/首项产物。Reviewer 必须先形成独立清单和第一遍静态审查，再读取 Delivery 自审与主控怀疑点。
+- 本次历史实际模型：Planner（并兼任早期被中断 Reviewer 的复用角色）为 `gpt-5.6-sol / high`；Delivery 为 `gpt-5.6-terra / medium`；最终形成批准结论的独立 Reviewer 为 `gpt-5.6-terra / high`。用户补充裁决后的未来默认路由为：主控在 C2/高风险任务优先 `gpt-5.6-sol / xhigh`，Planner/Reviewer 使用 `gpt-5.6-sol / high`，Delivery 默认统一提升为 `gpt-5.6-terra / high`；机械、低风险且验收完全确定的 C0/C1 Delivery 才可降为 `medium`。主控可按复杂度调整，但必须记录实际值和理由；当前会话模型不能运行中切换时如实沿用。
+
+### 证据与边界
+
+- fallback_delivery_scope_sha256: 3e148af6456cd44ed7a96efa18805b3c9754e8b8735bd1611a579127c98975f4
+- fallback_delivery_manifest:
+  - `a2bb14efc361ad28bec274f918d1a719ca4e23694ad3de17c91064a0e81c3e73  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+- 定向验证: 必填章节/模型/门禁/检查点/提前结束规则文本断言通过；`git diff --check` 通过。
+- scope_drift: false；Git/GitHub writes: none；产品源码与产品测试: 未修改、未运行。
+- 未验证边界: 本包只证明规范文本完整和机械可检查，不证明未来 Agent 一定遵守；下一次 C2 包必须用真实开工卡、检查点和 FINAL 门禁形成首个运行证据。Claude 回审前不得将本规范或 WP-067～069 候选升级为正式基线。
+
+## WP-20260804-071
+
+- title: Claude 正式回审第一批——阶段 1 startup/readiness、Python 3.9 兼容与总验收
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- reaudits_fallback_packages: WP-20260731-060（仅历史根因）、WP-20260801-061、WP-20260801-062、WP-20260802-065（产品部分）
+- function_matrix_ids: L5-11、L34-11、RUNTIME-STAGE1-PY-ACCEPTANCE
+- expected_matrix_axes: 只核准 Python 实现/WP/测试候选；Git 仍未提交，PLC/CODESYS、真实调度、HAL、硬件 watchdog 与现场仍未验证
+- scope:
+  - src/runtime/startup.py
+  - src/runtime/task_runtime.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_startup.py
+  - tests/test_runtime_task_runtime.py
+  - tests/test_runtime_stage1_acceptance.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531
+- scope_baseline_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `a5941de31afcd4a414d05159694dc25c997f1658b5fb35917aae2b7f44990def  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `04f6cce2e847883298885d385525dbdfb257168e5912888a46c6e6eaf4724a67  tests/test_runtime_task_runtime.py`
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `c03cb6abfac47e907307c1da565f832cf82e5d9d716e0d3ad4f5f479f8d164d4  docs/RISKS.md`
+  - `054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- frozen_non_scope_runtime_files: 21
+- frozen_non_scope_runtime_sha256: 6a4b2508da3c238d046187695b40962a4697a141fc52937a4c2239179009f72a
+- frozen_ai_handoff_test_sha256: fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+- created_by: codex（依据用户 2026-08-04 明确授权恢复正式 Claude→Codex 流程）
+
+### 回审目标与证据边界
+
+- Claude 必须把当前八文件视为未经正式审核的外部候选，从源码、公开 API、测试和权威规格重新审查；不得因为人工三角色曾暂定通过而降低标准，也不得仅复述旧审核结论。
+- WP-060 的五轮历史只提供已知攻击路径；最终产品候选以 WP-061 对可信 `SafetyStateService` 类实现绑定的恢复结果为准。WP-062 的阶段 1 验收和 WP-065 的 Python 3.9 startup 兼容叠加在同一当前候选上，本包必须核对三者没有互相回退。
+- 逐项验证：六字段 exact-bool readiness、确定性整数纳秒稳定窗口、时钟前可信副本、controller 重入门禁、controller 与 SafetyState 双域失败原子性、实例级读写包装零观察、默认冷启动/shadow、scan/watchdog 锁存与 `output_enable` 独立门控、双 assembly 隔离、Python 3.9 dataclass 兼容。
+- 总验收测试必须只依赖公开 API 和真实对象图，继续覆盖 22/22 Registry、Loader→Store→Executor→ScanEngine→OutputPolicy→CommitSupervisor→OuterScanRunner→monitor→startup，及 shadow→实写安全边界、scan/commit/channel fault、monitor 一次性事件、prev 提交语义、双实例和启动失败关闭。Claude 应主动检查既有验收是否仍存在可以通过变异而假绿的缺口。
+- `docs/RISKS.md` 与矩阵只允许修正 L5-11/L34-11/阶段 1 验收相关当前事实；文件内 WP-063～070、CFC 和 Fallback Lite 其它待回审条目是共享文档中的冻结邻居，不得提前批准、删除或改写历史测试数字。
+- 已证实边界仅为 Python 主机确定性行为；不得升级为 CODESYS SP16.1、真实 readiness 来源、实时调度、HAL/物理 I/O、硬件 watchdog、黄金轨迹或现场安全证明。
+
+### 实施、测试与停笔条件
+
+- Claude 可以在八文件 scope 内修正其认为不合理的实现、测试或相关事实文字；任何产品修改先形成能杀死旧候选的反证。若审查认为无需修改，也必须亲自完成结构化 v2 自审、真实测试与原子交接，不能把人工候选测试冒充自己的证据。
+- 最低宿主验证：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime tests.test_runtime_stage1_acceptance`
+  2. `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime`
+  3. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_output_policy tests.test_runtime_scan_runner tests.test_runtime_monitor tests.test_runtime_commit_supervisor`
+  4. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_parameters tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor`
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+  9. 八文件 `py_compile`（仅 Python 文件）、公开导入冒烟、非 scope runtime 聚合复核和 `git diff --check`。
+- 创建前主控定向基线：项目 Python 三模块 68/68、系统 `python3` startup+task-runtime 57/57、AI handoff 183/183、`git diff --check` 通过。这只是接手基线，不是 Claude 自审证据。
+- scope 外任何文件、21 个冻结 runtime 文件或冻结 `tests/test_ai_handoff.py` 需要修改，必须停止并报告，不自行扩大；不得触碰 WP-063～070 产品/协作候选、Git/GitHub、stash、项目外文件、真实进程调度、HAL、PLC/CODESYS 或现场范围。
+- Claude 必须先完整读取 Runbook，再按协议完成结构化 v2 自审与原子 `READY_FOR_CODEX / codex / codex` 交接。交接后立即停笔；Codex 将在同一冻结哈希上做独立静态审查、未预告反证和分层宿主验证。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-04 09:58:17+0800
+- self_review_finished_at: 2026-08-04 09:59:05+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime tests.test_runtime_stage1_acceptance —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime —— Ran 57 tests, OK（系统 python3=3.9.6，验证 Python 3.9 dataclass 导入兼容）
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_output_policy tests.test_runtime_scan_runner tests.test_runtime_monitor tests.test_runtime_commit_supervisor —— Ran 269 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_parameters tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor —— Ran 354 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 183 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1676 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1744 tests, OK
+  - py_compile 6 个 Python scope 文件（系统 python3=3.9.6 与 python=3.13.5 双解释器均 doraise=True 编译通过）+ `import src.runtime` 冒烟 + 公开导出核对（TaskRuntimeAssembly/build_task_runtime/COLD_START_SAFETY/ReadinessSnapshot/StartupState/StartupReadinessController 均在 `__all__`）—— 均通过（非 unittest 命令，无计数）
+- self_review_scope_sha256: c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531
+- self_review_manifest:
+  - 374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py
+  - a5941de31afcd4a414d05159694dc25c997f1658b5fb35917aae2b7f44990def  src/runtime/task_runtime.py
+  - fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py
+  - aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py
+  - 04f6cce2e847883298885d385525dbdfb257168e5912888a46c6e6eaf4724a67  tests/test_runtime_task_runtime.py
+  - 21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py
+  - c03cb6abfac47e907307c1da565f832cf82e5d9d716e0d3ad4f5f479f8d164d4  docs/RISKS.md
+  - 054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 无（回审 8 个候选文件后判定无需修改，最低宿主验证电池一次全通过，无首次失败）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 不适用（无首次失败）。本轮未改动任一 scope 文件，scope 聚合保持 = `scope_baseline_sha256`（c0b544…），实为“独立回审确认候选可信”的交接，而非产品修改。
+- 修复后重跑结果: 不适用（无首次失败）；上列命令均为一次通过的实测结果，各条同行 `Ran N tests, OK`。
+- 回审逐项核验（作为无失败情况下的证据，非结构化自审替代）:
+  - 六字段 exact-bool readiness：`ReadinessSnapshot.__post_init__` 与 `_copy_readiness` 均以 `type(x) is not bool` 逐字段拒绝，`test_untrusted_extra_attributes_and_subclass_do_not_bypass_copy` / `test_each_readiness_field_rejects_evil_value_without_observation` 覆盖额外属性、子类、`_Evil`（禁跑 `__repr__`/`__bool__`）与删字段。
+  - 确定性整数纳秒稳定窗口：`_observe_with_commit` 全程 int（`_NS_PER_MS`、`elapsed = now - window_start`、`released = elapsed >= inhibit_ns`），无浮点/sleep/线程；`_read_clock` 拒绝非 exact-int、负值、回退；`test_threshold_and_zero_window` 锁阈值边界，零窗口首拍即释放。
+  - 时钟前可信副本：`_copy_readiness` 在 `_read_clock` 之前完成复制；三条 WP-055 红灯（时钟中改字段为 int / 删字段 / 改 output_enable）证明时钟后不重读公开 readiness。
+  - controller 重入门禁：`_observe_active` 在读取嵌套 readiness/时钟或任何状态写入之前拒绝，`finally` 复位；`test_direct_observe_reentry_is_rejected_and_guard_recovers` 覆盖。
+  - controller 与 SafetyState 双域失败原子性：`apply_readiness` 时钟前读+复制安全域，`commit` 内漂移检查→`replace`→回读确认，异常经 `restore_if_drifted` 恢复；`test_clock_safety_replacement_aborts_both_domains_before_controller_commit` / `test_clock_exception_after_safety_replacement_restores_both_domains` / `test_clock_original_snapshot_delete_restores_before_semantics` 覆盖普通异常与 BaseException。
+  - 实例级读写包装零观察：事务只用模块加载时冻结的 `_SAFETY_STATE_READ/_REPLACE`；`test_instance_read_replace_collusion_cannot_fake_commit` / `test_real_clock_drift_cannot_be_hidden_by_instance_read` / `test_initial_instance_read_fake_view_cannot_replace_real_latches` 断言实例 read/replace 调用计数为 0 且真实锁存不可被伪视图改写。
+  - 默认冷启动/shadow：`initial_safety=None` → `_new_cold_start_safety()`（私有副本，公开常量遭污染不传播，`test_default_snapshots_are_independent_of_public_constant_pollution`）；默认 `CommitPort` 自带 WriteGate/write-disable，`test_cold_start_forces_safe_value_shadow_zero_driver` 断言零物理提交。
+  - scan/watchdog 锁存与 output_enable 独立门控：`expected_safety` 保留 `copied_safety[5]/[6]`，`test_explicit_readiness_releases_after_window_and_preserves_fault_latches` 证明释放不清锁存；`test_output_enable_is_independent_from_readiness_release_and_gates_output` 与验收 `test_readiness_window_withdraw_operator_gate` 证明 `output_enable` 独立于 startup 释放并单独门控输出落 safe。
+  - 双 assembly 隔离：`test_two_assemblies_share_nothing` / `test_interleaved_ton_state_does_not_cross` 与验收 `test_dual_assembly_full_isolation`（逐域冻结基线后只动 first，second 精确不变）覆盖。
+  - Python 3.9 dataclass 兼容：`ReadinessSnapshot`/`StartupState` 仅 `@dataclass(frozen=True)`、无 `slots=True`；系统 python3=3.9.6 下 57/57 通过、双解释器 py_compile 通过。
+- 已知疑问: 无新增。
+- 未验证边界: 本包证据仅为 Python 主机确定性行为，不构成 CODESYS SP16.1 startup 语义、真实 readiness/外部信号源、实时调度、HAL/物理 I/O、可信反馈、硬件 watchdog、黄金轨迹或现场安全一致性证明；`git diff --check` 与 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 对本包八文件（`src/runtime/startup.py`、`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_startup.py`、`tests/test_runtime_task_runtime.py`、`tests/test_runtime_stage1_acceptance.py`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`）作为未经正式审核的外部候选，从源码、公开 API、测试与权威规格（`RISKS.md::RUNTIME-STARTUP-INHIBIT`/`RUNTIME-STAGE1-PY-ACCEPTANCE`、矩阵 L5-11/L34-11/L5-12/RUNTIME-STAGE1-PY-ACCEPTANCE）独立回审。逐项核验任务书列出的 10 项属性（六字段 exact-bool readiness、确定性整数纳秒稳定窗口、时钟前可信副本、controller 重入门禁、controller 与 SafetyState 双域失败原子性、实例级读写包装零观察、默认冷启动/shadow、scan/watchdog 锁存与 `output_enable` 独立门控、双 assembly 隔离、Python 3.9 dataclass 兼容），并确认 WP-061（冻结 SafetyState 类实现绑定）/WP-062（阶段 1 跨组件公开 API 总验收）/WP-065（去除 py3.9 不支持的 dataclass `slots=True`）三者叠加在同一候选上无互相回退。结论：候选可信，**无需修改**。
+- 修改文件: 无（八个 scope 文件均未改动；scope 聚合保持等于 `scope_baseline_sha256`）。本次仅在非 scope 的 `docs/AI_REVIEW_HANDOFF.md` 追加本轮自审与实施交接记录并原子翻转顶层字段。
+- 明确未修改: `src/runtime/startup.py`、`src/runtime/task_runtime.py`、`src/runtime/__init__.py`、`tests/test_runtime_startup.py`、`tests/test_runtime_task_runtime.py`、`tests/test_runtime_stage1_acceptance.py`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md` 全部八文件字节未变；21 个非 scope runtime 文件（聚合 6a4b2508…）与冻结 `tests/test_ai_handoff.py`（fb5b2629…）零漂移；未触碰 WP-063～070 产品/协作候选、CFC/Fallback Lite 邻居条目、Git/GitHub、stash、项目外文件、真实调度、HAL、PLC/CODESYS 或现场范围。
+- scope_sha256: c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531
+- implementation_finished_at: 2026-08-04 09:59:05+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁全部通过；顶层 `work_package_id/status/owner/handoff_to/round`、`round=1 <= max_rounds=5`、scope 精确路径/顺序、自审时间戳、`PASS`、真实命令/成功标记/计数、交接位置和两组 scope 聚合均合法。八文件当前逐项 SHA-256 与 Claude manifest、`scope_baseline_manifest` 精确一致，规范聚合为 `c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531`；21 个冻结非 scope runtime 文件聚合仍为 `6a4b2508da3c238d046187695b40962a4697a141fc52937a4c2239179009f72a`，冻结 `tests/test_ai_handoff.py` 仍为 `fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db`。六字段 exact-bool、整数纳秒窗口、时钟前 readiness 副本、controller 直接重入拒绝、实例级 SafetyState 包装零观察、默认冷启动/shadow、`output_enable` 独立门控、双 assembly 隔离与 Python 3.9 dataclass 导入兼容的既有正向测试均通过；但这不能覆盖下述真实故障锁存被回滚的反证。
+- 项目工程约定: startup/readiness 稳定窗口、Python 侧双状态域事务和默认 shadow 是本项目阶段 1 工程约定，不是 CODESYS 官方 startup 语义；本审核只评价当前 Python 主机确定性对象图，不把单元测试升级为 PLC、实时调度或现场安全证明。
+- 待真机验证假设: CODESYS SP16.1 startup/readiness 精确行为、真实 readiness/外部信号源、真实任务调度与连续 deadline miss、HAL/物理 I/O/可信反馈、硬件 watchdog、黄金轨迹和现场安全均未验证；本轮不得据 Python 证据改变这些轴。
+- 必须返修（P1，故障锁存被 readiness 异常恢复清除）: `src/runtime/task_runtime.py:177-183,210-214` 把任意时钟阶段 SafetyState 漂移都整包恢复为时钟前 `copied_safety`。Codex 未预告反证让同一注入时钟分别调用真实公开路径 `assembly.runner.trigger_watchdog()` 与故障 Task 的 `assembly.runner.scan_cycle({})`：两条路径先分别抛 `WatchdogSafeCommit` / `ScanFaultSafeCommit` 并把 `watchdog_ok` / `scan_ok` 锁存为 `False`，随后 `_read_clock` 包装为 `ReadinessClockError`，外层 `restore_if_drifted()` 却把对应锁存恢复为 `True`；controller 虽保持 `last_seen_ns=0`，真实安全故障已被清除。这违反本包“scan/watchdog 锁存不得回退”和 `ENGINE_SCAN_SPEC` 的强制 safe/锁存边界。请形成能杀死旧候选的公开路径反证，修复时确保 readiness 失败不提交 controller，同时绝不把时钟期间新出现的更严格 `scan_ok=False` / `watchdog_ok=False` 恢复为真；普通异常与 `BaseException`、scan fault 与 watchdog 两路都要覆盖。不得以禁止真实调度为由删除确定性公开路径反证，也不得扩到 scope 外 runner/monitor/SafetyStateService；若确实需要改 scope 或裁决既有“恢复时钟前语义”与故障锁存优先级的冲突，按协议转 `BLOCKED` 交用户。
+- 必须返修（事实文档）: `docs/RISKS.md:133,138` 与 `docs/SOFT_PLC_FUNCTION_MATRIX.md:177,193` 仍把 WP-061/062/065 写成“待未来 Claude 回审”，且两文件均没有 `WP-20260804-071`；但本包 Round 1 的正式 Claude 回审已经实际完成。返修时只更新 L5-11/L34-11/`RUNTIME-STAGE1-PY-ACCEPTANCE` 相关当前事实为“WP-071 Round 1 Codex CHANGES_REQUESTED / 待 Round 2 返修复核”，继续保持未提交、未 CLOSED、PLC/CODESYS/真实调度/HAL/硬件 watchdog/现场未验证；不得触碰 WP-063～070、CFC 或 Fallback Lite 邻居叙事。
+- 非阻塞建议: 无；先收口上述 P1 与事实轴，再进行 Round 2 全范围复核。
+- 审核证据: Codex 独立正向复跑：startup+task-runtime+stage1-acceptance `68/68 OK`；系统 Python 3.9.6 startup+task-runtime `57/57 OK`；policy+runner+monitor+supervisor `269/269 OK`；descriptors+parameters+IR+Store+Executor `354/354 OK`；prototype `68/68 OK`。`tests.test_ai_handoff`、正式 tests 和全仓分别运行 183、1676、1744 项，均只有同一组 9 个 dashboard 本地端口绑定用例因审核沙箱 `PermissionError: Operation not permitted` 报环境错误，其余分别 174、1667、1735 项未报失败；因此本轮不声称三组完整全绿。`git diff --check` 通过。未预告反证独立复现两次：watchdog 路径输出 `cause=WatchdogSafeCommit, latched_after=True`，scan-fault 路径输出 `cause=ScanFaultSafeCommit, latched_after=True`，均证明旧候选清除了应保持为 False 的锁存。
+- review_started_sha256: c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531
+- review_finished_sha256: c0b54414255d8d11cb030d813fd08329a516c6790e358f13e89d554feaad4531
+- review_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `a5941de31afcd4a414d05159694dc25c997f1658b5fb35917aae2b7f44990def  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `04f6cce2e847883298885d385525dbdfb257168e5912888a46c6e6eaf4724a67  tests/test_runtime_task_runtime.py`
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `c03cb6abfac47e907307c1da565f832cf82e5d9d716e0d3ad4f5f479f8d164d4  docs/RISKS.md`
+  - `054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: claude
+- reviewed_at: 2026-08-04 10:15:24+0800
+
+### Claude Round 2 配额中断与中间检查点
+
+- execution_key: `WP-20260804-071:1:start_claude_rework`
+- execution_outcome: Claude 在同包返修中命中 HTTP 429 session limit，明确提示 2026-08-04 14:30（Asia/Shanghai）恢复；returncode=1、num_turns=25。周额度/认证/代理无异常，本次是五小时 session 窗口耗尽。
+- protocol_state: 未形成合法 Round 2 自审或实施交接，顶层轮次不得预增；WP-071 以 `BLOCKED / user / user / round=1` 封存，Round 1 Codex `CHANGES_REQUESTED` 保持有效，不把中间候选冒充已交付。
+- intermediate_changes: Claude 已在 scope 内新增公开 watchdog/scan-fault 锁存反证，修改 `TaskRuntimeAssembly.apply_readiness()` 的异常恢复候选，并开始同步 RISKS；功能矩阵尚未完成。主控未修改产品中间候选。
+- intermediate_scope_sha256: 669d0f6aad5f8d958aeb4ce81f91582a313d7ab450fc2485a190378ee828c36a
+- intermediate_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `e32de9b55420b518943c5f5dfb3d639c0a02e96f9d0d50c225953a4d2bfa6645  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `76171238500cfe9583d29d515974c9df1ac5e80a9e5c69ab453b230bed59ed7d  tests/test_runtime_task_runtime.py`
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `b0df9e34f4a269d8bb18ab5818657dcc42d0882b280c7149969382cb3bfa63c9  docs/RISKS.md`
+  - `054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- main_read_only_check: `tests.test_runtime_task_runtime` 43/43 OK、`git diff --check` 通过；这只证明中间候选当前可运行，不构成 Claude 自审或 Codex 审核。
+- recovery_decision: 当前 CHANGES_REQUESTED 连续性基准仍是 Round 1 review-finished `c0b54414…4531`，而 scope 已有合法中间写入，不能重试旧键。由新工作包 WP-20260804-072 以 `669d0f6a…c36a` 为冻结基线承接，不回滚、不伪造 review 哈希。
+
+## WP-20260804-072
+
+- title: WP-071 startup/readiness 故障锁存优先级配额中断恢复
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- recovery_from: WP-20260804-071 / Codex Round 1 CHANGES_REQUESTED / Claude Round 2 HTTP 429 intermediate checkpoint
+- function_matrix_ids: L5-11、L34-11、RUNTIME-STAGE1-PY-ACCEPTANCE
+- scope:
+  - src/runtime/startup.py
+  - src/runtime/task_runtime.py
+  - src/runtime/__init__.py
+  - tests/test_runtime_startup.py
+  - tests/test_runtime_task_runtime.py
+  - tests/test_runtime_stage1_acceptance.py
+  - docs/RISKS.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: 669d0f6aad5f8d958aeb4ce81f91582a313d7ab450fc2485a190378ee828c36a
+- scope_baseline_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `e32de9b55420b518943c5f5dfb3d639c0a02e96f9d0d50c225953a4d2bfa6645  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `76171238500cfe9583d29d515974c9df1ac5e80a9e5c69ab453b230bed59ed7d  tests/test_runtime_task_runtime.py`
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `b0df9e34f4a269d8bb18ab5818657dcc42d0882b280c7149969382cb3bfa63c9  docs/RISKS.md`
+  - `054813ba8546811771d1b1384174e37e6d9171bbbc558d7063a9ec5069a5e72e  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- frozen_non_scope_runtime_files: 21
+- frozen_non_scope_runtime_sha256: 6a4b2508da3c238d046187695b40962a4697a141fc52937a4c2239179009f72a
+- frozen_ai_handoff_test_sha256: fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+- created_by: codex（依据用户本轮“有问题及时修改、恢复正式流程”的连续授权）
+
+### 唯一恢复目标与验收
+
+- 当前八文件是额度中断留下的未经审核中间候选。Claude 必须重新完整读取 WP-071 Round 1 Codex 审核、WP-071 中断记录和当前差异，可在 scope 内修改任何不合理处；不得把中断前未形成的测试、自审或时间戳补写成历史事实。
+- 唯一产品缺陷簇：readiness 时钟窗口内通过真实公开 runner 路径新锁存的 `scan_ok=False` / `watchdog_ok=False` 是更严格安全状态，readiness 失败不得把它恢复为真；controller 仍不得推进。时钟期间对非锁存 readiness 字段的替换/污染继续按时钟前可信语义恢复；被 `object.__setattr__`/`__delattr__` 原位污染的旧 snapshot 不得被误判为受信新故障锁存。
+- 至少覆盖 watchdog 和 scan-fault 两条真实公开路径、普通异常与 `BaseException`、controller 状态零推进、其它锁存不被误改、后续合法 readiness 可继续工作；不得以直接私有写入替代公开路径反证。
+- 完成 RISKS 与矩阵相关行：如实登记 WP-071 Round 1 `CHANGES_REQUESTED`、WP-072 恢复候选及最终审核状态；未批准前保持未提交、未 CLOSED，PLC/CODESYS、真实调度、HAL、硬件 watchdog、现场未验证。不得改 WP-063～070、CFC/Fallback Lite 邻居叙事或历史测试数字。
+- 回归 WP-071 的其余全部合同：exact-bool、整数纳秒窗口、TOCTOU 可信副本、重入门禁、实例包装零观察、双域原子性、冷启动/shadow、output_enable、双实例、Python 3.9 兼容和阶段 1 公开总验收均不得回退。
+
+### 测试、交接与停笔
+
+- 当前中间候选的 `tests.test_runtime_task_runtime` 已由主控只读运行 43/43 OK；Claude 必须亲自核对新增反证确实对应 Codex P1，并运行 WP-071 更正后的九组宿主验证，报告本轮真实计数，不复制此前数字。
+- 第 4 组准确命令为 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_parameters tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor`；仓库没有 `tests.test_runtime_loader`，Loader 覆盖属于 `tests.test_runtime_ir`。
+- 另须双解释器 `py_compile`、公开导入冒烟、21 个非 scope runtime 聚合、冻结 `tests/test_ai_handoff.py` 和 `git diff --check`。
+- scope/冻结依赖漂移、需修改 runner/monitor/SafetyStateService 或其它 scope 外文件、规格歧义、真实测试失败未定位、权限/代理/配额失败时立即安全停笔；不创建新的恢复包、不执行 Git/GitHub 写操作。
+- Claude 自审 PASS 后按 v2 原子交接给 Codex；Codex 必须在同一冻结哈希上重新做全范围未知边界审核，不能只确认三条新测试。APPROVED 后仍等待用户关闭，不自动 Git/GitHub 收尾或创建下一回审包。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-04 14:50:36+0800
+- self_review_finished_at: 2026-08-04 14:51:28+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime tests.test_runtime_stage1_acceptance —— Ran 71 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_runtime_startup tests.test_runtime_task_runtime —— Ran 60 tests, OK（系统 python3=3.9.6，验证 Python 3.9 dataclass 导入兼容）
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_output_policy tests.test_runtime_scan_runner tests.test_runtime_monitor tests.test_runtime_commit_supervisor —— Ran 269 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_runtime_descriptors tests.test_runtime_parameters tests.test_runtime_ir tests.test_runtime_store tests.test_runtime_executor —— Ran 354 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 183 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1679 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1747 tests, OK
+  - py_compile 6 个 Python scope 文件（python=3.13.5 与系统 python3=3.9.6 双解释器 doraise=True 均编译通过）+ import src.runtime 冒烟（TaskRuntimeAssembly/build_task_runtime/COLD_START_SAFETY/ReadinessSnapshot/StartupState/StartupReadinessController 均在 __all__）+ 21 个非 scope runtime 文件聚合复核 6a4b2508…（未漂移）+ 冻结 tests/test_ai_handoff.py 复核 fb5b2629…（未漂移）—— 均通过（非 unittest 命令，无计数）；git diff --check 留给 Codex。
+- self_review_scope_sha256: 858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a
+- self_review_manifest:
+  - 374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py
+  - e32de9b55420b518943c5f5dfb3d639c0a02e96f9d0d50c225953a4d2bfa6645  src/runtime/task_runtime.py
+  - fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py
+  - aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py
+  - 76171238500cfe9583d29d515974c9df1ac5e80a9e5c69ab453b230bed59ed7d  tests/test_runtime_task_runtime.py
+  - 21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py
+  - f510aaccfbb6b50c6c47adda19cc47100cc96505215f9d61e319526b71955310  docs/RISKS.md
+  - 6716acf1a2223e7268e272cfcf57e8927d5fc5eaaff19b25a020ef3797a739bc  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 无（承接冻结中断检查点后，逐项核验产品修复与反证已对应 Codex WP-071 Round 1 P1，仅补全 RISKS/矩阵事实文档，最低宿主验证九组一次全通过，无首次失败）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 本轮不改任一 code/test scope 文件（startup.py / task_runtime.py / __init__.py 与三份测试字节均等于 WP-072 冻结基线 669d0f6a…，其内含 WP-071 Round 2 中断前已完成的 apply_readiness 故障锁存优先级修复与经真实公开路径 runner.trigger_watchdog() / runner.scan_cycle({}) 的反证）；仅在 scope 内两份事实文档收口：docs/RISKS.md 把 RUNTIME-STARTUP-INHIBIT 由误写的“WP-071 Round 2 返修候选、待 Codex Round 2”改为如实的“WP-071 Round 1 CHANGES_REQUESTED + Round 2 HTTP 429 中断封存 BLOCKED + WP-072 恢复候选待 Codex 独立审核”，并把 RUNTIME-STAGE1-PY-ACCEPTANCE 中“待未来 Claude 回审 / 依赖未经 Claude 回审的 WP-061”更正为“WP-071 Round 1 正式 Claude 回审已完成、Codex CHANGES_REQUESTED、WP-072 承接”；docs/SOFT_PLC_FUNCTION_MATRIX.md 的 L34-11、L5-11 两行 WP 状态同口径登记 WP-071 Round 1 CHANGES_REQUESTED 与 WP-072 恢复候选。未触碰 WP-063～070、CFC、Fallback Lite 邻居叙事或历史测试数字。
+- 修复后重跑结果: 不适用（无首次失败）；上列九组命令均一次通过，各 unittest 条目同行 Ran N tests, OK。
+- 回审逐项核验（无失败情况下的证据，非结构化自审替代）:
+  - 唯一产品缺陷簇（Codex WP-071 Round 1 P1）：apply_readiness 的 restore_if_drifted 对时钟窗口内经受信 SafetyStateService.replace 装入的不同实例新快照，scan_ok（index 5）/ watchdog_ok（index 6）取 copied_safety[i] and current[i] 的单调 sticky-False，绝不把新出现的更严格 False 复位为真；新快照字段不可信时保守锁存 False；非 latch 外部就绪字段（0..4）恢复到时钟前可信副本；就地污染 before 实例（object.__setattr__ / __delattr__）走 same-instance 分支恢复到 copied_safety，不被误判为受信新故障锁存；readiness 失败经 except BaseException 只调用 restore 并 raise，controller 不提交。
+  - 反证真实公开路径：test_clock_watchdog_latch_during_readiness_is_not_resurrected（runner.trigger_watchdog()，普通异常，watchdog_ok 保 False、scan_ok 未触碰、controller last_seen_ns=0 / released=False）、test_clock_scan_fault_latch_during_readiness_is_not_resurrected（runner.scan_cycle({})，普通异常，scan_ok 保 False、watchdog_ok 未触碰、controller 零推进）、test_base_exception_after_public_watchdog_latch_preserves_latch（BaseException 恢复保 watchdog 锁存、controller 零推进）；均用公开 runner 路径，不用私有写入。
+  - 其它锁存不被误改 / 后续合法 readiness 可继续工作：test_explicit_readiness_releases_after_window_and_preserves_fault_latches（窗口释放 system_ready=True 同时保留 scan_ok / watchdog_ok=False）、test_clock_reentry_rejects_ordinary_and_base_exceptions_without_progress、test_zero_inhibit_clock_reentry_cannot_half_commit_and_guard_recovers（失败后 clock.mutate=None 再 apply 正常释放）。
+  - WP-071 其余合同回归未回退：exact-bool（_copy_safety / _copy_readiness 以 type() is not bool 拒绝）、整数纳秒窗口、时钟前可信副本、重入门禁、实例读写包装零观察、双域原子性、冷启动 / shadow、output_enable 独立门控、双 assembly 隔离、Python 3.9 dataclass 兼容（系统 python3=3.9.6 group 2/9b 全通过）与阶段 1 公开总验收（stage1 acceptance 在 group 1 内通过）均绿。
+  - scope / 冻结依赖：8 个 scope 文件逐项 SHA-256 与最终 manifest 一致、聚合 858a5e4d…；6 个 code/test 文件字节 = 冻结基线；21 个非 scope runtime 聚合 6a4b2508… 与冻结 tests/test_ai_handoff.py fb5b2629… 均未漂移。
+- 已知疑问: 无新增。协调器 .ai-handoff-runtime/coordinator_status.json 心跳投影已过期（valid_until_epoch 早于本轮宿主时间），按协议仅告警、不恢复旧 30 分钟轮询、不据此取得执行权；本轮为用户直接指派实施，不依赖协调器租约。
+- 未验证边界: 本包证据仅为 Python 主机确定性行为，不构成 CODESYS SP16.1 startup/readiness 语义、真实 readiness / 外部信号源、真实任务调度与连续 deadline miss、HAL / 物理 I/O / 可信反馈、硬件 watchdog、黄金轨迹或现场安全一致性证明；git diff --check 与全部 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 承接 WP-071 配额中断检查点（冻结基线 669d0f6a…），重新完整读取 WP-071 Round 1 Codex 审核、WP-071 中断记录与当前差异，逐项核验中间候选：① apply_readiness 故障锁存优先级修复确实对应 Codex P1（readiness 时钟窗口内经真实公开路径新锁存的 scan_ok=False / watchdog_ok=False 不被 readiness 失败恢复复位为真，controller 不推进，非 latch 字段按时钟前可信语义恢复，就地污染旧 snapshot 不被误判为新锁存）；② 三条公开路径反证（watchdog / scan-fault × 普通异常 / BaseException、controller 零推进、其它锁存不误改）真实存在且经 runner.trigger_watchdog() / runner.scan_cycle({}) 公开路径；③ WP-071 其余合同（exact-bool、整数纳秒窗口、TOCTOU 可信副本、重入门禁、实例包装零观察、双域原子性、冷启动 / shadow、output_enable、双实例、Python 3.9 兼容、阶段 1 公开总验收）均未回退。结论：产品修复与反证可信、无需再改 code/test；仅在 scope 内补全事实文档（RISKS RUNTIME-STARTUP-INHIBIT / RUNTIME-STAGE1-PY-ACCEPTANCE，矩阵 L34-11 / L5-11），如实登记 WP-071 Round 1 CHANGES_REQUESTED、WP-071 Round 2 HTTP 429 中断封存 BLOCKED 与 WP-072 恢复候选、待 Codex 独立审核，保持未提交 / 未 CLOSED。运行 WP-071 更正后九组宿主验证，报告本轮真实计数。
+- 修改文件: docs/RISKS.md（RUNTIME-STARTUP-INHIBIT、RUNTIME-STAGE1-PY-ACCEPTANCE 两条事实收口）、docs/SOFT_PLC_FUNCTION_MATRIX.md（L34-11、L5-11 两行 WP 状态收口）。
+- 明确未修改: src/runtime/startup.py、src/runtime/task_runtime.py、src/runtime/__init__.py、tests/test_runtime_startup.py、tests/test_runtime_task_runtime.py、tests/test_runtime_stage1_acceptance.py 六个 code/test scope 文件字节均等于 WP-072 冻结基线（未改产品逻辑或测试）；21 个非 scope runtime 文件（聚合 6a4b2508…）与冻结 tests/test_ai_handoff.py（fb5b2629…）零漂移；未触碰 WP-063～070 产品/协作候选、CFC/Fallback Lite 邻居叙事、历史测试数字、Git/GitHub、stash、项目外文件、真实调度、HAL、PLC/CODESYS 或现场范围。
+- scope_sha256: 858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a
+- implementation_finished_at: 2026-08-04 14:51:28+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实: v2 九项交接门禁全部通过；顶层 `work_package_id/status/owner/handoff_to/round` 在接手时为 `WP-20260804-072 / READY_FOR_CODEX / codex / codex / 1`，且 `round=1 <= max_rounds=5`；scope 八个精确路径与顺序、v2 声明、自审 Round/时间戳/`PASS`/真实命令与计数、自审先于实施交接的位置及两组 scope 聚合哈希均合法。Codex 开始时独立重算八文件 manifest 与 Claude 证据逐项一致，规范聚合为 `858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a`；21 个冻结非 scope runtime Python 文件聚合为 `6a4b2508da3c238d046187695b40962a4697a141fc52937a4c2239179009f72a`，冻结 `tests/test_ai_handoff.py` 为 `fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db`，均无漂移。`TaskRuntimeAssembly.apply_readiness()` 现将时钟窗口内的安全域恢复分为“时钟前旧 snapshot 同一实例被原位污染”与“受信 `SafetyStateService.replace` 装入不同新 snapshot”两路：前者恢复七个时钟前可信字段，不把 `object.__setattr__` / `object.__delattr__` 污染冒充真实故障；后者恢复非锁存 readiness 字段，同时对 `scan_ok` / `watchdog_ok` 以逻辑 AND 保留时钟期间新出现的更严格 `False`，不会把真实 runner 故障锁存复位为真。三条新增正式反证确实经 `runner.trigger_watchdog()` / `runner.scan_cycle({})` 公开路径覆盖 watchdog、scan-fault、普通异常与 `BaseException`，失败后 controller 均不推进；exact-bool、整数纳秒窗口、时钟前可信副本、重入门禁、实例包装零观察、双域失败原子性、冷启动/shadow、`output_enable`、双实例隔离、Python 3.9 兼容和阶段 1 公开总验收均未回退。`docs/RISKS.md` 与功能矩阵相关行如实保留 WP-071 Round 1 `CHANGES_REQUESTED`、Round 2 HTTP 429 中断封存和 WP-072 恢复候选待本次独立审核的交接前事实，未把未提交/未关闭或外部验证写成完成。
+- 项目工程约定: startup/readiness 稳定窗口、Python 单线程确定性显式应用、双状态域失败恢复与默认 shadow/write-disable 是本项目阶段 1 工程约定，不是 CODESYS 官方 startup 语义或硬实时调度保证。当前批准范围只是这一 Python 主机确定性对象图与安全失败路径。
+- 待真机验证假设: CODESYS SP16.1 startup/readiness 精确行为、真实 readiness/外部信号源、真实任务调度与连续 deadline miss、并发 readiness/runner 调用、HAL/物理 I/O/可信反馈、硬件 watchdog、黄金轨迹和现场安全均未验证；本轮 Python 证据不改变这些状态轴，也不构成现场发布授权。
+- 必须返修: 无。
+- 非阻塞建议: 无；APPROVED 后仍须由用户裁决 `CLOSED`，本轮不执行 Git/GitHub 收尾或其他行政同步。
+- 审核证据: Codex 独立复跑 startup+task-runtime+stage1-acceptance `71/71 OK`；系统 Python 3.9.6 startup+task-runtime `60/60 OK`；policy+runner+monitor+supervisor `269/269 OK`；descriptors+parameters+IR+Store+Executor `354/354 OK`；冻结协作测试、正式 tests 和全仓分别运行 183、1679、1747 项，均只有同一 9 个 dashboard 本地端口用例因审核沙箱禁止 `bind()` 而报 `PermissionError: Operation not permitted`，其余分别 174、1670、1738 项未报失败/错误，因此不声称这三组完整全绿；另独立复跑排除该冻结协作模块的正式集合 `1496/1496 OK`，`prototype_05` `68/68 OK`。未预告反证 3 组全部通过：既有 scan 锁存叠加新 watchdog 锁存后两者均保持 `False` 且后续合法 readiness 可继续工作；scan-fault 公开路径后再抛 `BaseException` 仍保留 `scan_ok=False`；非锁存字段被新 snapshot 污染时恢复时钟前语义且保留新 `scan_ok=False`，三者 controller 均零推进。Python 3.13.5 与系统 Python 3.9.6 对 6 个 Python scope 文件均 `py_compile 6/6 OK`，公开导入冒烟 `6/6 OK`，`git diff --check` 通过。
+- review_started_sha256: 858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a
+- review_finished_sha256: 858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a
+- review_manifest:
+  - `374687dcd1761036fa47f77fccf9d42fad5c01d89a42da3d1a70f478253bbe26  src/runtime/startup.py`
+  - `e32de9b55420b518943c5f5dfb3d639c0a02e96f9d0d50c225953a4d2bfa6645  src/runtime/task_runtime.py`
+  - `fac9566c25a88625d4ec102234b812823fb40998ea67d691ac77a8469e8654b4  src/runtime/__init__.py`
+  - `aed513fd862803d4888ba44fb062b6c47b12321abcd12d979bcf5a15fb9ac302  tests/test_runtime_startup.py`
+  - `76171238500cfe9583d29d515974c9df1ac5e80a9e5c69ab453b230bed59ed7d  tests/test_runtime_task_runtime.py`
+  - `21ddefa15ee1eb32ce2403b43d5effc594e51b0f3bdbe69ae07701b800242c6e  tests/test_runtime_stage1_acceptance.py`
+  - `f510aaccfbb6b50c6c47adda19cc47100cc96505215f9d61e319526b71955310  docs/RISKS.md`
+  - `6716acf1a2223e7268e272cfcf57e8927d5fc5eaaff19b25a020ef3797a739bc  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: user
+- reviewed_at: 2026-08-04 15:05:10+0800
+
+### 用户关闭确认
+
+- close_decision: 用户确认关闭 WP-20260804-072。
+- closed_by: user
+- closed_at: 2026-08-04 15:15:27+0800
+- closed_scope_sha256: 858a5e4dde6dddebc1a12935a982a73308fb3ae08395df9c55de3729bb78f05a
+- boundary: 本次只完成工作包行政关闭；未执行 Git/GitHub 写操作，未把 Python 主机证据升级为 CODESYS、真实调度、HAL、硬件 watchdog 或现场证明。
+
+## WP-20260804-073
+
+- title: Claude 正式回审第二批——AI Handoff 60 分钟墙钟、轮次准入与当前包测试解耦
+- status: CLOSED
+- owner: user
+- round: 4
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- reaudits: WP-20260731-063（全部）、WP-20260731-064（全部）、WP-20260801-065（仅 tests/test_ai_handoff.py 当前工作包选择解耦）
+- function_matrix_ids: ENG-02、ENG-05、ENG-06
+- scope:
+  - tools/ai_handoff/parser.py
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: e78e221065a6351ce3f64e4edac508b66236cdf79cec9ee9b0dfa5d42ba7d765
+- scope_baseline_manifest:
+  - `4fd6accfb7d410bc8794559c0844de3947543e7f794bd882ad09e729b60412af  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `fb5b26295784d3f34521557b15276c0027c32ab747fdee88fb3ce4d9f6b613db  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `6716acf1a2223e7268e272cfcf57e8927d5fc5eaaff19b25a020ef3797a739bc  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- frozen_product_python_files: 60
+- frozen_product_python_sha256: bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6
+- frozen_fallback_cfc_files: 6
+- frozen_fallback_cfc_sha256: 7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+- created_by: codex（依据用户确认关闭 WP-072 并继续第二批正式回审的授权）
+
+### 目标与源码裁决
+
+- 把 Claude 周额度不可用期间由备用流程形成的工程支持候选重新纳入正式 Claude → Codex 三阶段审核；Claude 必须把六文件当前内容视为“未正式审核候选”，完整检查后可在 scope 内修改任何不合理处，不得把备用流程的 provisional 结论直接升级为正式批准。
+- WP-063 的真实范围是 Claude/Codex 两个主执行 adapter 默认墙钟由 1800 秒改为 3600 秒，并保持显式 override、认证探针和测试短超时不变；WP-064 的真实范围是轮次准入、动作前后置条件、严格 review `Round N` token 与 source/target round；WP-065 的产品 Python 3.9 兼容已由 WP-071/072 正式回审，本包仅承接其 `tests/test_ai_handoff.py` 当前工作包 ID/位置解耦意图。
+- 不得把本包表述为“证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁或 execution identity 绑定已实现”。这些能力在 WP-064 明确排除并仍需独立立项；如果六文件当前实现事实上依赖其中任一项才能正确，立即安全停笔并报告规格缺口。
+- 开包前真实红灯：用户关闭 WP-072 后，`tests.test_ai_handoff.ParserTests.test_current_complete_handoff_keeps_strict_review_round_compatibility` 把 `result.current` 错误断言为 `result.packages[-1]`；解析器实际正确回溯到未关闭的 WP-071，导致协作测试 182/183、1 失败。Claude 必须基于公开解析合同修正测试，使它选择当前包而不绑定固定工作包 ID、文件末尾位置或特定历史状态；不得为了让旧断言通过而改变解析器的正确回溯语义。
+
+### 验收合同
+
+- 两个主执行 adapter 的默认 `timeout_seconds` 必须都是 3600；Codex/Claude 显式 override（至少 321/654）必须按原值透传，认证探针 15 秒、`SafeProcessRunner`/`ExecutionPlan`、测试注入的 0.1/2/40 秒和进程组终止语义不得被默认值改写。Claude `max_turns=80`、工作包 `max_rounds=5`、3600 秒墙钟和账户额度是四个独立上限，不得相互替代。
+- `round`、`max_rounds` 和返修准入使用的 `latest_review_round` 在任何比较、格式化、深拷贝或序列化前，都只能接受 exact built-in positive `int`；`bool`、float、int 子类和带恶意 `__eq__`/`__repr__`/`__deepcopy__` 的对象必须零观察失败关闭，拒绝结果不得携带原不可信对象。
+- 动作轮次合同固定为：Claude 首轮 `N→N`、Codex 审核 `N→N`、Claude 返修 `N→N+1`；`CHANGES_REQUESTED` 顶层仍保持源轮次 N 且必须等于最近 Codex review 的严格轮次证据，成功返修交接才原子写 N+1。`READY_FOR_CODEX round == max_rounds` 仍允许最后一次审核；`CHANGES_REQUESTED round == max_rounds` 不再启动返修。
+- review 标题只接受有且仅有一个 Unicode 边界安全的 exact ASCII `Round N` token；拒绝前后缀附着、前导零、小数、比例、范围、列表、不可见 bridge、组合字符绕过、重复 token 和超过 64 位数字，同时保留 `Round 2，返修` 等合法标点说明及长普通标题的有界行为。
+- `source_round` / `target_round` 只用于结果解释；幂等键、coordinator、lease/history 和实际动作身份继续绑定源轮次，不得把展示字段误持久化为新的权威状态。完成后置校验必须验证 Codex 审核标题轮次与当前源轮次一致。
+- 当前工作包测试必须从解析结果的公开 `current` 语义选择目标，不固定 WP ID、不假定文件最后一节就是当前包，也不得因历史 CLOSED/APPROVED/BLOCKED 包的追加而误报；同时继续证明严格 review round 兼容性。
+- 文档和矩阵只能同步上述真实能力及正式回审状态；历史工作包测试数字原样保留。不得修改 `src/**`、Fallback Lite、CFC、Dashboard/API、租约/崩溃恢复的范围外语义或 Git/GitHub 状态。
+
+### 测试与交接要求
+
+- Claude 至少亲自运行并逐条报告真实结果：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests`
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+  3. 使用 `python -c` 对两个 adapter 的 3600 默认值与 321/654 override 做公开计划冒烟；
+  4. 使用 `python -c` 对 parser/scheduler/tests 做 `py_compile(..., doraise=True)`；
+  5. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+- 主控开包前基线为 `tests.test_ai_handoff` 182/183，唯一失败即上述末尾位置绑定；`git diff --check` 通过。Claude 不得把该失败冒充通过，也不得复制 WP-063/064 的历史计数作为本轮实测。
+- Claude 自审必须逐字使用 `- 实际测试命令与结果:` 与 `- self_review_manifest:`，每条 unittest 命令同行连续写 `Ran N tests, OK`，使用宿主真实时间，完整填写首次失败、失败根因、修复内容、修复后重跑、已知疑问、未验证边界和是否满足交接条件；PASS 后一次性原子转为 `READY_FOR_CODEX / codex / codex / round=1`。
+- Codex 接手后独立复算六文件 manifest，逐文件审查，构造未预告 Unicode review token、恶意 round 对象、max-round 边界、当前包回溯和 timeout override 反证，并独立复跑上述测试与 `git diff --check`；不得只凭 Claude 自审批准。
+- scope、60 个产品 Python 文件或 6 个 Fallback/CFC 冻结文件漂移，需扩大 scope，发现合同歧义，真实测试未通过，或代理/认证/额度故障时立即安全停笔；不创建恢复包、不执行 Git/GitHub 写操作、不触碰项目外资料。
+- 最终 `APPROVED` 后停止协调器并等待用户确认关闭；本包不自动执行 Git/GitHub 收尾，也不自动启动 WP-067～069 回审。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-04 15:31:47+0800
+- self_review_finished_at: 2026-08-04 15:39:50+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 93 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 184 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1680 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1748 tests, OK
+  - python3 -c adapter 冒烟：Codex/Claude 默认 `timeout_seconds=3600`、公开计划墙钟均 3600，显式 override 321/654 逐值透传（认证探针默认 15.0s 见 scheduler.py `probe_authenticated`）—— 通过（非 unittest，无计数）
+  - python3 -c py_compile(doraise=True) parser.py / scheduler.py / test_ai_handoff.py —— 均通过（非 unittest，无计数）
+  - python3 -c 重算 scope 聚合 = 651e1c8f… + 60 产品 Python 冻结集 = bde5b93f… + 6 Fallback/CFC 冻结集 = 7f8ff33a… —— 均一致（非 unittest，无计数；`git diff --check` 与 Git/GitHub 收尾按纪律留给 Codex）
+- self_review_scope_sha256: 651e1c8f71ab6284960806bab4ee327bf8da891df35a2b8569b765efcda67dc8
+- self_review_manifest:
+  - 4fd6accfb7d410bc8794559c0844de3947543e7f794bd882ad09e729b60412af  tools/ai_handoff/parser.py
+  - d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py
+  - d8c7310e9a89a2739e7126e5976e2b03536900f5cdcde33b19b4704101a4f65f  tests/test_ai_handoff.py
+  - 55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md
+  - 0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 79eb9655c2998c7f381636010ca451d3228486e9e876e75badc0a10f00e2db44  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 无 unittest 命令在本轮实测中失败。开包前主控基线的唯一失败（`ParserTests.test_current_complete_handoff_keeps_strict_review_round_compatibility` 断言 `current is result.packages[-1]`）在 WP-073 追加为文件末尾非 CLOSED 包后已“意外通过”——这恰暴露旧断言把 `current` 绑定到文件末尾位置的脆弱性：一旦当前包被关闭或其后再追加 CLOSED 包，解析器会正确回溯而该断言即再次失败。
+- 失败根因: 缺陷在测试而非解析器。解析器 `ParseResult.current` 的公开合同是“最后一个非 CLOSED 工作包，全部 CLOSED 时才回退到文件末尾包”，回溯语义正确；旧测试却把它错误绑定为 `result.packages[-1]`（固定文件末尾位置）。
+- 修复内容: ① 新增反证 `test_current_backtracks_past_trailing_closed_packages`：构造 [非 CLOSED, CLOSED] 证明 `current is packages[0]` 且 `current is not packages[-1]`，再构造全 CLOSED 证明回退末尾——直接证伪“绑定 packages[-1]”并锁定正确回溯语义；② 把 `test_current_...compatibility` 的断言改为按公开 `current` 合同判定（非 CLOSED 列表的最后一个；全 CLOSED 才回退末尾），不再绑定固定 WP ID、文件末尾位置或某个历史状态，同时继续证明严格 review round 兼容；③ **未改动解析器回溯语义、也未改动 parser.py/scheduler.py**。文档矩阵仅收口 ENG-06（WP-063 墙钟）与 ENG-02（WP-064 轮次准入）为 WP-073 正式回审、待 Codex 独立审核、未提交。
+- 修复后重跑结果: `tests.test_ai_handoff` 184/184 OK（183 原有 + 1 新增反证，旧唯一失败点已改为公开合同判定）；上列五组命令均一次通过，各 unittest 条目同行 `Ran N tests, OK`。
+- 已知疑问: 无新增。协调器 `.ai-handoff-runtime/coordinator_status.json` 心跳投影已过期，按协议仅告警、不恢复旧 30 分钟轮询、不据此取得执行权；本轮为用户直接指派实施，不依赖协调器租约。
+- 未验证边界: 本包仅验证 AI 协作工具与文档的 Python 主机行为，不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog、真实调度或现场安全证明；未新增“证据新鲜度 / verdict 终态绑定 / authority 字节快照 / pre-Popen 最终门禁 / execution identity 绑定”能力（这些在 WP-064 明确排除并仍需独立立项，本包实现不依赖其中任一项）。`git diff --check` 与全部 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 把六文件当作未正式审核候选完整回审。审查结论——① **WP-063 双 adapter 默认墙钟（ENG-06）**：`CodexCommandAdapter` / `ClaudeEndpointAdapter` 默认 `timeout_seconds=3600` 并逐值透传到 `ExecutionPlan`；显式 override 321/654 按原值透传；认证探针默认 15.0s、`SafeProcessRunner`/`ExecutionPlan` 的超时/进程组终止/失败终态与测试注入短超时语义不受默认值影响——正确，无需修改。② **WP-064 轮次准入（ENG-02）**：`round`/`max_rounds`/`latest_review_round` 均以 `type(value) is not int`（短路，`or value<=0` 不先执行）exact-int 失败关闭、拒绝结果 `round=None` 且不携带原不可信对象、reason 不格式化该对象；`CHANGES_REQUESTED` 顶层 round 必须等于最近严格 review round、返修 N→N+1、`READY_FOR_CODEX round==max_rounds` 仍审核而 `CHANGES_REQUESTED round==max_rounds` 不返修；`_strict_single_review_round` 只接受单一 Unicode 边界安全的 exact ASCII `Round N`（拒前后缀附着/前导零/小数/比例/范围/列表/不可见 bridge/组合字符/重复 token/超 64 位）；`source_round`/`target_round` 仅展示，幂等键 `wp:source_round:action`、lease `round_number=source_round`、history 写入丢弃 source/target，完成后置校验要求 Codex 审核轮次==源轮次——正确，无需修改。③ **两份文档**（`AI_HANDOFF_OPERATIONS.md`、`CLAUDE_IMPLEMENTATION_RUNBOOK.md`）与上述代码事实一致，无需修改。唯一缺陷是 WP-065 承接的当前包测试解耦：修正 `test_current_...compatibility` 的 `current is packages[-1]` 脆弱绑定、新增回溯反证，并在功能矩阵收口 ENG-06/ENG-02 的 WP-073 正式回审状态。先写反证后修复，未改解析器正确回溯语义。
+- 修改文件: `tests/test_ai_handoff.py`（新增 `test_current_backtracks_past_trailing_closed_packages` 反证 + 改 `test_current_complete_handoff_keeps_strict_review_round_compatibility` 断言为公开 current 合同）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（ENG-06 从 “WP-063 Fallback 候选待未来 Claude 回审” 收口为 “WP-20260804-073 Round 1 正式 Claude 回审：Claude 已实施交接、待 Codex 独立审核”，ENG-02 补记 WP-064 轮次准入候选由 WP-073 正式回审，均保持未提交/未合并）。
+- 明确未修改: `tools/ai_handoff/parser.py`（4fd6accf…）、`tools/ai_handoff/scheduler.py`（d591f2c3…）、`docs/AI_HANDOFF_OPERATIONS.md`（55414f65…）、`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`（0bd0c16c…）四文件字节未变；60 个产品 Python 文件冻结集（bde5b93f…）与 6 个 Fallback/CFC 冻结集（7f8ff33a…）零漂移；未触碰 `src/**`、Fallback Lite、CFC、Dashboard/API、租约/崩溃恢复的范围外语义，未执行任何 Git/GitHub 写操作，未触碰项目外资料。仅在非 scope 的本文件追加本轮自审与实施交接并原子翻转顶层字段。
+- scope_sha256: 651e1c8f71ab6284960806bab4ee327bf8da891df35a2b8569b765efcda67dc8
+- implementation_finished_at: 2026-08-04 15:39:50+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁通过；Codex 接手时顶层 `work_package_id/status/owner/handoff_to/round` 为 `WP-20260804-073 / READY_FOR_CODEX / codex / codex / 1`，且 `round=1 <= max_rounds=5`。六文件 scope 路径与顺序精确一致，Claude 自审与实施交接均声明 `651e1c8f71ab6284960806bab4ee327bf8da891df35a2b8569b765efcda67dc8`；Codex 开始、结束独立重算 manifest 与聚合均为同一值。60 个 `src/**/*.py` 冻结集独立重算为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，6 个 Fallback/CFC 冻结文件按冻结顺序独立重算为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，均无漂移。两个主执行 adapter 默认 `timeout_seconds=3600`，显式 321/654 override 原值透传，认证探针仍为 15.0 秒；exact positive built-in `int` 门禁对 `round/max_rounds/latest_review_round` 的主调度路径成立，恶意对象拒绝结果不携带原对象且独立深拷贝/序列化零观察；Claude 首轮与 Codex 审核保持 N→N、返修候选展示 N→N+1，幂等键、租约与历史继续绑定源轮次；`READY_FOR_CODEX round==max_rounds` 仍允许审核、`CHANGES_REQUESTED round==max_rounds` 阻止返修。当前包测试已按公开 `ParseResult.current` 合同选择最后一个非 CLOSED 包，并有尾随 CLOSED 包回溯反证，不再绑定固定 WP ID 或文件末尾位置。上述通过项不消除下列 Unicode 列表轮次缺陷。
+- 项目工程约定: 60 分钟墙钟、exact-int 失败关闭、严格 review 标题轮次证据、源/目标轮次展示与当前包回溯均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不是 CODESYS、实时调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包验证范围。证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁和 execution identity 绑定仍未实现，本轮未把它们写成已实现能力。
+- 必须返修: P1——`tools/ai_handoff/parser.py::_strict_single_review_round()` 的数字续写分隔符集合不完整。Codex 未预告反证确认 `Codex 审核结论（Round 2、3）`（U+3001 IDEOGRAPHIC COMMA）和 `Codex 审核结论（Round 2﹑3）`（U+FE51 SMALL IDEOGRAPHIC COMMA）均被错误解析为轮次 `2`，而验收合同要求范围/比例/列表表达式及其 Unicode 绕过全部拒绝。须在 scope 内修复列表分隔符识别，使这两例及带允许 bridge 后再接数字的同类表达式返回无轮次证据，同时保留 `Round 2，返修` 等标点后普通说明文字合法；先增加会失败的反证，再复跑全部规定测试。不得借机扩大为证据新鲜度等排除能力。
+- 非阻塞建议: 无。
+- 审核证据: 定向 Parser/Scheduler/EventDriven/RoundCompletion/ClaudeNaming 共运行 93 项，其中 2 项 Dashboard 用例在创建本地监听 socket 时被审核沙箱以 `PermissionError: Operation not permitted` 阻断，其余 91 项无失败/错误；`tests.test_ai_handoff` 运行 184 项，同一 9 个 dashboard 端口用例在 `bind()` 前置阶段被权限阻断，其余 175 项无失败/错误，另独立排除这 9 项后复跑为 `175/175 OK`。正式 tests 运行 1680 项、全仓运行 1748 项，均只有同一 9 项端口权限错误，其余分别 1671、1739 项无失败/错误；`prototype_05` 为 `68/68 OK`。未预告正向/拒绝反证 22/22 通过，覆盖不可见 Unicode bridge、合法标题、重复 token、64/65 位边界、恶意 round/max/latest 对象零观察、max-round、current 回溯、3600 默认、321/654 override 与 15 秒探针；随后额外列表反证稳定复现上述两例错误接受。parser/scheduler/tests `py_compile 3/3 OK`，`git diff --check` 通过。端口权限限制不是本次退回原因；退回原因是可在纯解析路径稳定复现的 Unicode 列表合同缺陷。
+- review_started_sha256: 651e1c8f71ab6284960806bab4ee327bf8da891df35a2b8569b765efcda67dc8
+- review_finished_sha256: 651e1c8f71ab6284960806bab4ee327bf8da891df35a2b8569b765efcda67dc8
+- review_manifest:
+  - `4fd6accfb7d410bc8794559c0844de3947543e7f794bd882ad09e729b60412af  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `d8c7310e9a89a2739e7126e5976e2b03536900f5cdcde33b19b4704101a4f65f  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `79eb9655c2998c7f381636010ca451d3228486e9e876e75badc0a10f00e2db44  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: claude
+- reviewed_at: 2026-08-04 16:00:27+0800
+
+### Claude 交接前自审（Round 2）
+
+- self_review_started_at: 2026-08-04 20:34:38+0800
+- self_review_finished_at: 2026-08-04 20:34:52+0800
+- self_review_verdict: PASS
+- self_review_round: 2
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 94 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 185 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1681 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1749 tests, OK
+  - python3 -c adapter 冒烟：Codex/Claude 默认 `command_for` 计划墙钟均 3600，显式 override 321/654 逐值透传，认证探针默认 15.0s（scheduler.py `probe_authenticated`）—— 通过（非 unittest，无计数）
+  - python3 -c py_compile(doraise=True) parser.py / scheduler.py / test_ai_handoff.py —— 均通过（非 unittest，无计数）
+  - python3 -c 重算 scope 聚合 = 06e7a750… + 60 产品 Python 冻结集 = bde5b93f… + 6 Fallback/CFC 冻结集 = 7f8ff33a… —— 60 冻结集与 6 冻结集零漂移；`git diff --check` 与 Git/GitHub 收尾按纪律留给 Codex（非 unittest，无计数）
+- self_review_scope_sha256: 06e7a7501e8d47e5818e886edb3deba5f5b3eddd6bf85ecd55dc948685359ba1
+- self_review_manifest:
+  - 3477f3e2267c663f46e3f946725a9b82fd763b910f56533607ba2daf98a9424e  tools/ai_handoff/parser.py
+  - d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py
+  - af61bcfbeaf2c3acbbc656afdf5bd89beb580bfe1c8c5218acca5cafc780034c  tests/test_ai_handoff.py
+  - 55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md
+  - 0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 79eb9655c2998c7f381636010ca451d3228486e9e876e75badc0a10f00e2db44  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 本轮按“先反证后修复”纪律，先写会失败的反证 `tests.test_ai_handoff.ParserTests.test_latest_review_round_rejects_ideographic_list_comma`；未打补丁前它以 30 个子用例失败（如 `Round 2、3`、`Round 2﹑3` 被误解析为轮次 2，断言 `assertIsNone` 失败 `AssertionError: 2 is not None`），稳定复现 Codex Round 1 指出的 U+3001/U+FE51 列表逗号缺陷。除该反证外，无其他非预期 unittest 失败。
+- 失败根因: 缺陷在 `tools/ai_handoff/parser.py::_is_numeric_continuation_separator()` 的数字续写分隔符集合不完整。表意列表逗号 U+3001 `、`（NFKC 折叠到自身）及其 NFKC 折叠到 U+3001 的变体 U+FE51 `﹑`、U+FF64 `､` 均未被识别为分隔符：它们不在 `_NUMERIC_CONTINUATION_UNICODE`、类别为 `Po`（非 `Pd`），NFKC 后落在 `、` 而非 ASCII 集合，因此 `Round 2、3` 这类列表表达式被误接受为轮次 2。ASCII 全宽逗号 U+FF0C `，` 因 NFKC 折叠到 `,` 已被正确识别为“分隔符后接非数字文字即合法”，`Round 2，返修` 一直合法。
+- 修复内容: 在 scope 内 `parser.py` 新增 `_NUMERIC_CONTINUATION_LIST = frozenset("、")`（表意列表逗号），并在 `_is_numeric_continuation_separator` 的 NFKC 单字符分支中追加 `normalized in _NUMERIC_CONTINUATION_LIST` 判定；U+FE51 / U+FF64 经 NFKC 折叠到 U+3001 后同样命中。仅补全列表分隔符识别，未改动 `_continues_numeric_expression` 的“分隔符后须接数字才拒绝”语义，故 `Round 2、返修`、`Round 2，返修` 等标点后普通说明文字保持合法；未扩大到证据新鲜度、verdict 终态绑定、authority 快照、pre-Popen 门禁或 execution identity 等 WP-064 明确排除能力。反证同时覆盖允许 bridge（空格/Tab/U+3000/ZWJ/组合标记）后再接顿号再接数字的隐藏续写。未改动 `scheduler.py` 及三份文档。
+- 修复后重跑结果: 反证 `test_latest_review_round_rejects_ideographic_list_comma` 打补丁后通过；`tests.test_ai_handoff` 由 184 增至 185（+1 反证）全数通过。上列五组 unittest 命令均一次通过，各条同行 `Ran N tests, OK`（94 / 185 / 1681 / 68 / 1749）。
+- 已知疑问: 无新增。协调器 `.ai-handoff-runtime/coordinator_status.json` 心跳投影仍过期，按协议仅告警、不恢复旧 30 分钟轮询、不据此取得执行权；本轮为用户直接指派返修，不依赖协调器租约。
+- 未验证边界: 本包仅验证 AI 协作工具与文档的 Python 主机行为，不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog、真实调度或现场安全证明；未新增“证据新鲜度 / verdict 终态绑定 / authority 字节快照 / pre-Popen 最终门禁 / execution identity 绑定”能力（WP-064 明确排除，本轮实现不依赖其中任一项）。`git diff --check` 与全部 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 2）
+
+- 完成内容: 按 Codex Round 1 的 P1 意见返修 `_strict_single_review_round` 的数字续写分隔符缺口。先写会失败的反证 `test_latest_review_round_rejects_ideographic_list_comma`（覆盖 U+3001 `、`、U+FE51 `﹑`、U+FF64 `､` 三种表意列表逗号，及允许 bridge 后再接数字的隐藏列表续写；并锁定 `Round 2、返修` 等分隔符后接非数字文字保持合法），再在 `parser.py` 的 `_is_numeric_continuation_separator` 补全 NFKC 折叠到 U+3001 的列表逗号识别。修复后 `Codex 审核结论（Round 2、3）` 与 `Codex 审核结论（Round 2﹑3）` 返回无轮次证据，而 `Round 2，返修` 等合法标点说明不受影响。未改 `_continues_numeric_expression` 的“分隔符后须接数字才拒绝”核心语义，未扩大为 WP-064 排除的证据新鲜度等能力。
+- 修改文件: `tools/ai_handoff/parser.py`（新增 `_NUMERIC_CONTINUATION_LIST` 常量并在 `_is_numeric_continuation_separator` NFKC 分支追加列表逗号判定）、`tests/test_ai_handoff.py`（新增反证 `test_latest_review_round_rejects_ideographic_list_comma`）。
+- 明确未修改: `tools/ai_handoff/scheduler.py`（d591f2c3…）、`docs/AI_HANDOFF_OPERATIONS.md`（55414f65…）、`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`（0bd0c16c…）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（79eb9655…）四文件字节未变（本轮功能状态仍为“待 Codex 独立审核、未提交”，无实质状态轴变化，故矩阵不改）；60 个产品 Python 文件冻结集（bde5b93f…）与 6 个 Fallback/CFC 冻结集（7f8ff33a…）零漂移；未触碰 `src/**`、Fallback Lite、CFC、Dashboard/API、租约/崩溃恢复的范围外语义，未执行任何 Git/GitHub 写操作，未触碰项目外资料。仅在非 scope 的本交接文件追加本轮自审与实施交接并原子翻转顶层字段。
+- scope_sha256: 06e7a7501e8d47e5818e886edb3deba5f5b3eddd6bf85ecd55dc948685359ba1
+- implementation_finished_at: 2026-08-04 20:34:52+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 2）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁全部通过；Codex 接手时顶层 `work_package_id/status/owner/handoff_to/round` 为 `WP-20260804-073 / READY_FOR_CODEX / codex / codex / 2`，且 `round=2 <= max_rounds=5`。六文件 scope 路径、顺序及 Round 2 自审/实施交接 manifest 精确一致，开始与结束独立重算的规范聚合均为 `06e7a7501e8d47e5818e886edb3deba5f5b3eddd6bf85ecd55dc948685359ba1`；60 个 `src/**/*.py` 冻结集为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，6 个 Fallback/CFC 冻结集为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，均无漂移。Round 1 点名的 U+3001/U+FE51 表意列表逗号缺口已修复：`Round 2、3`、`Round 2﹑3` 及 U+FF64 变体现在返回无轮次证据，`Round 2、返修` 保持合法。两个主 adapter 默认墙钟仍为 3600，321/654 override 原值透传，认证探针默认参数仍为 15.0 秒；exact-int 恶意对象零观察 3/3、max-round 边界 2/2、当前包公开 `current` 回溯、source/target 仅展示且身份绑定源轮次等既有合同未见回退。上述通过项不消除下列 Unicode 列表证据绕过及矩阵状态滞后。
+- 项目工程约定: 60 分钟墙钟、exact built-in positive `int`、严格 review 标题轮次证据、源/目标轮次展示与当前包回溯均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不构成 CODESYS、实时调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包验证范围。证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁与 execution identity 绑定仍是延后实现项，本轮未把它们写成已实现能力。
+- 必须返修: P1——`tools/ai_handoff/parser.py::_is_numeric_continuation_separator()` 仍采用不完整的枚举式数字续写分隔符集合。Codex 未预告反证确认 `Round 2،3`（U+060C ARABIC COMMA）、`Round 2؛3`（U+061B ARABIC SEMICOLON）、`Round 2՝3`（U+055D ARMENIAN COMMA）、`Round 2፣3`（U+1363 ETHIOPIC COMMA）、`Round 2᠂3`（U+1802 MONGOLIAN COMMA）、`Round 2・3`、`Round 2·3`、`Round 2⋅3`、`Round 2⸴3`、`Round 2⹁3` 均仍被错误投影为轮次 `2`；内存反证 `1` 个 test / `10` 个 subtests 全部失败。验收合同要求范围、比例、列表及 Unicode 绕过全部拒绝，当前只追加 U+3001 不能关闭该合同。请先新增会失败的多文字系统/多类别反证，再把规则收敛为不会依赖逐字符漏列的失败关闭判定；同时保留 `Round 2，返修`、`Round 2、返修` 及长普通说明文字等合法标题，不得扩大到本包明确排除的 freshness/authority/pre-Popen/execution-identity 能力。
+- 必须返修: P2——`docs/SOFT_PLC_FUNCTION_MATRIX.md` 的 ENG-02 与 ENG-06 仍写成“`WP-20260804-073 Round 1` 已实施交接、待 Codex 独立审核”，但 Round 1 Codex 审核已经实际形成 `CHANGES_REQUESTED`，当前又完成了 Round 2 返修交接；这使矩阵的“WP 审核状态”轴滞后于交接事实，也不符合本包“文档和矩阵同步正式回审状态”的验收合同。请如实登记 Round 1 `CHANGES_REQUESTED` 与 Round 2 返修待独立审核，继续保持未提交/未合并，不能预写 APPROVED/CLOSED。
+- 非阻塞建议: 无。
+- 审核证据: 规定定向组运行 94 项，其中 2 个 Dashboard 用例在创建本地监听 socket 时被审核沙箱以 `PermissionError: Operation not permitted` 阻断，其余 92 项无失败/错误；`tests.test_ai_handoff` 185 项中同一 9 个端口用例被权限阻断，其余 176 项无失败/错误，另独立排除这 9 项复跑为 `176/176 OK`。正式 tests 1681 项与全仓 1749 项均只有同一 9 项端口权限错误，其余分别 1672、1740 项无失败/错误；另排除整个协作模块的正式集合为 `1496/1496 OK`，`prototype_05` 为 `68/68 OK`。adapter 公开计划冒烟为 `(3600, 3600, 321, 654)` 且探针默认 `15.0`；parser/scheduler/tests `py_compile 3/3 OK`，`git diff --check` 通过。审核者首次 adapter 探针错误读取不存在的 `probe_timeout_seconds` 实例属性而得到 `AttributeError`，随后改按公开 `probe_authenticated` 签名重跑通过；该审核脚本错误未冒充产品失败或通过。未预告 exact-int/max-round/current 反证通过，未预告 Unicode 列表反证稳定得到 10/10 错误接受，是本轮退回原因。
+- review_started_sha256: 06e7a7501e8d47e5818e886edb3deba5f5b3eddd6bf85ecd55dc948685359ba1
+- review_finished_sha256: 06e7a7501e8d47e5818e886edb3deba5f5b3eddd6bf85ecd55dc948685359ba1
+- review_manifest:
+  - `3477f3e2267c663f46e3f946725a9b82fd763b910f56533607ba2daf98a9424e  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `af61bcfbeaf2c3acbbc656afdf5bd89beb580bfe1c8c5218acca5cafc780034c  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `79eb9655c2998c7f381636010ca451d3228486e9e876e75badc0a10f00e2db44  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: claude
+- reviewed_at: 2026-08-04 20:45:43+0800
+
+### Claude 交接前自审（Round 3）
+
+- self_review_started_at: 2026-08-04 21:02:06+0800
+- self_review_finished_at: 2026-08-04 21:02:47+0800
+- self_review_verdict: PASS
+- self_review_round: 3
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 95 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 186 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1682 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1750 tests, OK
+  - python3 -c adapter 冒烟：Codex/Claude 默认 `timeout_seconds=3600`、`command_for` 计划墙钟均 3600，显式 override 321/654 逐值透传，认证探针默认 15.0s（scheduler.py `probe_authenticated`）—— 通过（非 unittest，无计数）
+  - python3 -c py_compile(doraise=True) parser.py / scheduler.py / test_ai_handoff.py —— 均通过（非 unittest，无计数）
+  - python3 -c 重算 scope 聚合 = d84b33b1… + 60 产品 Python 冻结集 = bde5b93f… + 6 Fallback/CFC 冻结集 = 7f8ff33a… —— 60 冻结集与 6 冻结集零漂移；`git diff --check` 与 Git/GitHub 收尾按纪律留给 Codex（非 unittest，无计数）
+- self_review_scope_sha256: d84b33b10921f65898b50c9cc56771f85ea3238ff9e7c708bd3475706020cdf8
+- self_review_manifest:
+  - 12af8313d5f5138c7ca72bcbe503c6cd92cdfe6c045e5dcddb433ed4e16d6376  tools/ai_handoff/parser.py
+  - d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py
+  - d9180b9dd6c37dede1399f216d448991977e1d0d272ce3d58434d1afe5ee8204  tests/test_ai_handoff.py
+  - 55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md
+  - 0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 1d81870593953a440a1e7452ab1914762640bf2540b76b2e96483745ee1bb670  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 本轮按“先反证后修复”纪律，先写会失败的反证 `tests.test_ai_handoff.ParserTests.test_latest_review_round_rejects_multiscript_numeric_separators`；未打补丁前它稳定复现 Codex Round 2 指出的枚举漏列缺陷——`Round 2،3`（U+060C）、`Round 2؛3`（U+061B）、`Round 2՝3`（U+055D）、`Round 2፣3`（U+1363）、`Round 2᠂3`（U+1802）、`Round 2・3`（U+30FB）、`Round 2·3`（U+00B7）、`Round 2⋅3`（U+22C5）、`Round 2⸴3`（U+2E34）、`Round 2⹁3`（U+2E41）等被误解析为轮次 2，断言 `assertIsNone` 命中 `AssertionError: 2 is not None`。除该反证外，无其他非预期 unittest 失败。
+- 失败根因: 缺陷在 `tools/ai_handoff/parser.py::_is_numeric_continuation_separator()` 采用枚举式数字续写分隔符集合（`_NUMERIC_CONTINUATION_ASCII` / `_NUMERIC_CONTINUATION_UNICODE` / `_NUMERIC_CONTINUATION_LIST` + `Pd` + NFKC 单字符），逐字符列举必然漏掉跨脚本、跨类别的逗号/分号/中点/点运算符（多为 `Po`，个别为 `Sm`），导致这些字符夹在两个数字之间时未被识别为续写而放行。
+- 修复内容: 在 scope 内 `parser.py` 把 `_is_numeric_continuation_separator` 收敛为**类别失败关闭**判定——凡 Unicode 通用类别以 `P`（标点）或 `S`（符号）开头者一律视为数字续写分隔符，删除三个枚举常量，不再依赖逐字符穷举；跨脚本同类逗号/点号自动被拒。桥接字符（空格/Tab/`Zs`/组合标记/`Cf`）仍由 `_is_numeric_bridge` 单独处理，与 `P*/S*` 不重叠；`Pc`/`Cf` 紧邻数字仍先由 `_is_unicode_attachment` 拒绝。因 `_continues_numeric_expression` 只在分隔符链后紧跟**数字**时才判为续写，故 `Round 2，返修`、`Round 2、返修`、`Round 2）`、`Round 2: 返修`、长普通说明文字等标点后接非数字文字的合法标题保持返回轮次 2 不变（143 无效 + 14 合法既有语料、极长普通标题、Unicode 附着/桥接/顿号既有反证均仍通过）。未改 `_continues_numeric_expression` 的“分隔符后须接数字才拒绝”核心语义与 `scheduler.py`；未扩大到证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁或 execution identity 等 WP-064 明确排除能力。P2 另在 `docs/SOFT_PLC_FUNCTION_MATRIX.md` 如实登记 ENG-02/ENG-06 的 Round 1、Round 2 均为 Codex `CHANGES_REQUESTED`、Round 3 返修交接待 Codex 独立审核，保持未提交/未合并，不预写 APPROVED/CLOSED。
+- 修复后重跑结果: 反证 `test_latest_review_round_rejects_multiscript_numeric_separators` 打补丁后通过；`tests.test_ai_handoff` 由 185 增至 186（+1 反证）全数通过。上列五组 unittest 命令均一次通过，各条同行 `Ran N tests, OK`（95 / 186 / 1682 / 68 / 1750）。
+- 已知疑问: 无新增。协调器 `.ai-handoff-runtime/coordinator_status.json` 心跳投影仍过期，按协议仅告警、不恢复旧 30 分钟轮询、不据此取得执行权；本轮为用户直接指派返修，不依赖协调器租约。宿主本地无审核沙箱端口限制，故 dashboard 用例在本机全绿（Codex 审核环境的 9 项端口 `PermissionError` 是环境差异，非功能矛盾）。
+- 未验证边界: 本包仅验证 AI 协作工具与文档的 Python 主机行为，不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog、真实调度或现场安全证明；未新增“证据新鲜度 / verdict 终态绑定 / authority 字节快照 / pre-Popen 最终门禁 / execution identity 绑定”能力（WP-064 明确排除，本轮实现不依赖其中任一项）。`git diff --check` 与全部 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 3）
+
+- 完成内容: 按 Codex Round 2 的两条意见返修。P1：把 `_is_numeric_continuation_separator` 从枚举式集合收敛为类别（`P*`/`S*`）失败关闭判定，先写会失败的多脚本/多类别反证 `test_latest_review_round_rejects_multiscript_numeric_separators`（覆盖 U+060C/U+061B/U+055D/U+1363/U+1802/U+30FB/U+00B7/U+22C5/U+2E34/U+2E41/U+3001/U+FE50/U+2027/U+2044/U+2236 等标点与符号分隔符，含允许 bridge 前后夹住再接数字的隐藏续写，并锁定分隔符后接普通说明文字保持合法），再补丁使 `Round 2،3` 等全部返回无轮次证据，而 `Round 2，返修`、`Round 2、返修` 等保持轮次 2；不再依赖逐字符穷举，关闭 Codex 指出的合同缺口。P2：在功能矩阵如实登记 ENG-02/ENG-06 的 Round 1、Round 2 Codex `CHANGES_REQUESTED` 与 Round 3 返修待独立审核，未预写 APPROVED/CLOSED。未改 `_continues_numeric_expression` 核心语义，未扩大为 WP-064 排除的证据新鲜度等能力。
+- 修改文件: `tools/ai_handoff/parser.py`（`_is_numeric_continuation_separator` 改为类别失败关闭，删除 `_NUMERIC_CONTINUATION_ASCII` / `_NUMERIC_CONTINUATION_UNICODE` / `_NUMERIC_CONTINUATION_LIST` 三个枚举常量）、`tests/test_ai_handoff.py`（新增反证 `test_latest_review_round_rejects_multiscript_numeric_separators`）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（ENG-02/ENG-06 的 WP 审核状态更新为 Round 1/Round 2 Codex `CHANGES_REQUESTED`、Round 3 返修待 Codex 独立审核，并在 ENG-02 Python 验证补记“跨脚本数字续写分隔符按 Unicode 类别失败关闭拒绝”）。
+- 明确未修改: `tools/ai_handoff/scheduler.py`（d591f2c3…）、`docs/AI_HANDOFF_OPERATIONS.md`（55414f65…）、`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`（0bd0c16c…）三文件字节未变；60 个产品 Python 文件冻结集（bde5b93f…）与 6 个 Fallback/CFC 冻结集（7f8ff33a…）零漂移；未触碰 `src/**`、Fallback Lite、CFC、Dashboard/API、租约/崩溃恢复的范围外语义，未执行任何 Git/GitHub 写操作，未触碰项目外资料。仅在非 scope 的本交接文件追加本轮自审与实施交接并原子翻转顶层字段。
+- scope_sha256: d84b33b10921f65898b50c9cc56771f85ea3238ff9e7c708bd3475706020cdf8
+- implementation_finished_at: 2026-08-04 21:02:47+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 3）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁全部通过；Codex 接手时顶层 `work_package_id/status/owner/handoff_to/round` 为 `WP-20260804-073 / READY_FOR_CODEX / codex / codex / 3`，且 `round=3 <= max_rounds=5`。六文件 scope 路径、顺序及 Round 3 自审/实施交接 manifest 精确一致，开始与结束独立重算的规范聚合均为 `d84b33b10921f65898b50c9cc56771f85ea3238ff9e7c708bd3475706020cdf8`；60 个 `src/**/*.py` 冻结集为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，6 个 Fallback/CFC 冻结集为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，均无漂移。Round 2 点名的 U+060C/U+061B/U+055D/U+1363/U+1802/U+30FB/U+00B7/U+22C5/U+2E34/U+2E41 等标点/符号列表绕过已由 Unicode `P*`/`S*` 类别失败关闭；`Round 2，返修`、`Round 2、返修` 等合法说明仍被接受。功能矩阵 ENG-02/ENG-06 已如实登记 Round 1、Round 2 `CHANGES_REQUESTED` 与 Round 3 交接前的待审核状态。两个主 adapter 默认墙钟保持 3600 秒，321/654 override 原值透传，认证探针默认 15.0 秒；exact-int、源/目标轮次、max-round 与 current 回溯既有合同未见回退。上述通过项不消除下列仍可在公开解析路径稳定复现的轮次证据绕过。
+- 项目工程约定: 60 分钟墙钟、exact built-in positive `int`、严格 review 标题轮次证据、源/目标轮次展示与当前包回溯均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不构成 CODESYS、实时调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包验证范围。证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁与 execution identity 绑定仍是延后实现项，本轮未把它们写成已实现能力。
+- 必须返修: P1——`tools/ai_handoff/parser.py::_strict_single_review_round()` 仍未对全部“不可见 bridge / Unicode 数字列表”失败关闭。`_is_numeric_bridge()` 只覆盖 ASCII 空格/Tab、`Zs`、`M*` 与 `Cf`，遗漏可嵌入 Markdown 标题行的 C0/C1 `Cc` 控制字符；`_continues_numeric_expression()` 又只以通用类别 `N*` 判断后续数字，遗漏具有 Unicode numeric value、但类别为 `Lo` 的数词。Codex 通过公开 `HandoffParser.parse_text()` 未预告反证稳定确认 `Round 2<NUL>3`、`Round 2<BEL>3`、`Round 2<BACKSPACE>3`、`Round 2、三` 与 `Round 2、<ZWJ>三` 共 5/5 均被错误解析为轮次 `2`，违反本包对不可见 bridge、范围/比例/列表及 Unicode 绕过的拒绝合同。请先增加会失败的公开解析路径反证，再使不安全控制字符和 Unicode 数值字符不能把复合轮次表达式投影为单一轮次；继续保留 `Round 2，返修`、`Round 2、返修` 与长普通说明文字合法，不得扩大到本包明确排除的 freshness/authority/pre-Popen/execution-identity 能力。
+- 必须返修: P2——本轮 Codex 已形成 Round 3 `CHANGES_REQUESTED`；下一轮返修须把 `docs/SOFT_PLC_FUNCTION_MATRIX.md` 的 ENG-02/ENG-06 从“Round 3 待 Codex 独立审核”更新为“Round 3 Codex `CHANGES_REQUESTED`、Round 4 Claude 返修交接待独立审核”，继续保持未提交/未合并，不得预写 APPROVED/CLOSED。
+- 非阻塞建议: 无。
+- 审核证据: 规定定向组运行 95 项，其中 2 个 Dashboard 用例在创建本地监听 socket 时被审核沙箱以 `PermissionError: Operation not permitted` 阻断，其余 93 项无失败/错误；`tests.test_ai_handoff` 186 项中同一 9 个端口用例被权限阻断，其余 177 项无失败/错误，另独立排除这 9 项复跑为 `177/177 OK`。正式 tests 1682 项与全仓 1750 项均只有同一 9 项端口权限错误，其余分别 1673、1741 项无失败/错误；另排除整个协作模块的正式集合为 `1496/1496 OK`，`prototype_05` 为 `68/68 OK`。adapter 公开计划冒烟为 `(3600, 3600, 321, 654)`，探针默认 `15.0`；parser/scheduler/tests `py_compile 3/3 OK`，`git diff --check` 通过。未预告 exact-int 恶意 `round/max_rounds/latest_review_round` 零观察与 max-round 边界反证 `5/5 OK`；未预告公开解析反证则稳定得到上述 5/5 错误接受，是本轮退回原因。端口权限限制不是本次退回原因。
+- review_started_sha256: d84b33b10921f65898b50c9cc56771f85ea3238ff9e7c708bd3475706020cdf8
+- review_finished_sha256: d84b33b10921f65898b50c9cc56771f85ea3238ff9e7c708bd3475706020cdf8
+- review_manifest:
+  - `12af8313d5f5138c7ca72bcbe503c6cd92cdfe6c045e5dcddb433ed4e16d6376  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `d9180b9dd6c37dede1399f216d448991977e1d0d272ce3d58434d1afe5ee8204  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `1d81870593953a440a1e7452ab1914762640bf2540b76b2e96483745ee1bb670  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: claude
+- reviewed_at: 2026-08-04 21:15:58+0800
+
+### Claude 交接前自审（Round 4）
+
+- self_review_started_at: 2026-08-05 01:40:31+0800
+- self_review_finished_at: 2026-08-05 01:40:57+0800
+- self_review_verdict: PASS
+- self_review_round: 4
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 96 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 187 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1683 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1751 tests, OK
+  - python3 -c adapter 冒烟：Codex/Claude 默认 `timeout_seconds=3600`、`command_for` 计划墙钟均 3600，显式 override 321/654 逐值透传，认证探针默认 15.0s（scheduler.py `probe_authenticated.__kwdefaults__={'timeout_seconds':15.0}`）—— 通过（非 unittest，无计数）
+  - python3 -c py_compile(doraise=True) parser.py / scheduler.py / test_ai_handoff.py —— 均通过（非 unittest，无计数）
+  - python3 -c 重算 scope 聚合 = 70f05614… + 60 产品 Python 冻结集 = bde5b93f… + 6 Fallback/CFC 冻结集 = 7f8ff33a… —— 60 冻结集与 6 冻结集零漂移；`git diff --check` 与 Git/GitHub 收尾按纪律留给 Codex（非 unittest，无计数）
+- self_review_scope_sha256: 70f05614fb31da8a844ee1b36a05cd905b978d3365ede0f7534fb5309ef256de
+- self_review_manifest:
+  - 38a26d795d496a93a384a8729b5bf63d86fb18f17c493357c80129075ef83840  tools/ai_handoff/parser.py
+  - d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py
+  - 5665429a2305943a00f7be4ba7ae077f5411a934a4ce7f479cf46f0335d9276f  tests/test_ai_handoff.py
+  - 55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md
+  - 0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 7205b19d939e6ec04639c9e91690168a5c10a797f44313e065f3a10b3cd558c3  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 本轮按“先反证后修复”纪律，先写会失败的公开解析路径反证 `tests.test_ai_handoff.ParserTests.test_latest_review_round_rejects_control_bridges_and_unicode_numeral_lists`；未打补丁前它稳定复现 Codex Round 3 指出的两类绕过——① C0/C1 控制字符 bridge：`Round 2<NUL>3`（U+0000）、`Round 2<BEL>3`（U+0007）、`Round 2<BACKSPACE>3`（U+0008）、`Round 2<DEL>3`（U+007F）、`Round 2<NEL>3`（U+0085）等被误解析为轮次 2；② 分隔符后接类别 Lo 但有 Unicode 数值的数词：`Round 2、三`（U+4E09）、`Round 2、五/十/百`、`Round 2、<ZWJ>三` 被误解析为轮次 2，断言 `assertIsNone` 命中 `AssertionError: 2 is not None`。除该反证外，无其他非预期 unittest 失败。
+- 失败根因: 缺陷在 `tools/ai_handoff/parser.py`。① `_is_numeric_bridge()` 仅识别 ASCII 空格/Tab、`Zs`、`M*` 与 `Cf`，遗漏 Unicode 类别 `Cc` 的 C0/C1 控制字符——它们可嵌入 Markdown 标题行且不可见，未识别就成为把两个数字连成范围/比例的隐藏 bridge。② `_continues_numeric_expression()` 判断“分隔符后是否跟数字”时只用通用类别 `N*`，遗漏类别为 `Lo` 却具有 Unicode 数值的数词（三/四/五/十/百 等），使 `Round 2、三` 这类列表续写被放行。
+- 修复内容: 在 scope 内 `parser.py`：① `_is_numeric_bridge` 追加 `Cc` 到桥接类别（`category in {"Cf", "Cc"}`），控制字符夹在数字与后续数字之间即被识别为隐藏续写而拒绝；② 新增 `_has_numeric_value(character)` 失败关闭辅助——类别以 `N` 开头或 `unicodedata.numeric(ch, None) is not None` 即视为“另一个数字”，并把 `_continues_numeric_expression` 末段的后续数字判定由 `unicodedata.category(...).startswith("N")` 改为调用 `_has_numeric_value`。因 `_continues_numeric_expression` 只在桥接/分隔符链后紧跟**数字（含带数值的数词）**时才判为续写，故 `Round 2，返修`、`Round 2、返修`、`Round 2）`、`Round 2: 返修`、控制字符后接普通说明文字等合法标题保持返回轮次 2 不变（既有 143 无效 + 14 合法语料、极长普通标题、跨脚本分隔符、Unicode 附着/桥接/顿号既有反证均仍通过）。未改 `_continues_numeric_expression` 的“分隔符后须接数字才拒绝”核心语义与 `scheduler.py`；未扩大到证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁或 execution identity 等 WP-064 明确排除能力。P2 另在 `docs/SOFT_PLC_FUNCTION_MATRIX.md` 如实登记 ENG-02/ENG-06 的 Round 3 Codex `CHANGES_REQUESTED`、Round 4 Claude 返修交接待 Codex 独立审核，保持未提交/未合并，不预写 APPROVED/CLOSED。
+- 修复后重跑结果: 反证 `test_latest_review_round_rejects_control_bridges_and_unicode_numeral_lists` 打补丁后通过；`tests.test_ai_handoff` 由 186 增至 187（+1 反证）全数通过。上列五组 unittest 命令均一次通过，各条同行 `Ran N tests, OK`（96 / 187 / 1683 / 68 / 1751）。
+- 已知疑问: 无新增。协调器 `.ai-handoff-runtime/coordinator_status.json` 心跳投影仍过期，按协议仅告警、不恢复旧 30 分钟轮询、不据此取得执行权；本轮为用户直接指派返修，不依赖协调器租约。宿主本地无审核沙箱端口限制，故 dashboard 用例在本机全绿（Codex 审核环境的 9 项端口 `PermissionError` 是环境差异，非功能矛盾）。
+- 未验证边界: 本包仅验证 AI 协作工具与文档的 Python 主机行为，不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog、真实调度或现场安全证明；未新增“证据新鲜度 / verdict 终态绑定 / authority 字节快照 / pre-Popen 最终门禁 / execution identity 绑定”能力（WP-064 明确排除，本轮实现不依赖其中任一项）。`git diff --check` 与全部 Git/GitHub 收尾留给 Codex。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 4）
+
+- 完成内容: 按 Codex Round 3 的两条意见返修。P1：先写会失败的公开解析路径反证 `test_latest_review_round_rejects_control_bridges_and_unicode_numeral_lists`（经 `HandoffParser.parse_text()` 的 `latest_review_round` 覆盖 U+0000/U+0007/U+0008/U+001F/U+007F/U+0085/U+009F 等 `Cc` 控制字符 bridge，及 `、`/`，`/`،`/`·`/`-`/`/`/`:` 分隔符后接 `三/四/五/十/百` 等 `Lo` 数值数词，含允许 bridge 前后夹住再接数词的隐藏续写；并锁定控制字符或分隔符后接普通说明文字保持合法），再在 `parser.py` 把 `_is_numeric_bridge` 补入 `Cc`、新增 `_has_numeric_value` 并让 `_continues_numeric_expression` 以其判定后续数字。修复后 `Round 2<NUL>3`、`Round 2、三`、`Round 2、<ZWJ>三` 等全部返回无轮次证据，而 `Round 2，返修`、`Round 2、返修` 等保持轮次 2；不再依赖逐字符穷举后续数字类别，关闭 Codex 指出的合同缺口。P2：在功能矩阵如实登记 ENG-02/ENG-06 的 Round 3 Codex `CHANGES_REQUESTED` 与 Round 4 返修待独立审核，未预写 APPROVED/CLOSED。未改 `_continues_numeric_expression` 核心语义与 `scheduler.py`，未扩大为 WP-064 排除的证据新鲜度等能力。
+- 修改文件: `tools/ai_handoff/parser.py`（`_is_numeric_bridge` 追加 `Cc`；新增 `_has_numeric_value`；`_continues_numeric_expression` 末段后续数字判定改用 `_has_numeric_value`）、`tests/test_ai_handoff.py`（新增反证 `test_latest_review_round_rejects_control_bridges_and_unicode_numeral_lists`）、`docs/SOFT_PLC_FUNCTION_MATRIX.md`（ENG-02/ENG-06 的 WP 审核状态更新为 Round 3 Codex `CHANGES_REQUESTED`、Round 4 返修待 Codex 独立审核，并在 ENG-02 Python 验证补记“C0/C1 控制字符（Cc）桥接与 Unicode 数值数词（Lo）复合轮次表达式一并失败关闭拒绝”）。
+- 明确未修改: `tools/ai_handoff/scheduler.py`（d591f2c3…）、`docs/AI_HANDOFF_OPERATIONS.md`（55414f65…）、`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`（0bd0c16c…）三文件字节未变；60 个产品 Python 文件冻结集（bde5b93f…）与 6 个 Fallback/CFC 冻结集（7f8ff33a…）零漂移；未触碰 `src/**`、Fallback Lite、CFC、Dashboard/API、租约/崩溃恢复的范围外语义，未执行任何 Git/GitHub 写操作，未触碰项目外资料。仅在非 scope 的本交接文件追加本轮自审与实施交接并原子翻转顶层字段。
+- scope_sha256: 70f05614fb31da8a844ee1b36a05cd905b978d3365ede0f7534fb5309ef256de
+- implementation_finished_at: 2026-08-05 01:40:57+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 4）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁全部通过；Codex 接手时顶层 `work_package_id/status/owner/handoff_to/round` 为 `WP-20260804-073 / READY_FOR_CODEX / codex / codex / 4`，且 `round=4 <= max_rounds=5`。六文件 scope 路径、顺序及 Round 4 自审/实施交接 manifest 精确一致，开始与结束独立重算的规范聚合均为 `70f05614fb31da8a844ee1b36a05cd905b978d3365ede0f7534fb5309ef256de`；60 个 `src/**/*.py` 冻结集为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，6 个 Fallback/CFC 冻结文件为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，均无漂移。Round 3 点名的 C0/C1 `Cc` bridge 与带 Unicode numeric value 的 `Lo` 数词续写已修复：`Round 2<NUL>3`、`Round 2、三`等返回无轮次证据，`Round 2，返修`、`Round 2、返修`仍合法。功能矩阵 ENG-02/ENG-06 已如实登记 Round 3 `CHANGES_REQUESTED` 与 Round 4 交接前的待审状态。两个主 adapter 默认墙钟保持 3600 秒，321/654 override 原值透传，认证探针默认 15.0 秒；exact-int、source/target round 仅展示且动作身份继续绑定源轮次、max-round 边界及公开 `current` 回溯合同未见回退。上述通过项不消除下列仍可在公开解析路径稳定复现的不可见 bridge 绕过。
+- 项目工程约定: 60 分钟墙钟、exact built-in positive `int`、严格 review 标题轮次证据、源/目标轮次展示与当前包回溯均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不构成 CODESYS、实时调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包验证范围。证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁与 execution identity 绑定仍是延后实现项，本轮未把它们写成已实现能力。
+- 必须返修: P1——`tools/ai_handoff/parser.py::_is_numeric_bridge()` 仍只覆盖 `Zs/M*/Cf/Cc`，漏掉同样能嵌入 Markdown 标题且不可见或不可审计的 `Zl/Zp/Cn/Co`。Codex 通过公开 `HandoffParser.parse_text()` 未预告反证稳定确认 `Round 2<U+2028 LINE SEPARATOR>3`、`Round 2<U+2029 PARAGRAPH SEPARATOR>3`、`Round 2<U+2065 UNASSIGNED>3`与 `Round 2<U+E000 PRIVATE USE>3` 共 4/4 仍被错误投影为轮次 `2`，违反本包对不可见 bridge 与 Unicode 绕过的拒绝合同。请先增加会失败的公开解析路径反证，再将 bridge 规则收敛为不依赖漏列类别的失败关闭判定；同时保留 `Round 2，返修`、`Round 2、返修` 及长普通说明文字合法，不得扩大到本包明确排除的 freshness/authority/pre-Popen/execution-identity 能力。
+- 必须返修: P2——两份当前口径文档仍只把 ASCII 空白/Tab、`Zs`、组合标记与格式字符写成不可见 bridge，没有同步本轮已实现的 `Cc` 拒绝与具 Unicode numeric value 的 `Lo` 数词续写拒绝（`docs/AI_HANDOFF_OPERATIONS.md:108-110`、`docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md:31`）；请在修复 P1 时把真实失败关闭口径一并同步，不宣称超过实现的能力。本轮 Codex 已形成 Round 4 `CHANGES_REQUESTED`；Round 5 返修还须把 `docs/SOFT_PLC_FUNCTION_MATRIX.md` 的 ENG-02/ENG-06 从“Round 4 待审”更新为“Round 4 Codex `CHANGES_REQUESTED`、Round 5 Claude 返修交接待独立审核”，继续保持未提交/未合并，不得预写 APPROVED/CLOSED。
+- 非阻塞建议: 无。
+- 审核证据: 规定定向组运行 96 项，其中 2 个 Dashboard 用例在创建本地监听 socket 时被审核沙箱以 `PermissionError: Operation not permitted` 阻断，其余 94 项无失败/错误；`tests.test_ai_handoff` 187 项中同一 9 个端口用例被权限阻断，其余 178 项无失败/错误，另独立排除这 9 项复跑为 `178/178 OK`。正式 tests 1683 项首跑除同一 9 项端口权限错误外，另有 1 项异步生命周期临时目录清理竞争 `OSError: Directory not empty`；该项隔离重跑 `1/1 OK`，排除整个协作模块的正式集合为 `1496/1496 OK`。`prototype_05` 为 `68/68 OK`；全仓 1751 项只有同一 9 项端口权限错误，其余 1742 项无失败/错误。adapter 公开计划冒烟为 `(3600, 3600, 321, 654)`，探针默认 `15.0`；parser/scheduler/tests `py_compile 3/3 OK`，`git diff --check` 通过。未预告公开解析反证稳定得到上述 4/4 错误接受，是本轮退回原因；端口权限与已隔离通过的临时目录清理竞争不是退回原因。
+- review_started_sha256: 70f05614fb31da8a844ee1b36a05cd905b978d3365ede0f7534fb5309ef256de
+- review_finished_sha256: 70f05614fb31da8a844ee1b36a05cd905b978d3365ede0f7534fb5309ef256de
+- review_manifest:
+  - `38a26d795d496a93a384a8729b5bf63d86fb18f17c493357c80129075ef83840  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `5665429a2305943a00f7be4ba7ae077f5411a934a4ce7f479cf46f0335d9276f  tests/test_ai_handoff.py`
+  - `55414f65d7b4a213ad13b46328a86781272ad64aa497c4f15a3a0132ed8d6721  docs/AI_HANDOFF_OPERATIONS.md`
+  - `0bd0c16c0bc3fd5e16581bd0cb4627ec4b0513da8b6d142285ff55255dfa8bca  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `7205b19d939e6ec04639c9e91690168a5c10a797f44313e065f3a10b3cd558c3  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: claude
+- reviewed_at: 2026-08-05 01:57:32+0800
+
+### 额度中断与恢复封存
+
+- blocked_at: 2026-08-05 02:17:40+0800
+- blocking_event: `WP-20260804-073:4:start_claude_rework` 在 Round 5 中途返回 HTTP 429 session limit，`returncode=1`、`num_turns=52`，额度提示 resets 6:30am Asia/Shanghai；未形成 Round 5 结构化 v2 自审、实施交接或顶层轮次转移。
+- partial_candidate_scope_sha256: bb84a24085401eb7a99de167913b551f51eec82afb8e6273dc36d958564200b6
+- partial_candidate_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `3c97dd6b33f680d740dde53b0d36764810c5a96bcbf2d72cf40314acd7a8162b  tests/test_ai_handoff.py`
+  - `0651a9299281016d8b9e6fc03ceb08d21f8058c50defe21ebade901984068829  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `c0f30f14b7414efb4a4fef27a1bb09da437bf21e3f39a2a922ee020bc277c5cb  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- additional_blocker: Claude 的失败诊断含真实 U+2028/U+2029；`AsyncExecutionCoordinator._read_history_locked()` 使用 Unicode `splitlines()`，把一条按物理 LF 写入且可由字节级 JSON 解析的合法记录误拆为多行，继而生成 `blocked-corrupt-state`。这是真实新发现的工程支持缺陷，不得通过删除审计历史或忽略失败告警掩盖。
+- boundary: WP-073 保留 Round 1～4 的全部原始实施、测试与审核记录；Round 5 中间候选不冒充交接。后继 WP-074 冻结上述检查点完成恢复，不改写本包历史结论。
+
+## WP-20260805-074
+
+- title: WP-073 Round 5 检查点恢复与 JSONL 物理 LF 分帧收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- recovers: WP-20260804-073 Round 5 未交接检查点
+- function_matrix_ids: ENG-02、ENG-05、ENG-06
+- scope:
+  - tools/ai_handoff/parser.py
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: bb84a24085401eb7a99de167913b551f51eec82afb8e6273dc36d958564200b6
+- scope_baseline_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `d591f2c3e850448aa6acfb11e718027fee9a7266c5123223ae792d6e851097ad  tools/ai_handoff/scheduler.py`
+  - `3c97dd6b33f680d740dde53b0d36764810c5a96bcbf2d72cf40314acd7a8162b  tests/test_ai_handoff.py`
+  - `0651a9299281016d8b9e6fc03ceb08d21f8058c50defe21ebade901984068829  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `c0f30f14b7414efb4a4fef27a1bb09da437bf21e3f39a2a922ee020bc277c5cb  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- frozen_product_python_files: 60
+- frozen_product_python_sha256: bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6
+- frozen_fallback_cfc_files: 6
+- frozen_fallback_cfc_sha256: 7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+- created_by: codex（依据用户 2026-08-05“Claude 额度恢复，继续未完成任务”的授权）
+
+### 目标与源码裁决
+
+- Claude 必须把六文件 baseline 视为 Codex 未审核的 Round 5 中间候选，亲自完整复核；可以在 scope 内修改任何不合理内容，不能复制主控的定向预跑或把 WP-073 历史测试冒充本包自审。
+- 完成 WP-073 Round 4 P1/P2：`_is_numeric_bridge()` 必须按 Unicode 类别族统一把 `Z* / C* / M*` 识别为不可见或不可审计 bridge，不能追加 U+2028/U+2029/U+2065/U+E000 的逐字符枚举；数字续写继续以 Unicode numeric value 识别 `N*` 与带数值的 `Lo` 数词。须拒绝 Round 4 点名反证及同族变体，同时保留 `Round 2，返修`、`Round 2、返修`、不可见字符后接普通说明文字和长普通标题合法。
+- 收口同次额度中断暴露的 JSONL 边界：`executions.jsonl`、`runs.jsonl` 与失败日志的记录边界只能是写入器实际追加的物理 LF (`0x0A`)；U+2028 LINE SEPARATOR、U+2029 PARAGRAPH SEPARATOR 或其它 Unicode `splitlines()` 边界出现在任意嵌套字符串（特别是 stdout/stderr、permission denial、reason）时，不得把一条合法 JSON 对象拆成多条或触发假 `blocked-corrupt-state`。新写记录应避免产生原始 Unicode 行分隔符；既有 `ensure_ascii=False` 历史记录仍须只读兼容。
+- 读取器仍须对真实物理行截断、非法 UTF-8、非对象 JSON、空/损坏行失败关闭并给稳定物理行号；不得因兼容 U+2028/U+2029 而吞掉真实损坏或把多条物理记录拼接成一条。
+- 运行时恢复只允许 Codex 在启动 Claude 前执行一次可逆操作：保留原始 `executions.jsonl` 与 `execution_block.json` 备份，把现有每个按物理 LF 分隔且可解析的对象机械重编码为等价 JSONL 后再解除假损坏 block；不得删除或改写任一执行事件的语义字段，不得重放已完成动作。Claude 不得修改仓库外运行时文件。
+- 矩阵 ENG-02/ENG-06 必须从“WP-073 Round 5 已交接待审核”的中间措辞改为真实状态：WP-073 BLOCKED、WP-074 当前轮实施/审核状态、未提交/未合并。ENG-05 仅在 JSONL 物理 LF 能力的状态轴确有变化时同步，不预写 APPROVED/CLOSED。
+
+### 验收合同
+
+- 增加公开反证，至少覆盖：`executions.jsonl` 的 stdout/reason 内含 U+2028、U+2029 与二者组合仍按一条对象读取；`runs.jsonl`/失败日志含同类字符后仍能恢复动作状态；后续正常记录仍可追加和读取；真实物理第二行损坏仍稳定失败关闭；非对象与非法 UTF-8 不得泄漏不稳定异常或被忽略。
+- 必须证明现有宿主运行历史中 WP-073 Round 4 Codex completed、Round 5 Claude failed/429 两个终态都可被新读取器保真读取，失败键仍是 `WP-20260804-073:4:start_claude_rework`，不得因恢复而把 failed 改为 completed/retry-authorized。
+- 解析器反证至少覆盖 `Zl/Zp/Cn/Co` 直接/与 `P*` 分隔符组合 bridge 到 ASCII、阿拉伯-印度、罗马与上标数字；类别族测试不得只检查任务书列出的六码位。合法说明与极长普通标题继续回归。
+- 两个主 adapter 的 3600 秒默认、321/654 override、15 秒认证探针、exact-int、source/target round、max-round 与公开 `current` 回溯合同不得回退。
+- scope、60 个产品 Python 或 6 个 Fallback/CFC 冻结集漂移，需扩大范围，出现规格歧义或真实测试失败未定位时立即安全停笔；不得创建额外恢复包、修改 `src/**`、Fallback/CFC、Git/GitHub 或项目外资料。
+
+### 测试与交接要求
+
+- Claude 至少亲自运行并逐条报告：
+  1. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.AsyncExecutionCoordinatorTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests`
+  2. `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff`
+  3. 使用单条 `python -c` 对现有宿主 `executions.jsonl` 做只读物理 LF 解析冒烟，明确 WP-073 Round 4 completed 与 Round 5 failed/429 均保真存在；不得打印完整日志或凭据。
+  4. 使用单条 `python -c` 对两个 adapter 的 3600 默认值、321/654 override 与 15 秒探针做公开计划冒烟。
+  5. 使用单条 `python -c` 对 parser/scheduler/tests 做 `py_compile(..., doraise=True)`。
+  6. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t .`
+  7. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t .`
+  8. `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t .`
+- Claude 必须使用真实宿主时间和精确 v2 字段完成 Round 1 自审；唯一字段名分别使用 `- 实际测试命令与结果:`、`- self_review_manifest:`、`- 首次失败:`、`- 失败根因:`、`- 修复内容:`、`- 修复后重跑结果:`、`- 已知疑问:`、`- 未验证边界:` 与 `- 是否满足交接条件: 是`，不得重复字段名或把括号说明加到字段名。
+- 自审 PASS 后原子转为 `READY_FOR_CODEX / codex / codex / round=1`。Codex 随后独立复算 manifest、检查物理 LF/Unicode 行分隔符/真实损坏边界与 Round 5 parser 规则，运行未预告反证、上述测试及 `git diff --check` 后给 verdict。
+- 最终 APPROVED 只表示工程支持候选通过 Python 主机审核，不构成 PLC/CODESYS、真实调度、HAL、硬件 watchdog、物理 I/O 或现场安全证明；等待用户关闭，不自动 Git/GitHub 收尾或启动下一批。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-05 09:21:52+0800
+- self_review_finished_at: 2026-08-05 09:22:02+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.AsyncExecutionCoordinatorTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 116 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 197 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1693 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1761 tests, OK
+- self_review_scope_sha256: 306eef4c45d80892449f9918c3152729a4ca29012fcbf587b92656805a7985ce
+- self_review_manifest:
+  - 012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py
+  - c5c102709f7a781840a2ab2da0057b5d6e16964f64d55fb4ded9a3616c75299b  tools/ai_handoff/scheduler.py
+  - 4e47faf12f7a664bf09959e80666606c54a79114a1830258c0c2294103012f2b  tests/test_ai_handoff.py
+  - a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md
+  - 2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - d178e168dac60aec8b3b3643f1821c34dc3bf54621bef1eaadfba8b6d8abe406  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 无（本包实现与新增反证一次通过，无首次失败）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 不适用（无首次失败）。
+- 修复后重跑结果: 不适用（无首次失败）；上列 5 条 unittest 命令均同行 `Ran N tests, OK`。
+- 已知疑问: ① parser.py 的 WP-073 Round 4 P1/P2（`_is_numeric_bridge` 按 Z*/C*/M* 类别族、`_has_numeric_value` 含带 Unicode 数值的 Lo 数词）在六文件 baseline 候选中已实现且符合裁决（未追加逐字符枚举），本轮亲自复核确认后未改动 parser.py，只新增类别族泛化反证覆盖六码位之外同族字符。② 宿主 `executions.jsonl` 中 Round 5 那条终态为 outcome=failed、returncode=1、无 error 文本，"/429" 为工作书叙述的额度中断成因；新读取器保真读回该终态且失败键仍为 `WP-20260804-073:4:start_claude_rework`，未因恢复改写为 completed/retry-authorized。均非阻塞。
+- 未验证边界: 本包仅验证 Python 主机协作工具（`tools/ai_handoff` parser/scheduler、`tests/test_ai_handoff.py` 与三份文档），不构成 PLC/CODESYS、真实调度、HAL、硬件 watchdog、物理 I/O 或现场安全证明；未修改 `src/**`、Fallback/CFC、运行时临时文件或执行任何 Git/GitHub 操作。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 收口 WP-073 Round 5 检查点的两项目标。① JSONL 物理 LF 分帧（`tools/ai_handoff/scheduler.py`）：新增 `_RAW_UNICODE_LINE_SEPARATORS` / `_jsonl_line` / `_iter_physical_jsonl_lines`；`executions.jsonl`（`_read_history_locked`）与 `runs.jsonl`（`_action_states`）改为按物理换行 LF (0x0A) 分帧读取，不再用 `str.splitlines()`，因此 stdout/stderr/权限拒绝原因/reason 里合法出现的 U+2028/U+2029/NEL 不会被拆成多条或触发假 `blocked-corrupt-state`，损坏诊断的物理行号保持稳定；`_append_history_locked` / `_append_record` / `_append_failure` 写入前把这些 Unicode 行分隔符转义为 `\uXXXX`（读取无损还原），确保新写记录只以物理 LF 为边界，既有 `ensure_ascii=False` 历史记录仍只读兼容。② WP-073 Round 4 P1/P2：`parser.py` 的类别族失败关闭在 baseline 候选已实现并复核确认，未改动。新增反证覆盖 executions/runs/失败日志的物理 LF 分帧、只读兼容原始分隔符、失败键 outcome 保真、真实第二/第三物理行损坏稳定失败关闭且报稳定物理行号、非对象与非法 UTF-8 失败关闭、写入器转义，以及解析器 bridge 类别族在六码位之外的泛化与极长普通标题回归。宿主只读冒烟：`executions.jsonl` 569 条经新读取器全部保真读回，Round 4 Codex completed 与 Round 5 Claude 非成功终态（returncode=1，失败键 `WP-20260804-073:4:start_claude_rework`）均在；两 adapter 3600 默认、321/654 override、15 秒认证探针、`--max-turns 80` 均未回退；`py_compile(doraise=True)` 通过。矩阵 ENG-02/ENG-06 已改为真实状态（来源包 WP-073 BLOCKED、承接包 WP-074 Round 1 实施/待审、候选未提交未合并），ENG-05 未预写 APPROVED/CLOSED。
+- 修改文件: tools/ai_handoff/scheduler.py、tests/test_ai_handoff.py、docs/AI_HANDOFF_OPERATIONS.md、docs/SOFT_PLC_FUNCTION_MATRIX.md。
+- 明确未修改: tools/ai_handoff/parser.py（Round 4 P1/P2 已在 baseline 候选实现，本轮仅亲自复核确认，未改动）、docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md；`src/**`、Fallback/CFC、运行时仓库外临时文件与任何 Git/GitHub 操作均未触及。
+- scope_sha256: 306eef4c45d80892449f9918c3152729a4ca29012fcbf587b92656805a7985ce
+- implementation_finished_at: 2026-08-05 09:22:02+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: CHANGES_REQUESTED
+- 已验证事实: v2 九项交接门禁通过；Codex 接手时顶层五字段为 `WP-20260805-074 / READY_FOR_CODEX / codex / codex / round=1`，且 `1 <= max_rounds=5`。六文件 scope 路径、顺序、Claude 自审 manifest 与实施交接哈希均精确一致；Codex 开始、结束独立重算的规范聚合 SHA-256 均为 `306eef4c45d80892449f9918c3152729a4ca29012fcbf587b92656805a7985ce`。60 个 `src/**/*.py` 冻结集为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，6 个 Fallback/CFC 冻结文件为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，均无漂移。`_jsonl_line()` 会转义 U+2028/U+2029/U+0085，`_iter_physical_jsonl_lines()` 只以物理 LF 分帧；现有正向用例证明嵌套字符串中的这些字符可无损读回，真实物理损坏行号不被 Unicode 分隔符扰动。`parser.py` 已按 Unicode `Z*/C*/M*` 类别族失败关闭 bridge；Codex 未预告的 110 组直接/标点组合 bridge 到 ASCII、阿拉伯-印度、罗马、上标及 `Lo` 数词反证全部拒绝，`Round 2，返修` / `Round 2、返修` 和极长普通标题保持正确。两个主 adapter 默认值为 3600，321/654 override 原值透传，认证探针默认 15.0 秒。
+- 项目工程约定: JSONL 物理 LF 分帧、Unicode 轮次证据失败关闭、60 分钟主执行墙钟与 v2 交接门禁均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不是 CODESYS、实时调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包证据范围。
+- 延后实现项: 证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 最终门禁与 execution identity 绑定仍未实现；本轮未将它们写成已实现能力。
+- 必须返修 1: P1——`tools/ai_handoff/scheduler.py:713-715,1538-1540` 对所有 `not line.strip()` 的物理行直接 `continue`，与本包“空/损坏行失败关闭”的验收合同直接冲突。Codex 未预告反证在 `executions.jsonl` 写入两条合法对象且中间夹一个空物理行，`_read_history_locked()` 错误接受并返回两条对象；同样的 `runs.jsonl` 还会继续产生 `dry-run-candidate`。请只把单个正常行尾 LF 导致的末尾 sentinel 排除在记录之外，任何中间空行/纯空白物理行必须给出稳定物理行号并失败关闭；为 executions/runs 两条公开路径各增反证，同时保持空文件与单个正常行尾 LF 合法。
+- 必须返修 2: P1——`tools/ai_handoff/scheduler.py:1542-1546` 在 `json.loads(line)` 后未先验证 `record` 是对象，就直接调用 `.get()`。Codex 未预告反证向 `runs.jsonl` 写入合法 JSON 数组 `[1,2,3]`，公开 `dispatch()` 路径泄漏 `AttributeError: 'list' object has no attribute 'get'`，没有形成稳定 `failed` 结果与失败日志。请与 `_read_history_locked()` 的对象门禁对齐，对数组、字符串、数值、布尔和 `null` 统一给出带物理行号的稳定失败证据，新增公开 `dispatch()` 反证，不得泄漏原生属性异常。
+- 非阻塞建议: 无。
+- 审核证据: 宿主 `executions.jsonl` 以新读取器按物理 LF 保真读回 572 条；`WP-20260804-073:4:start_codex_review` 保持 `completed/returncode=0`，`WP-20260804-073:4:start_claude_rework` 保持 `failed/returncode=1`，未被改写成 completed/retry-authorized。parser/scheduler/tests `py_compile(doraise=True)` 3/3 通过，`git diff --check` 通过。按合同运行的定向组为 116 项，其中 2 项 Dashboard 用例因审核沙箱禁止本地 `socket.bind()` 报 `PermissionError`，其余 114 项无失败/错误；`tests.test_ai_handoff` 197 项、正式 tests 1693 项、全仓 1761 项均只有同一组 9 项端口权限错误，排除该 9 项后正式 tests=`1684/1684 OK`、全仓=`1752/1752 OK`；`prototype_05=68/68 OK`。该沙箱限制不是本次退回原因；退回原因是上述三条纯文件路径反证中空行被接受和非对象异常泄漏。
+- review_started_sha256: 306eef4c45d80892449f9918c3152729a4ca29012fcbf587b92656805a7985ce
+- review_finished_sha256: 306eef4c45d80892449f9918c3152729a4ca29012fcbf587b92656805a7985ce
+- handoff_to: claude
+- reviewed_at: 2026-08-05 09:39:18+0800
+
+### Round 2 服务中断封存
+
+- blocked_at: 2026-08-05 09:52:37+0800
+- blocking_event: 精确幂等键 `WP-20260805-074:1:start_claude_rework` 在 Claude Round 2 中途返回 `API Error: Response stalled mid-stream`，`returncode=1`、`num_turns=35`、`terminal_reason=api_error`；不是额度耗尽，且未形成 Round 2 结构化 v2 自审、实施交接或顶层轮次转移。
+- partial_candidate_scope_sha256: 05216ae98620a60b365544c3265892d47096455b51e6abd44ec3106f76d77565
+- partial_candidate_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `70f2a9591b3a9447456d3e13482249ea6157cc1d7e2fc6dbbdeb3bd7ff955ed3  tools/ai_handoff/scheduler.py`
+  - `7ffae2d0ab66d0552ccd943f15b248cded81df0227d90443a95707b77d11063a  tests/test_ai_handoff.py`
+  - `a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `d178e168dac60aec8b3b3643f1821c34dc3bf54621bef1eaadfba8b6d8abe406  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- boundary: Round 1 Claude 交接与 Codex `CHANGES_REQUESTED` 审核记录原样保留；Round 2 中间候选不冒充已测试或已交接成果。因 scope 已有写入，直接重试旧键会违反 `review_finished_sha256` 连续性门禁；后继 WP-075 冻结该候选续作，不改写本包历史。
+
+## WP-20260805-075
+
+- title: WP-074 Round 2 中间候选续作与 JSONL 失败关闭矩阵收口
+- status: CLOSED
+- owner: user
+- round: 1
+- max_rounds: 5
+- handoff_to: user
+- handoff_protocol: v2
+- recovers: WP-20260805-074 Round 2 未交接中间候选
+- function_matrix_ids: ENG-05、ENG-06
+- scope:
+  - tools/ai_handoff/parser.py
+  - tools/ai_handoff/scheduler.py
+  - tests/test_ai_handoff.py
+  - docs/AI_HANDOFF_OPERATIONS.md
+  - docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - docs/SOFT_PLC_FUNCTION_MATRIX.md
+- scope_baseline_sha256: 05216ae98620a60b365544c3265892d47096455b51e6abd44ec3106f76d77565
+- scope_baseline_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `70f2a9591b3a9447456d3e13482249ea6157cc1d7e2fc6dbbdeb3bd7ff955ed3  tools/ai_handoff/scheduler.py`
+  - `7ffae2d0ab66d0552ccd943f15b248cded81df0227d90443a95707b77d11063a  tests/test_ai_handoff.py`
+  - `a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `d178e168dac60aec8b3b3643f1821c34dc3bf54621bef1eaadfba8b6d8abe406  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- frozen_product_python_files: 60
+- frozen_product_python_sha256: bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6
+- frozen_fallback_cfc_files: 6
+- frozen_fallback_cfc_sha256: 7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630
+- frozen_fallback_cfc_manifest:
+  - `a2bb14efc361ad28bec274f918d1a719ca4e23694ad3de17c91064a0e81c3e73  docs/MANUAL_TRIAD_FALLBACK_LITE.md`
+  - `da05fbb0d8520ca4073ae0ccc75c51f3cb046c8f3b5f2b1c106dd0cc2ae0e7f8  src/runtime/cfc_order.py`
+  - `29c0552b7c77a261270eb1cf494f1bc3822af95c8c80b4fd321e41fde7153155  src/runtime/cfc_lowering.py`
+  - `614a3ca1bd229ceb423a6b2da7bb3738dac0ec96d85b027fd9442474f883ad61  tests/test_runtime_cfc_order.py`
+  - `2ceb91afb4b738b36095dafe6f9879f77b82f5629de18d3041bc77cbb294ed52  tests/test_runtime_cfc_feedback.py`
+  - `1053dc0b35dab553d9b7c0a7e1f4e3624d01c12460aa91e3b10aaae41b6c6cf4  tests/test_runtime_cfc_lowering.py`
+- base_branch: main
+- base_commit: aa73c56b5f07ed5bd87a6b0c4447d137f0474b04
+- created_by: codex（依据用户 2026-08-05“Claude 额度恢复，继续未完成任务”的连续授权）
+
+### 目标与范围
+
+- Claude 必须把六文件 baseline 视为未审核中间候选，亲自复核每一处差异；可在 scope 内修正不合理内容，不得把 WP-074 的预跑或失败轮次冒充本包自审。
+- 仅收口 WP-074 Codex Round 1 的两项同源 P1：
+  1. `executions.jsonl` 与 `runs.jsonl` 的中间空物理行、纯空白物理行必须以稳定物理行号失败关闭；空文件与单个正常行尾 LF 仍合法，不得把尾部 sentinel 当成额外记录。
+  2. `runs.jsonl` 中数组、字符串、数值、布尔和 `null` 等非对象 JSON 必须形成稳定 `failed` 结果与失败日志，不得泄漏 `.get()` 的 `AttributeError` 或携带不可信原对象。
+- 必须保留 WP-074 已验证的物理 LF 分帧、U+2028/U+2029/U+0085 无损恢复、真实损坏失败关闭、`Z*/C*/M*` bridge 与 Unicode numeric value 规则；不回退 3600 秒主执行默认值、override、15 秒探针、exact-int、source/target round、max-round 和 `current` 回溯合同。
+- 不扩大到 `src/**`、Fallback/CFC、证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 门禁、execution identity、Git/GitHub、PLC/CODESYS、HAL、真实 I/O、硬件 watchdog 或现场证明。
+
+### 验收与测试
+
+- 新增公开路径反证：executions/runs 的中间空行与纯空白行稳定报对应物理行；空文件与单尾 LF 合法；`runs.jsonl` 五类非对象 JSON 全部返回稳定 `failed`、写入失败证据且不启动 adapter。
+- Claude 必须亲自运行并逐条报告 WP-074 的八条命令：定向组、`tests.test_ai_handoff`、真实宿主 history 物理 LF 保真冒烟、adapter 默认/override/探针冒烟、`py_compile`、正式 tests、`prototype_05`、全仓；不得把任何 `PermissionError`/`FAILED`/`ERROR` 写成全绿。
+- 完成真实宿主时间、精确 v2 字段、六文件 manifest 与原子交接；合法交接后 Codex 独立复算哈希、逐文件审查、做未预告空行/非对象/尾 LF/日志原子性反证，完整复跑并给 verdict。
+- scope/冻结集漂移、需扩范围、规格歧义、真实测试失败未定位或额度/服务故障时立即安全停止并如实报告；不盲目快速重试，不自动创建额外恢复包。
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-05 16:48:58+0800
+- self_review_finished_at: 2026-08-05 16:49:20+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.AsyncExecutionCoordinatorTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests —— Ran 121 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff —— Ran 202 tests, OK
+  - 真实宿主 history 物理 LF 保真冒烟（单条 python -c 只读 _read_history_locked）—— runtime_dir ai-handoff-9208e63d363d、582 条记录经物理 LF 读取器保真读回；WP-20260804-073 R4 start_codex_review 为 completed/0、start_claude_rework 保持非成功终态 returncode=1，键未改写为 completed 或 retry-authorized —— OK
+  - adapter 默认/override/探针冒烟（单条 python -c）—— Codex 与 Claude 默认 timeout_seconds=3600、显式 override 321/654 逐值透传、Claude max_turns=80、认证探针默认 15.0s，均未回退 —— OK
+  - py_compile 冒烟（单条 python -c，doraise=True）—— tools/ai_handoff/parser.py、tools/ai_handoff/scheduler.py、tests/test_ai_handoff.py 3/3 通过 —— OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -t . —— Ran 1698 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s prototype_05 -t . —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s . -t . —— Ran 1766 tests, OK
+- self_review_scope_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- self_review_manifest:
+  - 012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py
+  - 70f2a9591b3a9447456d3e13482249ea6157cc1d7e2fc6dbbdeb3bd7ff955ed3  tools/ai_handoff/scheduler.py
+  - e6e04e3004a227ba4282daa15af6ad8de20ea96d0351663046639a370f7fa518  tests/test_ai_handoff.py
+  - a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md
+  - 2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md
+  - 07abd67137def0482594133cb6b2056be3646a1cc665db719f43c47c52e3ccbd  docs/SOFT_PLC_FUNCTION_MATRIX.md
+- 首次失败: 无（六文件 baseline 即 WP-074 Round 2 服务中断留下的中间候选，两项 P1 修复与配套反证已在其中；本轮亲自复核后仅新增 1 处 runs 纯空白行反证与 1 处矩阵状态订正，一次通过，无首次失败）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 不适用（无首次失败）。
+- 修复后重跑结果: 不适用（无首次失败）；上列 5 条 unittest/discover 命令均同行 `Ran N tests, OK`，3 条单条 python -c 冒烟均 OK/通过。
+- 已知疑问: ① baseline 中 `tools/ai_handoff/scheduler.py` 的物理 LF 分帧（`_iter_physical_jsonl_lines` 仅剔除唯一行尾 LF sentinel，中间空行/纯空白行交 `json.loads` 稳定失败关闭并报稳定物理行号）与 runs.jsonl 非对象门禁（`_action_states` 先 `isinstance(record, dict)` 再 `.get()`，`ValueError` 经公开 `dispatch()` 捕获成稳定 `failed` 并落 `failures.jsonl`、不启动 adapter）已复核确认正确，`parser.py`/`scheduler.py` 本轮未改动；仅在 tests 内补齐 runs 中间纯空白行反证以与 executions 及验收合同「中间空行与纯空白行」逐字对齐。② EventDrivenScheduler 走 coordinator executions 幂等、不读 runs.jsonl，故 runs 非对象「不启动 adapter」由 DryRun 结构性保证，现有 DryRun 反证已覆盖该公开路径。③ `ENG-02` 不在本包 function_matrix_ids（ENG-05/ENG-06）内，其 WP-074 叙述属上一包时点措辞，本轮按声明 ID 边界未改写；`ENG-05` 状态轴（Runbook 已 CLOSED/合并、本轮未触及）未变，故未改动其单元格。均非阻塞。
+- 未验证边界: 本包仅验证 Python 主机协作工具（`tools/ai_handoff` scheduler/parser、`tests/test_ai_handoff.py` 与功能矩阵文档），不构成 PLC/CODESYS、真实调度、HAL、硬件 watchdog、物理 I/O 或现场安全证明；未修改 `src/**`、Fallback/CFC、运行时仓库外临时文件，未执行任何 Git/GitHub 操作；60 个产品 Python 与 6 个 Fallback/CFC 冻结集未触及。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 冻结并续作 WP-20260805-074 Round 2 服务中断留下的六文件中间候选，收口两项同源 P1 的 JSONL 失败关闭矩阵。① 亲自复核 baseline 全部差异：`scheduler.py` 的 `_iter_physical_jsonl_lines` 按物理 LF (0x0A) 分帧、仅剔除唯一行尾 LF sentinel，`_read_history_locked`（executions.jsonl）与 `_action_states`（runs.jsonl）对中间空行/纯空白行/非对象 JSON/非法 UTF-8 稳定失败关闭并给稳定物理行号，`dispatch()` 将 runs.jsonl 的 `ValueError` 捕获为稳定 `failed` 并写 `failures.jsonl`、不启动 adapter；均正确，`parser.py`/`scheduler.py` 本轮未改动。② 新增公开路径反证：把 `test_runs_jsonl_interior_blank_line_fails_closed_via_dispatch` 扩为 subTest 覆盖「中间空行」与「纯空白（空格+制表符）中间物理行」两种，均经公开 `dispatch()` 稳定 `failed`、报「第 2 行」、落失败日志，与 executions 同名反证及验收合同「中间空行与纯空白行」逐字对齐（原候选 runs 侧仅覆盖空行）。③ 矩阵 `ENG-06` WP 状态由过期的「WP-074 当前 Round 1 待审」订正为真实链路：WP-074 Round 1 CHANGES_REQUESTED、Round 2 服务中断未交接→源包 BLOCKED，承接包 WP-075 冻结该中间候选续作、当前 Round 1 实施/自审待 Codex 独立审核，仍未提交未合并；ENG-05 状态轴未变未动。④ 亲自逐条运行并报告八条命令（见自审），含真实宿主 executions.jsonl 582 条物理 LF 保真冒烟（WP-073 R4 两键均保真、非成功键未被改写）、双 adapter 3600 默认+321/654 override+15s 探针+max_turns 80 冒烟、py_compile 3/3、正式 tests 1698、prototype_05 68、全仓 1766 均 OK。
+- 修改文件: tests/test_ai_handoff.py、docs/SOFT_PLC_FUNCTION_MATRIX.md（均在 scope 内）。
+- 明确未修改: tools/ai_handoff/parser.py、tools/ai_handoff/scheduler.py、docs/AI_HANDOFF_OPERATIONS.md、docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md（baseline 候选已正确，本轮亲自复核确认后未改动）；`src/**`、Fallback/CFC、运行时仓库外临时文件与任何 Git/GitHub 操作均未触及；60 个产品 Python 与 6 个 Fallback/CFC 冻结集未漂移。
+- scope_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- implementation_finished_at: 2026-08-05 16:49:20+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: BLOCKED
+- 已验证事实: 交接 v2 九项门禁通过；Codex 接手时顶层 `work_package_id/status/owner/handoff_to/round` 为 `WP-20260805-075 / READY_FOR_CODEX / codex / codex / 1`，且 `round=1 <= max_rounds=5`。六文件 scope 路径、顺序、Claude 自审 manifest 与实施交接哈希精确一致；Codex 开始与结束时独立重算的规范聚合 SHA-256 均为 `fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736`，scope 无漂移。60 个 `src/**/*.py` 冻结集独立重算为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`，与声明一致。静态审查确认 `_iter_physical_jsonl_lines()` 只剔除唯一末尾 LF sentinel，中间空行/纯空白行会在 executions/runs 读取路径稳定失败关闭；`_action_states()` 在 `.get()` 前执行 `isinstance(record, dict)` 对象门禁。Codex 未预告临时目录反证 11/11 通过：executions 四种中间空/空白行均报物理第 2 行；runs 的数组、字符串、数值、布尔、`null` 均返回稳定 `failed`、`external_process_started=False`并生成单条可解析失败记录；空文件与单条末尾 LF 保持合法。
+- 项目工程约定: JSONL 物理 LF 分帧、Unicode 轮次证据失败关闭、60 分钟主执行墙钟与 v2 交接门禁均是本项目 AI 协作工具合同，不是软 PLC 产品功能，也不是 CODESYS、真实调度、HAL 或现场安全证明。
+- 待真机验证假设: 无新增；PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 与现场安全均不在本包证据范围。
+- 延后实现项: 证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 门禁与 execution identity 绑定仍未实现；本轮未将其写成已实现能力。
+- 阻塞原因: 按工作包指定的定向命令实际运行 121 项，其中 119 项通过，2 项 Dashboard 用例在创建本地监听端口时因当前审核沙箱禁止 `socket.bind()` 而报 `PermissionError: [Errno 1] Operation not permitted`。用户明确要求出现授权边界时安全停止，因此 Codex 未继续其余全量命令，也不将该组写成全绿。另外，顶层只声明 `frozen_fallback_cfc_files: 6` 与聚合值 `7f8ff33a…`，未提供这 6 个文件的精确路径、顺序和 manifest；本轮不以猜测文件集/顺序冒充独立 SHA-256 证据。需用户决定是否在允许本地端口绑定的宿主环境重启独立审核，并为 6 文件冻结集补充可复算 manifest；本轮不自行扩大授权或改写 scope 证据。
+- 非阻塞建议: 无；本结论仅记录授权/证据阻塞，不将已通过的静态审查与 11/11 反证扭曲为实现缺陷。
+- 审核证据: `git diff --check` 通过。定向命令 `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_handoff.ParserTests tests.test_ai_handoff.AsyncExecutionCoordinatorTests tests.test_ai_handoff.SchedulerTests tests.test_ai_handoff.EventDrivenSchedulerTests tests.test_ai_handoff.RoundCompletionContractTests tests.test_ai_handoff.ClaudeNamingTests` 实际结果为 `Ran 121 tests, FAILED (errors=2)`，两个错误均是上述本地端口绑定权限拒绝；未运行后续 `tests.test_ai_handoff` / 正式 tests / `prototype_05` / 全仓，不声称它们在 Codex 环境通过。本轮未执行 Git/GitHub 写操作，未修改 scope 六文件。
+- review_started_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- review_finished_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- review_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `70f2a9591b3a9447456d3e13482249ea6157cc1d7e2fc6dbbdeb3bd7ff955ed3  tools/ai_handoff/scheduler.py`
+  - `e6e04e3004a227ba4282daa15af6ad8de20ea96d0351663046639a370f7fa518  tests/test_ai_handoff.py`
+  - `a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `07abd67137def0482594133cb6b2056be3646a1cc665db719f43c47c52e3ccbd  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: user
+- reviewed_at: 2026-08-05 17:04:25+0800
+
+### Codex 审核结论（Round 1，宿主补充）
+
+- verdict: APPROVED
+- 已验证事实: 保留上一条 `BLOCKED` 原文作为受限 Reviewer 环境证据，本补充审核不改写其 `119/121 + 2 PermissionError` 事实。用户于 2026-08-05 明确要求立即执行 WP-075 后，Codex 在允许本地端口绑定的宿主环境执行独立补充审核。六文件 scope 实际聚合、Claude 自审/交接哈希与受限 Reviewer 审核始末哈希均为 `fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736`，scope 无漂移。60 个 `src/**/*.py` 冻结集独立复算为 `bde5b93fd255ba51f6737cf9ae22eb108c07444c3b5e4552e47592c6d36220f6`。已在顶层补齐 6 个 Fallback/CFC 文件的精确路径、顺序与逐文件 SHA-256，独立重建规范 manifest 后聚合为 `7f8ff33adea07a895f7d4f8eb458b6e9b9c915f8b829667cb4b4821301f2f630`，与冻结声明一致。
+- 项目工程约定: JSONL 物理 LF 分帧、Unicode 轮次证据失败关闭、60 分钟主执行墙钟与 v2 交接门禁是 AI 协作工具合同，不是软 PLC 产品功能或 CODESYS 官方语义。
+- 待真机验证假设: 无新增；本包证据不构成 PLC/CODESYS、真实调度、HAL、物理 I/O、硬件 watchdog 或现场安全证明。
+- 延后实现项: 证据新鲜度、verdict 终态绑定、authority 字节快照、pre-Popen 门禁与 execution identity 绑定仍未实现，本轮不把它们写成已完成能力。
+- 必须返修: 无。宿主独立复核确认 `_iter_physical_jsonl_lines()` 只剔除唯一末尾 LF sentinel；executions/runs 的中间空行与纯空白行稳定报物理行号；`runs.jsonl` 非对象 JSON 在 `.get()` 前失败关闭，公开 `dispatch()` 稳定返回 `failed`、`external_process_started=False`并形成单条可解析失败日志。
+- 非阻塞建议: 无。
+- 审核证据: 宿主定向组 `121/121 OK`；未预告扩展反证 `10/10 OK`（CR/VT/FF/NBSP 中间纯空白行，浮点/负数/嵌套数组/空字符串/false/null 非对象）；`tests.test_ai_handoff=202/202 OK`；真实宿主 history 以新读取器保真读回 586 条，WP-073 Round 4 Codex 保持 `completed/0`、Claude 保持 `failed/1`；adapter 冒烟为 `(3600, 3600, 321, 654, 15.0)`；`py_compile=3/3 OK`；正式 tests `1698/1698 OK`；`prototype_05=68/68 OK`；全仓 `1766/1766 OK`；`git diff --check` 通过。补充审核开始与结束时 scope 聚合均为 `fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736`。
+- review_started_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- review_finished_sha256: fa690bd23f63fdfb1997d00d2fe206ca0ed1eea7c4d3e1b29804c0de9ea4b736
+- review_manifest:
+  - `012b8ac64ebf107f84579341850953379f045b3f5c3cb1e505d7b3cb531e8e75  tools/ai_handoff/parser.py`
+  - `70f2a9591b3a9447456d3e13482249ea6157cc1d7e2fc6dbbdeb3bd7ff955ed3  tools/ai_handoff/scheduler.py`
+  - `e6e04e3004a227ba4282daa15af6ad8de20ea96d0351663046639a370f7fa518  tests/test_ai_handoff.py`
+  - `a997629c21c6da26f0b4a46d86c5bc849d0dacf68878ad20334aa6b5cba9ffcf  docs/AI_HANDOFF_OPERATIONS.md`
+  - `2e39ffa82aa56256ccb89275c904143dbfb25881582212d6e2577b3aab707752  docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`
+  - `07abd67137def0482594133cb6b2056be3646a1cc665db719f43c47c52e3ccbd  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+- scope_drift: false
+- handoff_to: user
+- reviewed_at: 2026-08-05 17:12:31+0800
+
+### 用户关闭确认
+
+- closed_at: 2026-08-05 21:25:21+0800
+- closed_by: user
+- closure_basis: 用户确认 WP-075 无问题并授权关闭；Claude v2 自审/交接、受限 Reviewer `BLOCKED` 原始记录与宿主 Codex 补充 `APPROVED` 结论全部原样保留。WP-073/WP-074 的未完目标已被 WP-075 完整承接，因此同步仅将两个来源包的顶层行政状态转为 `CLOSED`，不改写其原始阻塞事实。
+- boundary: `CLOSED` 仅表示本工程支持工作包已经用户行政关闭；未执行 Git/GitHub 收尾，也不构成 PLC/CODESYS、HAL、物理 I/O、硬件 watchdog 或现场安全证明。
+
+### 阶段 1 / M1 GitHub 发布前来源包行政收口
+
+- closed_at: 2026-08-05 23:18:23+0800
+- closed_by: user
+- closure_scope: WP-20260731-060、WP-20260801-061、WP-20260801-062、WP-20260801-063、WP-20260801-064、WP-20260802-065、WP-20260804-071。
+- closure_basis: 用户确认按选择性发布方案执行 Git/GitHub 收尾。WP-060/061/062/065 的产品目标已经 WP-071 正式 Claude 回审并最终由 WP-072 `APPROVED/CLOSED` 收口；WP-063/064 的工程支持目标已经 WP-073→074→075 正式回审、返修与宿主独立补充审核，最终由 WP-075 `APPROVED/CLOSED` 收口；WP-071 的中断检查点已由 WP-072 完整承接。
+- history_preservation: 仅将上述来源包顶层行政状态转为 `CLOSED / user / user`；原始 `BLOCKED`、`CHANGES_REQUESTED`、轮次、配额/服务中断、测试数字和审核结论全部原样保留，不冒充来源包当时已通过。
+- excluded_packages: WP-20260802-066、WP-20260803-067、WP-20260803-068、WP-20260803-069、WP-20260804-070 仍保持 `BLOCKED / user / user` 与待 Claude 正式回审标记；其 Fallback Lite / CFC 六文件候选不进入本次发布。
+- boundary: 本行政收口不改写 Python 测试与 PLC/CODESYS、真实调度、HAL/物理 I/O、硬件 watchdog、黄金轨迹或现场安全的独立验证轴。
