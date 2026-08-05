@@ -17,8 +17,9 @@
 - 默认物理写**继续关闭**：工厂只构造 ``CommitPort(supervisor)`` 的默认 shadow
   路径（自动 ``WriteGate`` / write-disable），唯一放开写路径仍是既有运行器显式、
   可审计的 ``set_write_enabled(True)``。
-- 不实现真实调度线程、sleep、后台轮询、startup inhibit 计时 / ``system_ready``
-  自动释放、外部参数源、HAL / 真实 I/O、可信反馈、多任务或持久化。
+- 已实现由调用方显式调用 ``apply_readiness()`` 的确定性 startup inhibit 计时 /
+  ``system_ready`` 释放；不实现真实调度线程、sleep、后台轮询、外部 readiness 信号源、
+  HAL / 真实 I/O、可信反馈、多任务或持久化。
 - ``initial_safety is None`` 时用本包冻结的冷启动失败关闭快照 :data:`COLD_START_SAFETY`：
   仅表示“外部 ready / 通信 / 安全 / 联锁尚未建立，内部扫描与 watchdog 尚无已知
   故障”，使全部输出走安全值；它**不**生成真实信号、**不**自动释放。
@@ -43,6 +44,18 @@ from src.runtime.output_policy import (
 )
 from src.runtime.parameters import RuntimeAssembly, build_runtime
 from src.runtime.scan_runner import CommitPort, OuterScanRunner
+from src.runtime.startup import (
+    ReadinessSnapshot,
+    StartupReadinessController,
+    ReadinessConfigError,
+    StartupState,
+)
+
+
+# readiness 事务只信任模块加载时的 SafetyStateService 类实现；
+# 实例级同名属性可由嵌入方包装，不得成为双状态域事务的观察或提交入口。
+_SAFETY_STATE_READ = SafetyStateService.read
+_SAFETY_STATE_REPLACE = SafetyStateService.replace
 
 
 #: 冷启动失败关闭安全快照（``initial_safety is None`` 时采用）。
@@ -61,6 +74,29 @@ COLD_START_SAFETY: SafetySnapshot = SafetySnapshot(
     scan_ok=True,
     watchdog_ok=True,
 )
+
+
+def _new_cold_start_safety() -> SafetySnapshot:
+    """每次装配创建私有冷启动值，公开常量遭反射污染也绝不传播。"""
+    return SafetySnapshot(False, False, False, False, False, True, True)
+
+
+def _copy_safety(snapshot: object) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
+    """时钟前复制既有安全域（尤其 scan/watchdog 锁存），不信任公开 frozen 字段。"""
+    fields = ("system_ready", "output_enable", "comm_ok", "safety_ok", "interlock_ok",
+              "scan_ok", "watchdog_ok")
+    if type(snapshot) is not SafetySnapshot:
+        raise ReadinessConfigError("SafetyState 必须持有 exact SafetySnapshot")
+    copied = []
+    for field in fields:
+        try:
+            value = getattr(snapshot, field)
+        except (AttributeError, TypeError):
+            raise ReadinessConfigError("SafetySnapshot 字段缺失或不可读取") from None
+        if type(value) is not bool:
+            raise ReadinessConfigError("SafetySnapshot 字段须为 exact bool")
+        copied.append(value)
+    return tuple(copied)  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -82,6 +118,7 @@ class TaskRuntimeAssembly:
     engine: ScanEngine
     runner: OuterScanRunner
     monitor: SoftwareCycleMonitor
+    startup_controller: StartupReadinessController
 
     # ---- 不复制状态的便捷转发属性（与 runtime 同一对象，非副本） ----
 
@@ -107,14 +144,102 @@ class TaskRuntimeAssembly:
 
     @property
     def startup_inhibit_ms(self) -> int:
-        """已校验的启动稳定窗口下限（= ``runtime.startup_inhibit_ms``；只做配置
-        校验，不驱动任何计时 / 释放）。"""
+        """已校验的启动稳定窗口下限（= ``runtime.startup_inhibit_ms``；由显式
+        :meth:`apply_readiness` 的确定性 controller 消费）。"""
         return self.runtime.startup_inhibit_ms
 
     @property
     def warnings(self) -> tuple:
         """启动装配收集的结构化告警（= ``runtime.warnings``）。"""
         return self.runtime.warnings
+
+    def apply_readiness(self, readiness: ReadinessSnapshot) -> StartupState:
+        """显式应用一拍 readiness，并把 controller 与 SafetyState 失败原子地更新。
+
+        在调用注入时钟前复制 readiness 与待保留 ``scan_ok/watchdog_ok``；时钟回调后
+        若安全服务替换了整包快照或篡改任一待保留字段，本方法失败关闭且 controller
+        不提交。成功路径只使用可信副本，不会重读外部 readiness。
+        """
+        before = _SAFETY_STATE_READ(self.safety_state)
+        copied_safety = _copy_safety(before)
+
+        def safety_drifted() -> bool:
+            """只比较 exact 容器身份与七个 exact-bool 字段。"""
+            after = _SAFETY_STATE_READ(self.safety_state)
+            if after is not before:
+                return True
+            try:
+                return _copy_safety(after) != copied_safety
+            except ReadinessConfigError:
+                # 原对象字段被删除或改成非 exact-bool 也是实际漂移。
+                return True
+
+        def restore_if_drifted() -> None:
+            # 绝不重用可能被 object.__setattr__/__delattr__ 污染的 before 实例，
+            # 也不重入可能被不可信回调替换的实例 replace 属性（统一用类实现）。
+            after = _SAFETY_STATE_READ(self.safety_state)
+            if after is before:
+                # 仍是时钟前那一实例：字段等于可信副本即未漂移；否则只可能是对可信
+                # before 实例的就地污染（object.__setattr__/__delattr__），整体恢复到
+                # 时钟前可信副本——copied_safety 正是污染发生前逐字段验证的真值。
+                try:
+                    if _copy_safety(after) == copied_safety:
+                        return
+                except ReadinessConfigError:
+                    pass
+                _SAFETY_STATE_REPLACE(
+                    self.safety_state, SafetySnapshot(*copied_safety))
+                return
+            # 不同实例：时钟窗口内经受信 SafetyStateService.replace 装入了新快照
+            # （如 OuterScanRunner 的 scan/watchdog 故障锁存）。恢复时钟前的外部就绪
+            # 副本，但 scan_ok（索引 5）/ watchdog_ok（索引 6）是单调 sticky-False 的
+            # 安全故障锁存：绝不把时钟期间新出现的更严格 scan_ok=False /
+            # watchdog_ok=False 复位为真（Codex WP-20260804-071 Round 1 P1）。
+            try:
+                current = _copy_safety(after)
+            except ReadinessConfigError:
+                current = None
+            restored = list(copied_safety)
+            if current is None:
+                # 新快照字段不可信 → 失败关闭，保守锁存 scan/watchdog。
+                restored[5] = False
+                restored[6] = False
+            else:
+                restored[5] = copied_safety[5] and current[5]
+                restored[6] = copied_safety[6] and current[6]
+            _SAFETY_STATE_REPLACE(
+                self.safety_state, SafetySnapshot(*restored))
+
+        def commit(state: StartupState,
+                   copied_readiness: tuple[bool, bool, bool, bool, bool, bool]) -> None:
+            if safety_drifted():
+                raise ReadinessConfigError("时钟调用期间 SafetyState 漂移；拒绝双域提交")
+            # 所有值均来自 controller 的可信状态与时钟前安全副本；构造和 replace 完成后，
+            # controller 只余内建 primitive assignment。
+            expected_safety = (
+                state.system_ready,
+                state.output_enable,
+                copied_readiness[2],
+                copied_readiness[3],
+                copied_readiness[4],
+                copied_safety[5],
+                copied_safety[6],
+            )
+            next_snapshot = SafetySnapshot(*expected_safety)
+            _SAFETY_STATE_REPLACE(self.safety_state, next_snapshot)
+            # 只有精确预构造快照已成为 SafetyState 当前值，才允许
+            # controller 继续提交；确认读也不观察实例级包装视图。
+            committed = _SAFETY_STATE_READ(self.safety_state)
+            if (committed is not next_snapshot
+                    or _copy_safety(committed) != expected_safety):
+                raise ReadinessConfigError(
+                    "SafetyState 受控提交未生效；拒绝 controller 提交")
+
+        try:
+            return self.startup_controller._observe_with_commit(readiness, commit)
+        except BaseException:
+            restore_if_drifted()
+            raise
 
 
 def build_task_runtime(task, registry, *, driver, watchdog_timeout_ms: int,
@@ -160,7 +285,7 @@ def build_task_runtime(task, registry, *, driver, watchdog_timeout_ms: int,
                             startup_inhibit_ms=startup_inhibit_ms)
 
     # 2) 安全状态服务：默认冷启动失败关闭快照；显式快照原样交既有服务校验 / 持有。
-    initial = COLD_START_SAFETY if initial_safety is None else initial_safety
+    initial = _new_cold_start_safety() if initial_safety is None else initial_safety
     safety_state = SafetyStateService(initial)
 
     # 3) 输出门控服务：绑定同一 Store / io_map / 安全状态（非法策略由既有层拒绝）。
@@ -183,6 +308,8 @@ def build_task_runtime(task, registry, *, driver, watchdog_timeout_ms: int,
     monitor = SoftwareCycleMonitor(cycle_ms=task.cycle_ms,
                                    timeout_ms=watchdog_timeout_ms,
                                    clock_ns=clock_ns)
+    startup_controller = StartupReadinessController(runtime.startup_inhibit_ms,
+                                                    clock_ns=clock_ns)
 
     return TaskRuntimeAssembly(
         runtime=runtime,
@@ -193,6 +320,7 @@ def build_task_runtime(task, registry, *, driver, watchdog_timeout_ms: int,
         engine=engine,
         runner=runner,
         monitor=monitor,
+        startup_controller=startup_controller,
     )
 
 

@@ -41,12 +41,58 @@ TRIGGER_MAP = {
 }
 
 
+# ---- JSONL 物理 LF 分帧（executions.jsonl / runs.jsonl / 失败日志共用）----
+# 记录边界只能是写入器实际追加的物理换行 LF (0x0A)。若用 str.splitlines() 分帧，会把
+# 嵌套字符串（stdout/stderr、权限拒绝原因、reason 等）里合法出现的 Unicode 行边界——
+# U+2028 LINE SEPARATOR、U+2029 PARAGRAPH SEPARATOR、U+0085 NEL——误当成额外物理行，
+# 把一条合法 JSON 对象拆成多条、触发假 blocked-corrupt-state，或让损坏诊断的物理行号漂移。
+# 因此读写两侧都只认物理 LF：
+#   * 读取按 "\n" 分帧，物理行号对损坏诊断保持稳定；
+#   * 写入前把上述会被 ensure_ascii=False 原样输出的 Unicode 行分隔符转义成 \uXXXX
+#     （json.loads 读取时无损还原），确保新写记录不产生原始行分隔符。
+# 小于 0x20 的 \n/\r/\v/\f/\x1c-\x1e 等 splitlines 边界已由 json 默认转义，无需另处理；
+# 既有 ensure_ascii=False 历史记录即便含原始 U+2028/U+2029，也因读取只按物理 LF 分帧而
+# 仍被读回为单条对象（只读兼容）。
+_RAW_UNICODE_LINE_SEPARATORS = {
+    chr(0x2028): "\\u2028",  # LINE SEPARATOR
+    chr(0x2029): "\\u2029",  # PARAGRAPH SEPARATOR
+    chr(0x0085): "\\u0085",  # NEL
+}
+
+
+def _jsonl_line(payload: dict) -> str:
+    """把一条记录序列化为单物理行 JSONL（含行尾 LF）：稳定排序、保留非 ASCII，但把会被
+    splitlines() 误判为换行的 Unicode 行分隔符转义，避免写出原始行分隔符。"""
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    for raw, escaped in _RAW_UNICODE_LINE_SEPARATORS.items():
+        if raw in text:
+            text = text.replace(raw, escaped)
+    return text + "\n"
+
+
+def _iter_physical_jsonl_lines(text: str):
+    """按写入器实际追加的物理 LF (0x0A) 分帧，不用 str.splitlines()；逐条产出
+    (物理行号, 行内容)。嵌套字符串里的 U+2028/U+2029/NEL 等 Unicode 行分隔符不会被
+    误判为额外物理行，损坏诊断的物理行号也保持稳定。
+
+    写入器每条记录都以物理 LF 结束，正常文件末尾恰有一个由行尾 LF 产生的空 sentinel；
+    空文件同样 split 得单个空串。仅剔除该唯一末尾 sentinel（保持空文件与单条正常记录
+    合法），任何中间空行或纯空白物理行都原样产出、保留稳定物理行号，交由调用方按损坏
+    失败关闭，绝不静默跳过。"""
+    parts = text.split("\n")
+    if parts and parts[-1] == "":
+        parts = parts[:-1]
+    return enumerate(parts, 1)
+
+
 @dataclass
 class DispatchResult:
     outcome: str
     dry_run: bool
     work_package_id: str | None
     round: int | None
+    source_round: int | None = None
+    target_round: int | None = None
     action: str | None = None
     action_label: str | None = None
     idempotency_key: str | None = None
@@ -672,9 +718,9 @@ class AsyncExecutionCoordinator:
         if not self.history_path.exists():
             return []
         records: list[dict] = []
-        for number, line in enumerate(self.history_path.read_text(encoding="utf-8").splitlines(), 1):
-            if not line.strip():
-                continue
+        for number, line in _iter_physical_jsonl_lines(self.history_path.read_text(encoding="utf-8")):
+            # 唯一的行尾 LF sentinel 已由 _iter_physical_jsonl_lines 剔除；此处任何空行/
+            # 纯空白物理行都是真实损坏，交给 json.loads 失败关闭并报稳定物理行号。
             try:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
@@ -689,7 +735,7 @@ class AsyncExecutionCoordinator:
         value = dict(record)
         value.setdefault("recorded_at", datetime.now().astimezone().isoformat(timespec="seconds"))
         with self.history_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.write(_jsonl_line(value))
             stream.flush()
             os.fsync(stream.fileno())
 
@@ -866,7 +912,7 @@ class CodexCommandAdapter:
         *,
         executable: str | Path | None = None,
         project_root: str | Path | None = None,
-        timeout_seconds: int = 1800,
+        timeout_seconds: int = 3600,
         enabled: bool = False,
     ):
         self.executable = _resolved_executable(
@@ -995,7 +1041,7 @@ class ClaudeEndpointAdapter:
         *,
         executable: str | Path | None = None,
         project_root: str | Path | None = None,
-        timeout_seconds: int = 1800,
+        timeout_seconds: int = 3600,
         model: str = "opus",
         authenticated: bool | None = None,
         proxy_url: str | None = None,
@@ -1276,12 +1322,18 @@ class DryRunScheduler:
             (package.status, canonical_actor(package.owner), canonical_actor(package.handoff_to))
         ]
         key = f"{package.work_package_id}:{package.round}:{action}"
+        target_round = (
+            package.round + 1 if action == "start_claude_rework"
+            else package.round
+        )
         expected_hash, hash_basis = self._expected_scope_hash(package)
         return DispatchResult(
             outcome="dry-run-candidate" if dry_run else "execution-candidate",
             dry_run=dry_run,
             work_package_id=package.work_package_id,
             round=package.round,
+            source_round=package.round,
+            target_round=target_round,
             action=action,
             action_label=label,
             idempotency_key=key,
@@ -1297,6 +1349,18 @@ class DryRunScheduler:
         )
 
     def _validate_basic(self, package: WorkPackage, *, dry_run: bool = True) -> DispatchResult | None:
+        for name, value in (("round", package.round),
+                            ("max_rounds", package.max_rounds)):
+            if type(value) is not int or value <= 0:
+                reason = f"{name} 必须是 exact 正 int（> 0）"
+                return DispatchResult(
+                    outcome="rejected-invalid", dry_run=dry_run,
+                    work_package_id=package.work_package_id or None,
+                    round=None, source_round=None, target_round=None,
+                    reason=reason,
+                    notification_candidate=self.notifier.preview(
+                        "invalid_fields", "AI 交接轮次异常", reason),
+                )
         common = dict(dry_run=dry_run, work_package_id=package.work_package_id or None, round=package.round)
         if package.errors:
             return DispatchResult(
@@ -1306,7 +1370,6 @@ class DryRunScheduler:
         missing = [name for name, value in (
             ("work_package_id", package.work_package_id), ("status", package.status),
             ("owner", package.owner), ("handoff_to", package.handoff_to),
-            ("round", package.round), ("max_rounds", package.max_rounds),
         ) if value is None or value == ""]
         if missing:
             reason = "缺少调度字段: " + ", ".join(missing)
@@ -1339,6 +1402,27 @@ class DryRunScheduler:
                 ),
                 **common,
             )
+        if package.status == "CHANGES_REQUESTED":
+            latest_review_round = package.latest_review_round
+            if type(latest_review_round) is not int or latest_review_round <= 0:
+                reason = "CHANGES_REQUESTED 最近 Codex 审核轮次必须是 exact 正 int（> 0）"
+                return DispatchResult(
+                    outcome="rejected-invalid", reason=reason,
+                    notification_candidate=self.notifier.preview(
+                        "invalid_fields", "AI 交接轮次异常", reason),
+                    **common,
+                )
+            if latest_review_round != package.round:
+                reason = (
+                    "CHANGES_REQUESTED 顶层 round 必须等于最近 Codex 审核轮次："
+                    f"top={package.round}, latest_review={latest_review_round}"
+                )
+                return DispatchResult(
+                    outcome="rejected-invalid", reason=reason,
+                    notification_candidate=self.notifier.preview(
+                        "invalid_fields", "AI 交接轮次异常", reason),
+                    **common,
+                )
         key = (package.status, canonical_actor(package.owner), canonical_actor(package.handoff_to))
         if key not in TRIGGER_MAP:
             return DispatchResult(outcome="no-action", reason="当前合法状态没有 v1 触发动作", **common)
@@ -1459,13 +1543,17 @@ class DryRunScheduler:
         if not self.log_path.exists():
             return {}
         states: dict[str, str] = {}
-        for number, line in enumerate(self.log_path.read_text(encoding="utf-8").splitlines(), 1):
-            if not line.strip():
-                continue
+        for number, line in _iter_physical_jsonl_lines(self.log_path.read_text(encoding="utf-8")):
+            # 唯一的行尾 LF sentinel 已由 _iter_physical_jsonl_lines 剔除；此处任何空行/
+            # 纯空白物理行都是真实损坏，失败关闭并报稳定物理行号。
             try:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"runs.jsonl 第 {number} 行损坏") from exc
+            # 与 _read_history_locked 的对象门禁对齐：数组/字符串/数值/布尔/null 等非对象
+            # 记录必须稳定失败关闭，不能直接 .get() 泄漏原生 AttributeError 到公开 dispatch()。
+            if not isinstance(record, dict):
+                raise ValueError(f"runs.jsonl 第 {number} 行不是对象")
             key = record.get("idempotency_key")
             outcome = record.get("outcome")
             if key and outcome in {"running", "dry-run-candidate"}:
@@ -1488,17 +1576,22 @@ class DryRunScheduler:
     def _append_record(self, result: DispatchResult) -> None:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         record = result.to_dict()
+        # source/target 只是本次决策的机器展示字段；不在本包绑定历史。
+        record.pop("source_round", None)
+        record.pop("target_round", None)
         record["recorded_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         with self.log_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.write(_jsonl_line(record))
             stream.flush()
 
     def _append_failure(self, result: DispatchResult) -> None:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         record = result.to_dict()
+        record.pop("source_round", None)
+        record.pop("target_round", None)
         record["recorded_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         with self.failure_log_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.write(_jsonl_line(record))
             stream.flush()
 
 
@@ -1565,7 +1658,7 @@ class EventDrivenScheduler(DryRunScheduler):
             idempotency_key=result.idempotency_key,
             plan=plan,
             work_package_id=package.work_package_id,
-            round_number=result.round,
+            round_number=result.source_round,
             completion_validator=self._completion_validator(package, result.action),
         )
         mapping = {
@@ -1632,6 +1725,18 @@ class EventDrivenScheduler(DryRunScheduler):
                     f"外部进程退出码为 0，但轮次后置条件失败: "
                     f"{current.round!r}，期望 {expected_round}"
                 )
+            if action == "start_codex_review":
+                latest_review_round = current.latest_review_round
+                if type(latest_review_round) is not int or latest_review_round <= 0:
+                    return False, (
+                        "Codex 审核完成条件要求 latest_review_round "
+                        "为 exact 正 int（> 0）"
+                    )
+                if latest_review_round != initial.round:
+                    return False, (
+                        "外部进程退出码为 0，但最近 Codex 审核轮次后置条件失败: "
+                        f"{latest_review_round}，期望 {initial.round}"
+                    )
             if expected_owner is not None and (
                 canonical_actor(current.owner), canonical_actor(current.handoff_to)
             ) != (expected_owner, expected_handoff):

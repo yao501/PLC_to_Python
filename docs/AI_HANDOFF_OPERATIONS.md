@@ -94,10 +94,27 @@ v1 对合法状态只记录“如果启用，将触发谁”：
 > 只读 legacy alias 解析并统一显示为 Claude，任何新生成内容不得再输出旧名称。
 
 在记录前会校验工作包 ID、状态、两个权属字段、轮次、上限、映射和 scope 哈希。
-幂等键是 `work_package_id + round + action`，同一事件重复到达只记录一次；不同轮次可以生成新候选。
-`CHANGES_REQUESTED` 接手会先执行 `round+1`，因此当前轮次已等于上限时也只生成
-“需要用户处理”候选，不触发 Claude，不修改源状态。Codex 审核当前轮不增加轮次，
-所以 `READY_FOR_CODEX` 在 `round == max_rounds` 时仍允许完成审核。
+`round / max_rounds` 以及返修准入、Codex 完成校验所用的最近审核轮次，都必须是
+**内建 `int`（不接受 `bool`、浮点数或 `int` 子类）的正值**；轮次对象在通过此门禁前
+不得参与相等比较、格式化、深拷贝或序列化，拒绝结果也不得携带原始不可信对象。
+幂等键是 `work_package_id + source_round + action`，同一事件重复到达只记录一次；不同源轮次可以生成新候选。
+轮次合同固定为：Claude 首轮 `N→N`、Codex 审核 `N→N`、Claude 返修 `N→N+1`。
+`CHANGES_REQUESTED` 接手前顶层 `round` 必须仍为最近 Codex review 标题中的源轮次 `N`，
+禁止人工预增；标题只接受有且仅有一个规范 ASCII `Round N` token 作轮次证据，其中
+`N` 是无前导零的正十进制整数；`Round 02`、`Round 2.0`、`Round 2/3` 均不构成证据。
+`Round` 左侧或数字右侧若直接附着 Unicode 字母、数字、组合标记、连接符或格式字符也拒绝；
+数字后若经任意标点或符号类（Unicode 类别 `P*`/`S*`，含连字符、加号、冒号、分号、小数点、
+斜线及各脚本的逗号/中点等对应符）继续到另一数字，同样视为范围、小数、比例或列表表达式而拒绝。
+标点后接说明文字仍合法，例如 `Round 2，返修`、`Round 2、返修`。分隔符链扫描按 Unicode 类别族
+失败关闭：所有分隔符类 `Z*`（空白 `Zs`、行分隔符 `Zl`、段落分隔符 `Zp`）、其它类 `C*`（控制
+`Cc`、格式 `Cf`、未分配 `Cn`、私用 `Co`、代理 `Cs`）与组合标记 `M*` 都视为可隐藏后续数字的
+bridge，不依赖逐子类枚举；续写目标除通用类别 `N*` 外，还包括类别为 `Lo` 却带 Unicode 数值的
+数词（如 三/五/十），因此 `Round 2<控制字符>3`、`Round 2、三` 等复合表达式一并返回“无轮次证据”。
+marker 计数只包含双侧 Unicode 边界合格的 exact `Round`，因此正文中的 `Roundtrip` 不会制造伪重复。
+轮次数字段最多 64 位，超长数字或转换失败均返回“无轮次证据”。
+Claude 完成返修、自审和实施交接时，才在同一次原子交接中写入目标轮次 `N+1`。
+因此 `CHANGES_REQUESTED round == max_rounds` 只生成“需要用户处理”候选，不触发 Claude；
+`READY_FOR_CODEX round == max_rounds` 仍允许 Codex 完成当前轮审核。
 
 ### 三阶段展示与交接门禁
 
@@ -186,6 +203,16 @@ live 启动会先执行 Claude Code 登录探针；登录无效、命令缺失�
 - `executions.jsonl`：只追加的生命周期历史。
 - `execution_block.json`：需要人工处置的持久阻塞与失败告警。
 
+`executions.jsonl`、`runs.jsonl` 与失败日志的**记录边界只能是写入器实际追加的物理换行
+LF (`0x0A`)**。读取按物理 LF 分帧，不使用 `str.splitlines()`：因此 stdout/stderr、权限
+拒绝原因或 `reason` 等嵌套字符串里合法出现的 U+2028 LINE SEPARATOR、U+2029 PARAGRAPH
+SEPARATOR、U+0085 NEL 等 Unicode 行边界不会被误当成额外物理行，一条合法 JSON 对象不会被
+拆成多条，也不会触发假 `blocked-corrupt-state`；损坏诊断的物理行号保持稳定。写入前会把这些
+会被 `ensure_ascii=False` 原样输出的 Unicode 行分隔符转义为 `\uXXXX`（读取时无损还原），
+确保新写记录不产生原始行分隔符；既有 `ensure_ascii=False` 历史记录即便含原始 U+2028/U+2029
+也只读兼容。读取器仍对真实物理行截断、非法 UTF-8、非对象 JSON、空/损坏行**失败关闭**，不会因
+兼容 Unicode 行分隔符而吞掉真实损坏或把多条物理记录拼接成一条。
+
 Claude 的隔离执行环境无法访问宿主机的 `127.0.0.1:8765`，也不能读取上述 macOS 临时目录。
 因此协调器另外把**只读存活投影**原子写到项目内被 Git 忽略的
 `.ai-handoff-runtime/coordinator_status.json`。该文件包含 PID、UTC 更新时间、递增序号、
@@ -222,10 +249,12 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 ## 生产事件入口安全约束
 
 - Codex 使用 ChatGPT App 内置的非交互 CLI。执行计划固定项目目录、
-  `workspace-write` 沙箱和临时会话；不使用跳过沙箱的危险参数。
+  `workspace-write` 沙箱和临时会话，adapter 默认墙钟超时为 `timeout_seconds=3600`
+  （60 分钟）；不使用跳过沙箱的危险参数。
 - Claude 使用官方 Claude Code CLI，安装位置为 `~/.local/bin/claude`。计划采用
-  `-p` 非交互模式、JSON 输出、固定 `opus` 模型、`--max-turns` 默认 `80`、超时、`dontAsk`
-  失败关闭，并显式禁止 `git`、`gh`、`rm`、`sudo` 命令。
+  `-p` 非交互模式、JSON 输出、固定 `opus` 模型、`--max-turns` 默认 `80`、
+  `timeout_seconds=3600`（60 分钟）默认墙钟超时、`dontAsk` 失败关闭，并显式禁止
+  `git`、`gh`、`rm`、`sudo` 命令。
 - Claude 首轮实施和返修共用 `build_claude_prompt()` 的长期纪律片段；两条路径都要求在任何
   写入前先完整读取 `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`、`CODEX_GUIDE.md`、交接协议区
   与当前工作包。prompt 直接内联允许/禁止命令、三个 v2 精确字段、`Ran N tests, OK`、
@@ -234,10 +263,13 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 - 必须区分四个互不等价的上限，任一先到即停止：① `--max-turns`（单个 Claude CLI 外部进程内
   agent 允许的最大 turns，默认 `80`，由 adapter 构造参数锁定并做正整数校验）；
   ② 工作包协议 `max_rounds=5`（自 WP-20260729-048 起的新包默认值；实施—审核自动往返轮次，
-  历史包显式 `max_rounds=3` 原样保留）；③ 进程 `timeout_seconds=1800`
-  （30 分钟墙钟超时）；④ Anthropic 账户订阅额度（五小时/每周）。把 40 提升为 80 只放宽 ①，
-  不改变 ②③④，也不消除所有 Claude 中断，更不允许绕过订阅限制：达到 30 分钟超时、账户额度、
+  历史包显式 `max_rounds=3` 原样保留）；③ 两个主执行 adapter 默认
+  `timeout_seconds=3600`（60 分钟墙钟超时）；④ Anthropic 账户订阅额度（五小时/每周）。
+  这四项互不改写、互不替代：达到 60 分钟墙钟超时、turns/rounds 上限、账户额度、
   权限拒绝、连接错误或协议门禁失败时仍必须失败关闭。
+- `3600` 只是两个 adapter 的主执行默认值；显式 `timeout_seconds` override 按原值透传。
+  `ExecutionPlan`、`SafeProcessRunner` 的超时/进程组终止/失败终态语义不变，认证探针 `15` 秒与测试注入的
+  `0.1`/`2`/`40` 秒等显式短超时也不受默认值调整影响。
 - 普通启动时两个 adapter 均为 `available=True, enabled=False`，`DryRunScheduler` 永不调用
   `adapter.execute()`；只有 `--enable-external-processes` 创建的 `EventDrivenScheduler`
   才会把合法状态交给异步执行协调器。

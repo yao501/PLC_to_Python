@@ -24,11 +24,11 @@
 
 完成必读后、**任何写入之前**，逐项核验，任一与任务书不符立即停笔并报告，不猜测、不擅自修复：
 
-- **五字段 + 轮次 + 协议**：`work_package_id / status / owner / handoff_to / round / max_rounds / handoff_protocol`。Claude 只在 `CLAUDE_WORKING(owner=claude, handoff_to=claude)` 或 `CHANGES_REQUESTED(owner=claude, handoff_to=claude)` 两种组合接手；`round <= max_rounds`；非 legacy 白名单包必须 `handoff_protocol: v2`。
+- **五字段 + 轮次 + 协议**：`work_package_id / status / owner / handoff_to / round / max_rounds / handoff_protocol`。Claude 只在 `CLAUDE_WORKING(owner=claude, handoff_to=claude)` 或 `CHANGES_REQUESTED(owner=claude, handoff_to=claude)` 两种组合接手；`round/max_rounds` 必须是内建 `int`（不接受 `bool`、浮点数或 `int` 子类）的正值且 `round <= max_rounds`，返修准入所用的最近审核轮次同样如此；非 legacy 白名单包必须 `handoff_protocol: v2`。未通过 exact-int 门禁的轮次对象不得先被比较、格式化、深拷贝或序列化，拒绝结果也不得携带该对象。
 - **Git 基线**：`main == origin/main == HEAD == base_commit`，工作区符合任务书预期。
 - **scope 证据（按接手状态取不同连续性基准，与 `tools/ai_handoff/scheduler.py` 的 `_expected_scope_hash` / `_validate_scope_integrity` 一致）**：一律按 `scope` 声明顺序逐文件重算 SHA-256 再算聚合，但**比对基准随状态不同**，切勿把两种状态都拿初始 baseline 比对：
   - **首轮 `CLAUDE_WORKING`（初次实施）**：当前聚合必须等于 `scope_baseline_sha256`；仅此状态允许尚未创建的文件以 `ABSENT  <path>` 参与基线。
-  - **`CHANGES_REQUESTED`（返修接手）**：先确认上一轮审核 `review_started_sha256 == review_finished_sha256`（不一致说明审核期间 scope 已漂移，立即停笔），再要求当前聚合等于该 `review_finished_sha256`——正常工作包首轮修改后它通常**不等于** `scope_baseline_sha256`，若仍拿 baseline 比对会把合法返修误判为漂移。
+  - **`CHANGES_REQUESTED`（返修接手）**：顶层 `round=N` 必须与最近 Codex review 标题中唯一规范 ASCII `Round N` token 相等，其中 `N` 是无前导零、最多 64 位的正十进制整数，`Round 02`、`Round 2.0`、`Round 2/3` 与超长数字均拒绝；`Round` 左侧或数字右侧直接附着 Unicode 字母、数字、组合标记、连接符或格式字符时也拒绝；数字后经任意标点或符号类（Unicode `P*`/`S*`，含连字符、加号、冒号、分号、小数点、斜线及各脚本对应符）继续到另一数字时，视为范围、小数、比例或列表表达式而拒绝；bridge 判定按 Unicode 类别族失败关闭——分隔符类 `Z*`（`Zs`/`Zl`/`Zp`）、其它类 `C*`（`Cc`/`Cf`/`Cn`/`Co`/`Cs`）与组合标记 `M*` 都不能作为隐藏续写的 bridge，且续写目标除通用类别 `N*` 外还含带 Unicode 数值的 `Lo` 数词（如 三/五/十），故 `Round 2<控制字符>3`、`Round 2、三` 一并返回“无轮次证据”。marker 计数只包含双侧 Unicode 边界合格的 exact `Round`，所以正文 `Roundtrip` 不算第二个 marker；标点后接说明文字（如 `Round 2，返修`、`Round 2、返修`）仍合法。**接手前不得预增轮次**。再确认上一轮审核 `review_started_sha256 == review_finished_sha256`（不一致说明审核期间 scope 已漂移，立即停笔），并要求当前聚合等于该 `review_finished_sha256`。正常工作包首轮修改后它通常**不等于** `scope_baseline_sha256`，若仍拿 baseline 比对会把合法返修误判为漂移。
   - 其他状态缺文件即拒绝。
 - **冻结依赖**：任务书声明的检查点/冻结哈希与实盘一致。
 - **协调器 / 租约 / 旧轮询**：`.ai-handoff-runtime/coordinator_status.json` 只作只读存活投影（同时校验 `coordinator_live` 与 `valid_until_epoch`）；心跳异常只告警，绝不据此恢复旧 30 分钟轮询或取得执行权。
@@ -70,6 +70,9 @@ Claude 的执行计划 `--allowedTools` 只放行 `Read,Edit,Write,Glob,Grep` �
 
 交接记录必须能被解析器机器解析。以下字段名**逐字使用**，字段名后不得加括号、冒号说明或改成表格/小标题：
 
+下方模板的 `N` 是**本次完成后的目标轮次**：首轮实施的源/目标均为 `N`；
+返修接手时源轮次为 `N-1`，只在完成返修、自审和下方实施交接时才原子写入目标 `N`。
+
 ```
 ### Claude 交接前自审（Round N）
 - self_review_started_at: 2026-07-30 10:00:00+08:00
@@ -100,7 +103,9 @@ Claude 的执行计划 `--allowedTools` 只放行 `Read,Edit,Write,Glob,Grep` �
 - handoff_to: codex
 ```
 
-自审 `PASS` 后，**同一次写入原子更新工作包顶层五字段**（`status + owner + handoff_to` 同步转移、`round` 保持当前轮，不留中间态），随后立即停止修改 scope：
+自审 `PASS` 后，**同一次写入原子更新工作包顶层字段**：首轮保持源轮次 `N`；
+返修才从源轮次 `N-1` 写入目标轮次 `N`；`status + owner + handoff_to + round` 同步转移，
+不留中间态，随后立即停止修改 scope：
 
 ```
 - status: READY_FOR_CODEX
@@ -115,7 +120,7 @@ Claude 的执行计划 `--allowedTools` 只放行 `Read,Edit,Write,Glob,Grep` �
 - 每条 unittest 结果**同一行**写 `Ran N tests, OK`；出现 `FAILED` / `FAIL` / `ERROR` / `失败` 即拒绝（等额计数不能覆盖失败标记）；正文/已知疑问里的 `Ran N tests` 不算数。
 - `self_review_manifest` 每项为「64 位十六进制 SHA-256 + 两个空格 + 路径」，路径与 `scope` **精确一致且顺序相同**；按声明顺序重建 `<sha256>  <path>\n` 的 SHA-256 必须等于 `self_review_scope_sha256`。
 - 自审段须**完整**给出协议 `docs/AI_REVIEW_HANDOFF.md` 三阶段职责要求的全部字段：起止时间、`self_review_verdict`、`self_review_round`、实际测试命令与真实计数、`self_review_scope_sha256`、`self_review_manifest`、`首次失败 / 失败根因 / 修复内容 / 修复后重跑结果 / 已知疑问 / 未验证边界`、`是否满足交接条件`；无失败时相应字段明确写「无 / 不适用」，不得省略字段名或只放正文。
-- 自审 `self_review_scope_sha256` 与实施交接 `scope_sha256` 必须**相等**；实施交接 `Round` 等于当前 `round` 且位于自审**之后**；随后按上方原子块**一次写入**顶层 `status / owner / handoff_to` 并保持 `round`。
+- 自审 `self_review_scope_sha256` 与实施交接 `scope_sha256` 必须**相等**；自审与实施交接的 `Round` 均等于目标轮次且实施交接位于自审**之后**；随后按上方原子块**一次写入**顶层 `status / owner / handoff_to / round`。
 - 时间戳整串匹配 `YYYY-MM-DD HH:MM[:SS][时区]`；时区只接受 `Z`/`UTC`/`CST`/`±HH:MM`/`±HHMM`（`CST` 本项目为 Asia/Shanghai=UTC+08:00，naive 也按 +08:00 解释）；结束不早于开始。
 - 时间只能用第 3 节的单条 Python 命令读取真实宿主时间，禁止估算或沿用旧值。
 

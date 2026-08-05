@@ -106,10 +106,18 @@ from src.runtime.monitor import (
 from src.runtime.task_runtime import (
     TaskRuntimeAssembly, build_task_runtime, COLD_START_SAFETY,
 )
+from src.runtime.startup import (
+    ReadinessSnapshot, StartupState, StartupReadinessResult,
+    ReadinessError, ReadinessConfigError, ReadinessClockError,
+    StartupReadinessController, StartupReadinessError,
+)
 
 __all__ = [
     # 单任务运行栈纵向装配入口与冷启动失败关闭快照（WP-20260730-049）
     "TaskRuntimeAssembly", "build_task_runtime", "COLD_START_SAFETY",
+    "ReadinessSnapshot", "StartupState", "StartupReadinessResult",
+    "ReadinessError", "ReadinessConfigError", "ReadinessClockError",
+    "StartupReadinessController", "StartupReadinessError",
     # 软件周期监视器与一次性 watchdog 超时事件源（WP-20260729-043）
     "SoftwareCycleMonitor", "CycleToken", "CycleObservation",
     "WatchdogTimeoutEvent",

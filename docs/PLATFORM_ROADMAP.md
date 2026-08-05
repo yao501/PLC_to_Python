@@ -143,7 +143,7 @@
 - **依赖**：**阶段 0.5（冻结闸门通过）**。
 - **验收**：最小程序（如 TON + 逻辑）确定性跑 N 拍；安全门控 / shadow / 启动抑制 / 参数非法硬停 / OutputPolicy 分原因故障策略（`ENGINE_SCAN_SPEC §4`）均有测试。
 - **风险**：把"引擎内部 Python 构造法"误当成最终编程入口对外暴露——必须明确它只是内部/测试用。
-- **当前状态（Python 单任务装配子范围已审核关闭并合并）**：阶段 1 内核（L2 元数据 / L3 IR / L4 五步引擎 / L5 安全服务 + 参数校验）与“手搭最小程序跑通”验收已有 Python 实现。`WP-20260730-050 CLOSED`（承接 WP-049 检查点，来源包原始阻塞记录保留且行政顶层已关闭）新增 `src/runtime/task_runtime.py::build_task_runtime` / `TaskRuntimeAssembly`，把内核连成**同一对象图**并以手搭 TON（`Motor=TON.Q AND NOT Stop`、`cycle_ms=500`）跑通默认 shadow 冷启动 / N 拍确定性 / 显式实写恰一次提交 / monitor 一次性派发 / scan·commit fault 分层的 E2E（`tests/test_runtime_task_runtime.py` 23 条）；Codex Round 3 `APPROVED`，产物已通过 PR #30 合并。独立协作基建 `WP-20260730-052 CLOSED` 已通过 PR #32 收口 Claude Runbook 与启动器强制阅读。该结论不代表阶段 1 全面关闭——真实调度 / 多任务 / startup inhibit 计时与释放 / 外部信号源 / HAL / CFC 定序 / CODESYS 对拍仍未实现。**下一步**：进入阶段 2 CFC 数据流定序编译器。
+- **当前状态（2026-08-05，阶段 1 / M1 Python headless MVP 功能闸门已通过，待 GitHub 合并）**：L2 22/22 元数据与 adapter、L3 正式 IR、L4 Store/Executor/五步扫描、L5 OutputPolicy/故障安全提交/默认 shadow/参数与启动校验/软件 monitor 已连成同一单任务对象图；`WP-20260804-072 CLOSED` 进一步收口确定性 startup inhibit/readiness、Python 3.9 兼容、时钟回调 TOCTOU 与 scan/watchdog 锁存优先级，并以公开 API 的阶段 1 跨组件验收覆盖默认安全、shadow→实写边界、故障安全提交、monitor 一次性事件、prev 提交语义、双实例隔离和启动失败关闭。Claude 正式 v2 回审与 Codex 独立审核均已完成，用户已确认关闭 WP-072；当前文件上定向复核 71/71 通过。因此 M1 在**Python 内部无界面引擎范围**达标。本结论不包含最终 ST/CFC 用户入口、多任务/GVL、真实调度与连续 deadline miss、外部 readiness 信号源、HAL/物理 I/O、硬件 watchdog、CODESYS 对拍、持久化或现场证明；这些按后续阶段分别验收。阶段 2 CFC 的当前本地候选仍待正式回审，明确不进入本次 M1 发布。
 
 ### 阶段 2 — 数据流定序编译器（CFC 执行语义的运行时基础）
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import copy
 import os
 from pathlib import Path
 import select
@@ -28,6 +29,7 @@ from tools.ai_handoff.scheduler import (
     CLAUDE_RUNBOOK_PATH,
     ClaudeEndpointAdapter,
     CodexCommandAdapter,
+    DispatchResult,
     DryRunScheduler,
     EventDrivenScheduler,
     Fable5EndpointAdapter,
@@ -118,6 +120,417 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(2, package.records[-1].round)
         self.assertEqual("第二轮修复。", package.latest_implementation_summary)
         self.assertEqual(HASH_B, package.implementation_scope_sha256)
+
+    def test_latest_review_round_requires_one_strict_ascii_token(self):
+        package = self.parse(package_text()).packages[0]
+        self.assertEqual(1, package.latest_review_round)
+
+    def test_latest_review_round_missing_token_is_not_evidence(self):
+        text = package_text().replace(
+            "Codex 审核结论（Round 1）", "Codex 审核结论（无轮次）")
+        self.assertIsNone(self.parse(text).packages[0].latest_review_round)
+
+    def test_latest_review_round_multiple_or_conflicting_tokens_are_not_evidence(self):
+        for heading in ("Round 1 / Round 1", "Round 1 / Round 2",
+                        "Round 1 / Round 2x", "Round 1 / Round ２"):
+            with self.subTest(heading=heading):
+                text = package_text().replace("Round 1）", heading + "）")
+                self.assertIsNone(self.parse(text).packages[0].latest_review_round)
+
+    def test_latest_review_round_rejects_suffix_and_unicode_digits(self):
+        for token in ("Round 2x", "Round ２", "Round 02",
+                      "Round 2.0", "Round 2/3"):
+            with self.subTest(token=token):
+                text = package_text().replace("Round 1）", token + "）")
+                self.assertIsNone(self.parse(text).packages[0].latest_review_round)
+
+    def test_latest_review_round_unicode_attachment_pair_fuzz(self):
+        attachments = (
+            "α",       # Letter
+            "²",       # Number
+            "\u0301",  # Mark
+            "＿",       # Connector punctuation
+            "\u200d",  # Format
+        )
+        valid_headings = (
+            "Round 2）", "Round 2，返修", "Round 2。",
+            "Round 2；返修", "Round 2: 返修", "【Round 2】",
+        )
+        for attachment in attachments:
+            for invalid, valid in (
+                (f"{attachment}Round 2", valid_headings[0]),
+                (f"Round 2{attachment}", valid_headings[-1]),
+            ):
+                with self.subTest(invalid=invalid, valid=valid):
+                    invalid_text = package_text().replace(
+                        "Round 1）", invalid + "）")
+                    valid_text = package_text().replace(
+                        "Round 1）", valid)
+                    self.assertIsNone(
+                        self.parse(invalid_text).packages[0].latest_review_round)
+                    self.assertEqual(
+                        2, self.parse(valid_text).packages[0].latest_review_round)
+
+    def test_latest_review_round_numeric_continuation_pair_fuzz(self):
+        separators = (
+            "-", "+", ":", ";", ".", "/", ",",
+            "‐", "‑", "‒", "–", "—", "―", "−",
+            "＋", "：", "；", "．", "／", "，", "⁄", "∕", "∶", "٫", "٬",
+        )
+        valid_headings = (
+            "Round 2）", "Round 2，返修", "Round 2。",
+            "Round 2；返修", "Round 2: 返修", "【Round 2】",
+        )
+        for index, separator in enumerate(separators):
+            invalid = f"Round 2 {separator} ٣"
+            valid = valid_headings[index % len(valid_headings)]
+            with self.subTest(separator=separator, invalid=invalid, valid=valid):
+                invalid_text = package_text().replace(
+                    "Round 1）", invalid + "）")
+                valid_text = package_text().replace("Round 1）", valid)
+                self.assertIsNone(
+                    self.parse(invalid_text).packages[0].latest_review_round)
+                self.assertEqual(
+                    2, self.parse(valid_text).packages[0].latest_review_round)
+
+    def test_latest_review_round_reviewer_143_invalid_14_valid_corpus(self):
+        format_bridges = (
+            "\u00ad", "\u061c", "\u200b", "\u200c", "\u200d",
+            "\u200e", "\u200f", "\u202a", "\u202b", "\u202c",
+            "\u202d", "\u202e", "\u2060", "\u2066", "\ufeff",
+        )
+        mark_bridges = ("\u0301", "\u0903", "\u20dd")
+        space_bridges = ("\u00a0", "\u2007", "\u202f", "\u2009", "\u3000")
+        bridges = format_bridges + mark_bridges + space_bridges
+        bridge_invalid = [
+            (f"Round 2 {bridge}-3" if index % 2 == 0
+             else f"Round 2 -{bridge}3")
+            for index, bridge in enumerate(bridges)
+        ]
+
+        attachments = ("α", "²", "\u0301", "＿", "\u200d")
+        attachment_invalid = [
+            heading
+            for attachment in attachments
+            for heading in (f"{attachment}Round 2", f"Round 2{attachment}")
+        ]
+        separators = (
+            "-", "+", ":", ";", ".", "/", ",",
+            "‐", "‑", "‒", "–", "—", "―", "−",
+            "＋", "：", "；", "．", "／", "，", "⁄", "∕", "∶", "٫", "٬",
+        )
+        separator_invalid = [
+            f"Round 2{separator}{number}"
+            for separator in separators
+            for number in ("3", "٣", "Ⅲ", "²")
+        ]
+        structural_invalid = [
+            "Round 0", "Round 00", "Round 01", "Round 0002",
+            "Round ２", "Round ٣", "Round x", "Round",
+            "Round 1 / Round 2", "Round 2x",
+        ]
+        invalid_headings = (
+            bridge_invalid + attachment_invalid
+            + separator_invalid + structural_invalid
+        )
+        valid_headings = [
+            "Round 2）", "Round 2，返修", "Round 2。", "Round 2；返修",
+            "Round 2: 返修", "【Round 2】",
+            "Round 2，修复 Roundtrip 兼容",
+            "Roundtrip 兼容；Round 2。",
+            "Round 2 - 返修", "Round 2 + 返修", "Round 2 / 返修",
+            "Round 2\t完成", "Round 2\u3000完成", "（Round 2）",
+        ]
+
+        self.assertEqual(143, len(invalid_headings))
+        self.assertEqual(143, len(set(invalid_headings)))
+        self.assertEqual(14, len(valid_headings))
+        self.assertEqual(14, len(set(valid_headings)))
+
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        for heading in invalid_headings:
+            with self.subTest(kind="invalid", heading=heading):
+                self.assertIsNone(parsed_round(heading))
+        for heading in valid_headings:
+            with self.subTest(kind="valid", heading=heading):
+                self.assertEqual(2, parsed_round(heading))
+
+    def test_latest_review_round_extreme_digits_and_long_valid_prose(self):
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        for digit_count in (65, 4301, 10_000):
+            with self.subTest(digit_count=digit_count):
+                self.assertIsNone(parsed_round("Round " + "1" * digit_count))
+
+        long_heading = "Round 2，" + "修复 Roundtrip 兼容；" * 5_000
+        self.assertEqual(2, parsed_round(long_heading))
+
+    def test_latest_review_round_rejects_ideographic_list_comma(self):
+        # 反证：顿号（表意列表逗号）及其 Unicode 变体在两个数字之间时是列表表达式，
+        # 必须与 ASCII 逗号一样被拒绝；此前分隔符集合漏掉这些字符，导致
+        # `Round 2、3`（U+3001）与 `Round 2﹑3`（U+FE51）被误接受为轮次 2。
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        list_commas = (
+            "、",  # IDEOGRAPHIC COMMA
+            "﹑",  # SMALL IDEOGRAPHIC COMMA（NFKC→U+3001）
+            "､",  # HALFWIDTH IDEOGRAPHIC COMMA（NFKC→U+3001）
+        )
+        bridges = ("", " ", "\t", "　", "‍", "́")
+        for comma in list_commas:
+            for bridge in bridges:
+                # 允许的 bridge 后再接顿号再接数字仍是隐藏的列表续写，必须拒绝。
+                for invalid in (
+                    f"Round 2{bridge}{comma}3",
+                    f"Round 2{comma}{bridge}٣",
+                ):
+                    with self.subTest(invalid=invalid):
+                        self.assertIsNone(parsed_round(invalid))
+            # 顿号后接普通说明文字（非数字）与 `Round 2，返修` 一致，保持合法。
+            with self.subTest(valid=f"Round 2{comma}返修"):
+                self.assertEqual(2, parsed_round(f"Round 2{comma}返修"))
+
+    def test_latest_review_round_rejects_multiscript_numeric_separators(self):
+        # 反证：数字续写分隔符不能靠逐字符枚举。跨脚本、跨类别的逗号/分号/中点/
+        # 点运算符等标点或符号夹在两个数字之间时都是范围、比例或列表表达式，必须与
+        # ASCII 逗号一样返回“无轮次证据”。此前枚举式集合逐字符漏列这些字符，导致
+        # Codex Round 2 反证的 U+060C/U+061B/U+055D/U+1363/U+1802/U+30FB/U+00B7/
+        # U+22C5/U+2E34/U+2E41 等被误接受为轮次 2。改为类别（P*/S*）失败关闭后，
+        # 新脚本的同类分隔符不再依赖穷举即被拒绝。
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        list_separators = (
+            "،",  # ARABIC COMMA (Po)
+            "؛",  # ARABIC SEMICOLON (Po)
+            "՝",  # ARMENIAN COMMA (Po)
+            "፣",  # ETHIOPIC COMMA (Po)
+            "᠂",  # MONGOLIAN COMMA (Po)
+            "・",  # KATAKANA MIDDLE DOT (Po)
+            "·",  # MIDDLE DOT (Po)
+            "⋅",  # DOT OPERATOR (Sm)
+            "⸴",  # RAISED COMMA (Po)
+            "⹁",  # REVERSED COMMA (Po)
+            "‧",  # HYPHENATION POINT (Po)
+            "﹐",  # SMALL COMMA (Po, NFKC→U+002C)
+            "⁄",  # FRACTION SLASH (Sm)
+            "∶",  # RATIO (Sm)
+        )
+        bridges = ("", " ", "\t", "　", "‍", "́")
+        numbers = ("3", "٣", "Ⅲ", "²")
+        for separator in list_separators:
+            for bridge in bridges:
+                for number in numbers:
+                    # 允许的 bridge 前后夹住分隔符再接数字仍是隐藏的数字续写，必须拒绝。
+                    for invalid in (
+                        f"Round 2{bridge}{separator}{number}",
+                        f"Round 2{separator}{bridge}{number}",
+                    ):
+                        with self.subTest(invalid=invalid):
+                            self.assertIsNone(parsed_round(invalid))
+            # 分隔符后接普通说明文字（非数字）与 `Round 2，返修` 一致，保持合法。
+            with self.subTest(valid=f"Round 2{separator}返修"):
+                self.assertEqual(2, parsed_round(f"Round 2{separator}返修"))
+
+    def test_latest_review_round_rejects_control_bridges_and_unicode_numeral_lists(self):
+        # 反证：Codex Round 3 指出两类仍被误接受的复合轮次表达式——
+        # ① C0/C1 控制字符（Unicode 类别 Cc，如 NUL/BEL/BACKSPACE/DEL/NEL）可嵌入
+        #    Markdown 标题行且不可见，充当把两个数字连成范围/比例的隐藏 bridge；此前
+        #    `_is_numeric_bridge` 只认空格/Tab/Zs/组合标记/Cf，漏掉 Cc，导致
+        #    `Round 2<NUL>3` 被误接受为轮次 2。
+        # ② 分隔符后接“类别虽为 Lo、却具有 Unicode 数值”的数词（如 三 U+4E09、五、
+        #    十、百），是继续到另一个数字的列表续写；此前 `_continues_numeric_expression`
+        #    只按类别 N* 判定后续数字，漏掉这些数词，导致 `Round 2、三` 被误接受为 2。
+        # 二者都必须返回“无轮次证据”，同时保留 `Round 2，返修`、`Round 2、返修` 与
+        # 控制字符后接普通说明文字（非数字）等合法标题。
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        control_bridges = (
+            "\x00", "\x01", "\x07", "\x08", "\x1f", "\x7f", "\x85", "\x9f",
+        )
+        for control in control_bridges:
+            for invalid in (
+                f"Round 2{control}3",
+                f"Round 2{control}٣",
+                f"Round 2 {control}-3",
+                f"Round 2-{control}3",
+            ):
+                with self.subTest(invalid=invalid):
+                    self.assertIsNone(parsed_round(invalid))
+            # 控制字符后接普通说明文字（非数字）不是数字续写，保持合法。
+            with self.subTest(valid=f"Round 2{control}返修"):
+                self.assertEqual(2, parsed_round(f"Round 2{control}返修"))
+
+        numeral_words = ("三", "四", "五", "十", "百")  # 类别 Lo 但有 Unicode 数值
+        separators = ("、", "，", "،", "·", "-", "/", ":")
+        bridges = ("", " ", "\t", "　", "‍", "́")
+        for word in numeral_words:
+            for separator in separators:
+                for bridge in bridges:
+                    for invalid in (
+                        f"Round 2{bridge}{separator}{word}",
+                        f"Round 2{separator}{bridge}{word}",
+                    ):
+                        with self.subTest(invalid=invalid):
+                            self.assertIsNone(parsed_round(invalid))
+            # 分隔符后接非数字说明文字（返修）仍与 `Round 2，返修` 一致，保持合法。
+            with self.subTest(valid=f"Round 2{separator}返修"):
+                self.assertEqual(2, parsed_round(f"Round 2{separator}返修"))
+
+    def test_latest_review_round_rejects_uncategorized_invisible_bridges(self):
+        # 反证：Codex Round 4 指出 `_is_numeric_bridge` 仍靠逐子类枚举，漏掉同样能嵌入
+        # Markdown 标题且不可见或不可审计的 `Zl`（行分隔符 U+2028）、`Zp`（段落分隔符
+        # U+2029）、`Cn`（未分配 U+2065/U+0378）、`Co`（私用区 U+E000/U+F8FF）——它们夹在
+        # 两个数字之间时充当把复合轮次表达式投影成单一轮次的隐藏 bridge，此前
+        # `Round 2<U+2028>3` 等被误接受为轮次 2。改为按 Unicode 类别族（Z*/C*/M*）失败关闭
+        # 后，这些字符不再依赖逐子类枚举即被识别为 bridge；同时保留 `Round 2，返修`、
+        # `Round 2、返修` 与不可见字符后接普通说明文字（非数字）等合法标题。
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        invisible_bridges = tuple(chr(code) for code in (
+            0x2028,  # LINE SEPARATOR (Zl)
+            0x2029,  # PARAGRAPH SEPARATOR (Zp)
+            0x2065,  # 未分配码位 (Cn)
+            0x0378,  # 未分配码位 (Cn)
+            0xE000,  # PRIVATE USE (Co)
+            0xF8FF,  # PRIVATE USE (Co)
+        ))
+        numbers = ("3", "٣", "Ⅲ", "²")
+        for bridge in invisible_bridges:
+            for number in numbers:
+                # 直接夹住、与允许 bridge/分隔符组合夹住再接数字都是隐藏续写，必须拒绝。
+                for invalid in (
+                    f"Round 2{bridge}{number}",
+                    f"Round 2{bridge}-{number}",
+                    f"Round 2-{bridge}{number}",
+                    f"Round 2{bridge}、{number}",
+                    f"Round 2 {bridge}{number}",
+                ):
+                    with self.subTest(invalid=invalid):
+                        self.assertIsNone(parsed_round(invalid))
+            # 不可见字符后接普通说明文字（非数字）不是数字续写，保持合法。
+            with self.subTest(valid=f"Round 2{bridge}返修"):
+                self.assertEqual(2, parsed_round(f"Round 2{bridge}返修"))
+
+    def test_latest_review_round_bridge_rejection_is_category_family_not_enumeration(self):
+        # 反证：bridge 拒绝必须是 Unicode 类别族（Z*/C*/M*）失败关闭，而非枚举任务书列出的
+        # 六个码位。这里选取六码位之外的同族字符，先断言其 Unicode 类别确属目标族，再断言
+        # 夹在两个数字之间（直接、与 P* 分隔符组合）时把复合轮次表达式拒绝为“无轮次证据”，
+        # 覆盖 ASCII / 阿拉伯-印度 / 罗马 / 上标数字；同时保留合法说明与极长普通标题回归。
+        import unicodedata
+
+        def parsed_round(heading):
+            text = package_text().replace(
+                "Codex 审核结论（Round 1）", f"Codex 审核结论（{heading}）")
+            return self.parse(text).packages[0].latest_review_round
+
+        numbers = ("3", "٣", "Ⅲ", "²")  # ASCII / 阿拉伯-印度 / 罗马 / 上标，均带 Unicode 数值
+        # 六码位之外、且不粘连标识符（_is_unicode_attachment=False）的同族 bridge：
+        # 直接夹住数字应拒绝，后接普通说明文字仍合法（与 Round 4 反证语义一致）。
+        detachable_bridges = tuple(chr(code) for code in (
+            0x2000,  # EN QUAD (Zs)
+            0x3000,  # IDEOGRAPHIC SPACE (Zs)
+            0x0007,  # 控制字符 (Cc)
+            0x009F,  # 控制字符 (Cc)
+            0x0380,  # 未分配码位 (Cn)
+            0x2072,  # 未分配码位 (Cn)
+            0xE001,  # 私用区 (Co)
+            0xF0000,  # 补充私用区-A (Co)
+        ))
+        for bridge in detachable_bridges:
+            category = unicodedata.category(bridge)
+            with self.subTest(bridge=hex(ord(bridge)), category=category):
+                # 断言确属类别族，且不是靠枚举六码位命中。
+                self.assertTrue(category[0] in {"Z", "C"} or category.startswith("M"))
+                self.assertNotIn(ord(bridge), (0x2028, 0x2029, 0x2065, 0x0378, 0xE000, 0xF8FF))
+                for number in numbers:
+                    for invalid in (
+                        f"Round 2{bridge}{number}",
+                        f"Round 2{bridge}-{number}",
+                        f"Round 2-{bridge}{number}",
+                        f"Round 2{bridge}、{number}",
+                    ):
+                        self.assertIsNone(parsed_round(invalid))
+                # 后接普通说明文字（非数字）不是数字续写，保持合法。
+                self.assertEqual(2, parsed_round(f"Round 2{bridge}返修"))
+        # 六码位之外、且会直接粘连标识符（_is_unicode_attachment=True）的 Cf/M 族 bridge：
+        # 直接贴在数字后即拒绝（含隐藏续写数字的情形），不依赖逐子类枚举。
+        attaching_bridges = tuple(chr(code) for code in (
+            0x200B,  # ZERO WIDTH SPACE (Cf)
+            0x2060,  # WORD JOINER (Cf)
+            0xFEFF,  # ZERO WIDTH NO-BREAK SPACE (Cf)
+            0x0301,  # COMBINING ACUTE ACCENT (Mn)
+            0x20DD,  # COMBINING ENCLOSING CIRCLE (Me)
+        ))
+        for bridge in attaching_bridges:
+            category = unicodedata.category(bridge)
+            with self.subTest(bridge=hex(ord(bridge)), category=category):
+                self.assertTrue(category[0] == "C" or category.startswith("M"))
+                for number in numbers:
+                    self.assertIsNone(parsed_round(f"Round 2{bridge}{number}"))
+        # 极长普通标题（无隐藏续写）继续回归为合法轮次。
+        long_title = "Round 2，" + "返修说明补充" * 400
+        self.assertEqual(2, parsed_round(long_title))
+
+    def test_current_backtracks_past_trailing_closed_packages(self):
+        # 反证：解析器公开 current 合同要求回溯到最后一个非 CLOSED 包，即使它不是
+        # 文件末尾包；把 current 绑定到 packages[-1] 会在末尾追加 CLOSED 包时误判。
+        text = (
+            package_text("WP-20260714-003")
+            + package_text("WP-20260714-004", status="CLOSED", owner="user", handoff="user")
+        )
+        result = self.parse(text)
+        self.assertEqual(2, len(result.packages))
+        self.assertEqual("CLOSED", result.packages[-1].status)
+        self.assertIs(result.current, result.packages[0])
+        self.assertIsNot(result.current, result.packages[-1])
+        self.assertEqual("WP-20260714-003", result.current.work_package_id)
+
+        # 全部 CLOSED 时才按合同回退到文件末尾包。
+        all_closed = (
+            package_text("WP-20260714-003", status="CLOSED", owner="user", handoff="user")
+            + package_text("WP-20260714-004", status="CLOSED", owner="user", handoff="user")
+        )
+        closed_result = self.parse(all_closed)
+        self.assertIs(closed_result.current, closed_result.packages[-1])
+
+    def test_current_complete_handoff_keeps_strict_review_round_compatibility(self):
+        result = HandoffParser(REPO_ROOT / "docs" / "AI_REVIEW_HANDOFF.md").parse_file()
+        self.assertIsNone(result.source_error)
+        self.assertTrue(result.packages)
+        current = result.current
+        self.assertIsNotNone(current)
+        self.assertTrue(current.work_package_id.startswith("WP-"))
+        # 公开合同：current 是最后一个非 CLOSED 工作包（全部 CLOSED 时才回退到文件末尾包）。
+        # 不绑定固定工作包 ID、文件末尾位置或某个历史状态，避免真实文档追加 CLOSED 包后误判。
+        non_closed = [package for package in result.packages if package.status != "CLOSED"]
+        if non_closed:
+            self.assertIs(current, non_closed[-1])
+            self.assertNotEqual("CLOSED", current.status)
+        else:
+            self.assertIs(current, result.packages[-1])
+        reviews = [record for package in result.packages
+                   for record in package.records if record.kind == "review"]
+        self.assertTrue(reviews)
+        self.assertTrue(all(record.round is not None for record in reviews))
 
     def test_status_mapping_is_valid(self):
         package = self.parse(package_text()).packages[0]
@@ -600,6 +1013,142 @@ class AsyncExecutionCoordinatorTests(unittest.TestCase):
             )
             self.assertIsNone(final["failure_alert"])
 
+    def test_executions_jsonl_frames_only_on_physical_lf(self):
+        # 反证：executions.jsonl 记录边界只能是写入器追加的物理 LF。stdout/stderr/reason
+        # 里合法出现的 U+2028/U+2029/NEL 及其组合是 JSON 字符串内容，绝不能被 splitlines()
+        # 误当成额外物理行，把一条对象拆成多条或触发假 blocked-corrupt-state。
+        sep = chr(0x2028) + chr(0x2029) + chr(0x0085)
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            coordinator._append_history_locked({
+                "idempotency_key": "WP:1:x", "outcome": "failed",
+                "stderr_tail": f"HTTP 429{sep}too many requests",
+                "reason": f"line{chr(0x2028)}break",
+            })
+            # 后续正常记录仍可追加、读取。
+            coordinator._append_history_locked(
+                {"idempotency_key": "WP:1:y", "outcome": "completed"})
+            raw = coordinator.history_path.read_text(encoding="utf-8")
+            # 写入器不得留下原始 Unicode 行分隔符。
+            for cp in (0x2028, 0x2029, 0x0085):
+                self.assertNotIn(chr(cp), raw)
+            # 物理 LF 分帧：恰两条物理行、两条对象。
+            physical = [line for line in raw.split("\n") if line.strip()]
+            self.assertEqual(2, len(physical))
+            records = coordinator._read_history_locked()
+            self.assertEqual(2, len(records))
+            # 嵌套 Unicode 行分隔符无损还原。
+            self.assertEqual(f"HTTP 429{sep}too many requests", records[0]["stderr_tail"])
+            self.assertEqual(f"line{chr(0x2028)}break", records[0]["reason"])
+            self.assertEqual("completed", records[1]["outcome"])
+
+    def test_history_with_raw_unicode_separators_does_not_false_block_and_preserves_failed_key(self):
+        # 反证：既有 ensure_ascii=False 历史记录即便含原始 U+2028/U+2029，也必须被物理 LF
+        # 读取器读回为单条对象（只读兼容），不触发假 blocked-corrupt-state；恢复/调度照常，
+        # 且失败键 outcome 不得因恢复被改写。
+        sep = chr(0x2028) + chr(0x2029)
+        failed_key = "WP-20260804-073:4:start_claude_rework"
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            legacy = json.dumps(
+                {"idempotency_key": failed_key, "outcome": "failed",
+                 "error": f"HTTP 429{sep}quota exhausted"},
+                ensure_ascii=False,
+            )
+            coordinator.history_path.write_text(legacy + "\n", encoding="utf-8")
+            result = self.start(
+                coordinator, self.plan(directory, "print('ok')"), key="WP:9:new")
+            self.assertEqual("scheduled", result["outcome"])
+            self.wait_until(
+                lambda: (s := coordinator.snapshot())["last_event"]
+                and s["last_event"].get("outcome") == "completed")
+            records = coordinator._read_history_locked()
+            failed = [r for r in records if r.get("idempotency_key") == failed_key]
+            self.assertEqual(1, len(failed))
+            self.assertEqual("failed", failed[0]["outcome"])
+            self.assertEqual(f"HTTP 429{sep}quota exhausted", failed[0]["error"])
+
+    def test_executions_jsonl_real_corruption_reports_stable_physical_line(self):
+        # 反证：真实物理损坏必须稳定失败关闭并给出稳定的物理行号。第一行是含 U+2028 的
+        # 合法对象、第二行真实损坏：物理 LF 分帧报“第 2 行”；若退回 splitlines，第一行会被
+        # U+2028 拆碎而误报“第 1 行”，故用第 2 行/非第 1 行区分两种分帧。
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            good = json.dumps(
+                {"idempotency_key": "a", "outcome": "completed",
+                 "error": f"x{chr(0x2028)}y"},
+                ensure_ascii=False,
+            )
+            coordinator.history_path.write_text(good + "\n{broken\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                coordinator._read_history_locked()
+            self.assertIn("第 2 行", str(ctx.exception))
+            self.assertNotIn("第 1 行", str(ctx.exception))
+
+    def test_executions_jsonl_non_object_line_fails_closed(self):
+        # 反证：非对象 JSON 行不得被忽略，必须稳定失败关闭。
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            coordinator.history_path.write_text("[1, 2, 3]\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                coordinator._read_history_locked()
+            self.assertIn("不是对象", str(ctx.exception))
+
+    def test_executions_jsonl_invalid_utf8_fails_closed(self):
+        # 反证：非法 UTF-8 不得泄漏不稳定异常，必须失败关闭为 ValueError 家族（供调用方
+        # 转成 blocked-corrupt-state），且经公开 start() 边界稳定阻塞。
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            coordinator.history_path.write_bytes(b'{"a": 1}\n\xff\xfe not utf8\n')
+            with self.assertRaises(ValueError):
+                coordinator._read_history_locked()
+            blocked = self.start(
+                coordinator, self.plan(directory, "print('must not run')"), key="WP:1:z")
+            self.assertEqual("blocked-corrupt-state", blocked["outcome"])
+
+    def test_executions_jsonl_interior_blank_line_fails_closed(self):
+        # 反证：只有单个行尾 LF 产生的末尾 sentinel 才允许排除；任何中间空行/纯空白物理行
+        # 都必须失败关闭并给出稳定物理行号，绝不能像 not line.strip() 那样被静默跳过而把
+        # 两条合法对象夹一个空行错误接受。
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            good1 = json.dumps({"idempotency_key": "a", "outcome": "completed"})
+            good2 = json.dumps({"idempotency_key": "b", "outcome": "completed"})
+            # 第 2 行是中间空行，第 3 行才是另一条合法对象。
+            coordinator.history_path.write_text(
+                good1 + "\n\n" + good2 + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                coordinator._read_history_locked()
+            self.assertIn("第 2 行", str(ctx.exception))
+            self.assertNotIn("第 3 行", str(ctx.exception))
+            # 纯空白（空格 + 制表符）中间物理行同样失败关闭，不被 strip 静默吞掉。
+            coordinator.history_path.write_text(
+                good1 + "\n \t\n" + good2 + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ws:
+                coordinator._read_history_locked()
+            self.assertIn("第 2 行", str(ws.exception))
+
+    def test_executions_jsonl_empty_and_single_trailing_lf_remain_legal(self):
+        # 反证：空文件与单条正常记录（唯一行尾 LF sentinel）必须保持合法，分别读回
+        # 零条 / 一条对象，不因收紧空行策略而误判损坏。
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = AsyncExecutionCoordinator(directory)
+            coordinator.runtime_dir.mkdir(parents=True, exist_ok=True)
+            coordinator.history_path.write_text("", encoding="utf-8")
+            self.assertEqual([], coordinator._read_history_locked())
+            coordinator.history_path.write_text(
+                json.dumps({"idempotency_key": "a", "outcome": "completed"}) + "\n",
+                encoding="utf-8")
+            records = coordinator._read_history_locked()
+            self.assertEqual(1, len(records))
+            self.assertEqual("completed", records[0]["outcome"])
+
 
 class SchedulerTests(unittest.TestCase):
     def package(self, **overrides) -> WorkPackage:
@@ -613,6 +1162,9 @@ class SchedulerTests(unittest.TestCase):
             review_finished_sha256=HASH_A,
         )
         values.update(overrides)
+        if (values["status"] == "CHANGES_REQUESTED"
+                and "latest_review_round" not in overrides):
+            values["latest_review_round"] = values["round"]
         return WorkPackage(**values)
 
     def scheduler(self, runtime: str | Path, digest: str = HASH_A, **kwargs) -> DryRunScheduler:
@@ -675,6 +1227,118 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual("failed", failed.outcome)
         self.assertEqual("dry-run-candidate", recovered.outcome)
 
+    def test_runs_jsonl_frames_only_on_physical_lf(self):
+        # 反证：runs.jsonl 记录含 U+2028/U+2029/NEL 时，_action_states 必须按物理 LF 读回
+        # 单条对象、正确识别 running 而忽略重入；若退回 splitlines，含 U+2028 的记录会被
+        # 拆碎成非法 JSON 而误判 runs.jsonl 损坏。
+        sep = chr(0x2028) + chr(0x2029) + chr(0x0085)
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            runtime.mkdir(parents=True, exist_ok=True)
+            key = "WP-20260714-003:1:start_codex_review"
+            legacy = json.dumps(
+                {"outcome": "running", "idempotency_key": key,
+                 "reason": f"holding{sep}lock"},
+                ensure_ascii=False,
+            )
+            (runtime / "runs.jsonl").write_text(legacy + "\n", encoding="utf-8")
+            result = self.scheduler(runtime).dispatch(self.package())
+        self.assertEqual("ignored-running", result.outcome)
+
+    def test_runs_jsonl_corruption_reports_physical_line_number(self):
+        # 反证：runs.jsonl 真实损坏必须给出稳定物理行号。第二行是含 U+2028 的合法对象、
+        # 第三行真实损坏：物理 LF 分帧报“第 3 行”；若退回 splitlines，第二行会被 U+2028
+        # 拆碎而误报“第 2 行”，故用第 3 行/非第 2 行区分两种分帧。
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            runtime.mkdir(parents=True, exist_ok=True)
+            line1 = json.dumps({"outcome": "dry-run-candidate", "idempotency_key": "a"})
+            line2 = json.dumps(
+                {"outcome": "dry-run-candidate", "idempotency_key": "b",
+                 "reason": f"x{chr(0x2028)}y"},
+                ensure_ascii=False,
+            )
+            (runtime / "runs.jsonl").write_text(
+                line1 + "\n" + line2 + "\n{broken\n", encoding="utf-8")
+            result = self.scheduler(runtime).dispatch(self.package())
+        self.assertEqual("failed", result.outcome)
+        self.assertIn("第 3 行", result.reason)
+        self.assertNotIn("第 2 行", result.reason)
+
+    def test_runs_jsonl_interior_blank_line_fails_closed_via_dispatch(self):
+        # 反证：runs.jsonl 的中间空行与纯空白物理行都不得被 not line.strip() 静默跳过；两者都
+        # 必须失败关闭、给出稳定物理行号，并经公开 dispatch() 形成稳定 failed 结果与失败日志，
+        # 而不是继续生成候选。与 executions 的中间空行/纯空白反证保持同一失败关闭矩阵。
+        line1 = json.dumps({"outcome": "dry-run-candidate", "idempotency_key": "a"})
+        line3 = json.dumps({"outcome": "dry-run-candidate", "idempotency_key": "b"})
+        for middle in ("", " \t"):  # 空行、纯空白（空格 + 制表符）中间物理行
+            with self.subTest(middle=repr(middle)):
+                with tempfile.TemporaryDirectory() as directory:
+                    runtime = Path(directory)
+                    runtime.mkdir(parents=True, exist_ok=True)
+                    # 第 2 行为中间空行/纯空白，第 3 行才是另一条合法候选。
+                    (runtime / "runs.jsonl").write_text(
+                        line1 + "\n" + middle + "\n" + line3 + "\n", encoding="utf-8")
+                    scheduler = self.scheduler(runtime)
+                    result = scheduler.dispatch(self.package())
+                    failure = scheduler.failure_log_path.read_text(encoding="utf-8")
+                self.assertEqual("failed", result.outcome)
+                self.assertIn("第 2 行", result.reason)
+                self.assertNotIn("第 3 行", result.reason)
+                self.assertIn('"outcome": "failed"', failure)
+
+    def test_runs_jsonl_non_object_line_fails_closed_via_dispatch(self):
+        # 反证：runs.jsonl 出现数组/字符串/数值/布尔/null 等非对象 JSON 时，公开 dispatch()
+        # 不得泄漏原生 AttributeError，必须与 executions 对象门禁对齐、稳定失败关闭并落失败日志。
+        for payload in ("[1, 2, 3]", '"only-a-string"', "123", "true", "null"):
+            with self.subTest(payload=payload):
+                with tempfile.TemporaryDirectory() as directory:
+                    runtime = Path(directory)
+                    runtime.mkdir(parents=True, exist_ok=True)
+                    (runtime / "runs.jsonl").write_text(payload + "\n", encoding="utf-8")
+                    scheduler = self.scheduler(runtime)
+                    result = scheduler.dispatch(self.package())
+                    failure = scheduler.failure_log_path.read_text(encoding="utf-8")
+                self.assertEqual("failed", result.outcome)
+                self.assertIn("不是对象", result.reason)
+                self.assertIn('"outcome": "failed"', failure)
+
+    def test_runs_jsonl_empty_and_single_trailing_lf_remain_legal(self):
+        # 反证：空 runs.jsonl 与单条正常记录（唯一行尾 LF sentinel）必须保持合法调度，
+        # 不因收紧空行策略被误判损坏。
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            runtime.mkdir(parents=True, exist_ok=True)
+            (runtime / "runs.jsonl").write_text("", encoding="utf-8")
+            empty_result = self.scheduler(runtime).dispatch(self.package())
+            key = "WP-20260714-003:1:start_codex_review"
+            (runtime / "runs.jsonl").write_text(
+                json.dumps({"outcome": "running", "idempotency_key": key}) + "\n",
+                encoding="utf-8")
+            running_result = self.scheduler(runtime).dispatch(self.package())
+        self.assertEqual("dry-run-candidate", empty_result.outcome)
+        self.assertEqual("ignored-running", running_result.outcome)
+
+    def test_runs_and_failure_writers_escape_unicode_line_separators(self):
+        # 反证：runs.jsonl 与失败日志的写入器都必须避免产生原始 Unicode 行分隔符，
+        # 每条记录仍是单物理行且内容无损。
+        sep = chr(0x2028) + chr(0x2029) + chr(0x0085)
+        with tempfile.TemporaryDirectory() as directory:
+            scheduler = self.scheduler(directory)
+            scheduler.runtime_dir.mkdir(parents=True, exist_ok=True)
+            result = DispatchResult(
+                outcome="rejected-invalid", dry_run=True,
+                work_package_id="WP", round=1, reason=f"denied{sep}reason")
+            scheduler._append_record(result)
+            scheduler._append_failure(result)
+            for path in (scheduler.log_path, scheduler.failure_log_path):
+                raw = path.read_text(encoding="utf-8")
+                for cp in (0x2028, 0x2029, 0x0085):
+                    self.assertNotIn(chr(cp), raw)
+                physical = [line for line in raw.split("\n") if line.strip()]
+                self.assertEqual(1, len(physical))
+                self.assertEqual(f"denied{sep}reason", json.loads(physical[0])["reason"])
+
     def test_invalid_state_never_triggers(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = self.scheduler(directory)
@@ -703,6 +1367,105 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual("dry-run-user-action", result.outcome)
         self.assertEqual("notify_user_round_exceeded", result.action)
         self.assertNotEqual("start_claude_rework", result.action)
+
+    def test_rework_candidate_exposes_source_and_target_rounds(self):
+        package = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff_to="claude",
+            round=2, max_rounds=5,
+        )
+        package.latest_review_round = 2
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+            history = json.loads(
+                (Path(directory) / "runs.jsonl").read_text(
+                    encoding="utf-8").splitlines()[-1])
+        self.assertEqual("dry-run-candidate", result.outcome)
+        self.assertEqual(2, result.source_round)
+        self.assertEqual(3, result.target_round)
+        self.assertEqual("WP-20260714-003:2:start_claude_rework",
+                         result.idempotency_key)
+        self.assertNotIn("source_round", result.execution_plan)
+        self.assertNotIn("target_round", result.execution_plan)
+        self.assertNotIn("source_round", history)
+        self.assertNotIn("target_round", history)
+
+    def test_rework_preincrement_is_rejected(self):
+        package = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff_to="claude",
+            round=3, max_rounds=5,
+        )
+        package.latest_review_round = 2
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-invalid", result.outcome)
+        self.assertIn("最近 Codex 审核轮次", result.reason)
+
+    def test_rework_round_rollback_is_rejected(self):
+        package = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff_to="claude",
+            round=1, max_rounds=5,
+        )
+        package.latest_review_round = 2
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory).dispatch(package)
+        self.assertEqual("rejected-invalid", result.outcome)
+
+    def test_manual_round_fields_require_positive_exact_ints(self):
+        for field, value in (("round", True), ("round", 0), ("round", -1),
+                             ("round", 1.0), ("max_rounds", False),
+                             ("max_rounds", 0), ("max_rounds", -1),
+                             ("max_rounds", 5.0)):
+            with self.subTest(field=field, value=value):
+                package = self.package(**{field: value})
+                with tempfile.TemporaryDirectory() as directory:
+                    result = self.scheduler(directory).dispatch(package)
+                self.assertEqual("rejected-invalid", result.outcome)
+
+    def test_untrusted_rounds_are_rejected_before_observation_or_serialization(self):
+        observed = []
+
+        class HostileInt(int):
+            def __eq__(self, other):
+                observed.append("eq")
+                raise RuntimeError("eq-bomb")
+
+            def __repr__(self):
+                observed.append("repr")
+                raise RuntimeError("repr-bomb")
+
+            def __deepcopy__(self, memo):
+                observed.append("deepcopy")
+                raise RuntimeError("deepcopy-bomb")
+
+        for field in ("round", "max_rounds"):
+            with self.subTest(field=field):
+                observed.clear()
+                package = self.package(**{field: HostileInt(1)})
+                with tempfile.TemporaryDirectory() as directory:
+                    result = self.scheduler(directory).dispatch(package)
+                self.assertEqual("rejected-invalid", result.outcome)
+                self.assertIsNone(result.round)
+                self.assertIsNone(result.source_round)
+                self.assertIsNone(result.target_round)
+                copy.deepcopy(result)
+                json.dumps(result.to_dict())
+                self.assertEqual([], observed)
+
+    def test_round_limit_keeps_final_codex_review_but_blocks_rework(self):
+        with tempfile.TemporaryDirectory() as directory:
+            review = self.scheduler(directory).dispatch(
+                self.package(round=5, max_rounds=5))
+        rework_package = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff_to="claude",
+            round=5, max_rounds=5,
+        )
+        rework_package.latest_review_round = 5
+        with tempfile.TemporaryDirectory() as directory:
+            rework = self.scheduler(directory).dispatch(rework_package)
+        self.assertEqual("dry-run-candidate", review.outcome)
+        self.assertEqual("start_codex_review", review.action)
+        self.assertEqual("dry-run-user-action", rework.outcome)
+        self.assertEqual("notify_user_round_exceeded", rework.action)
 
     def test_claude_working_initial_package_uses_baseline_and_needs_no_implementation_hash(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -813,6 +1576,21 @@ class SchedulerTests(unittest.TestCase):
         self.assertIn("--ephemeral", plan.command)
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", plan.command)
 
+    def test_codex_execution_plan_defaults_to_sixty_minute_timeout(self):
+        adapter = CodexCommandAdapter(
+            executable=sys.executable, project_root="/tmp/project",
+        )
+        self.assertEqual(3600, adapter.command_for(self.package()).timeout_seconds)
+
+    def test_dry_run_scheduler_preserves_adapter_timeout_override(self):
+        adapter = CodexCommandAdapter(
+            executable=sys.executable, project_root="/tmp/project",
+            timeout_seconds=321,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.scheduler(directory, codex=adapter).dispatch(self.package())
+        self.assertEqual(321, result.execution_plan["timeout_seconds"])
+
     def test_dispatch_exposes_plan_without_executing_it(self):
         adapter = NeverExecuteCodex()
         with tempfile.TemporaryDirectory() as directory:
@@ -829,6 +1607,7 @@ class EventDrivenSchedulerTests(unittest.TestCase):
         return WorkPackage(
             work_package_id="WP-20260716-006", title="live", status=status,
             owner=owner, handoff_to=handoff, round=1, max_rounds=3,
+            latest_review_round=1 if status == "CHANGES_REQUESTED" else None,
             scope=["src/example.py"], scope_baseline_sha256=HASH_A,
             implementation_scope_sha256=HASH_A,
             review_started_sha256=HASH_A, review_finished_sha256=HASH_A,
@@ -852,6 +1631,34 @@ class EventDrivenSchedulerTests(unittest.TestCase):
                     executable=sys.executable, authenticated=True, enabled=True,
                 ),
             )
+
+    def test_live_scheduler_preserves_claude_timeout_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            codex = CodexCommandAdapter(
+                executable=sys.executable, project_root=directory, enabled=True,
+            )
+            claude = ClaudeEndpointAdapter(
+                executable=sys.executable, project_root=directory,
+                timeout_seconds=654, authenticated=True, enabled=True,
+            )
+            coordinator = mock.Mock()
+            coordinator.snapshot.return_value = {}
+            coordinator.start.return_value = {
+                "outcome": "scheduled", "reason": "scheduled",
+                "active": {"child_pid": 1, "state": "scheduled"},
+            }
+            scheduler = EventDrivenScheduler(
+                "source.md", Path(directory) / "runtime",
+                codex=codex, claude=claude, project_root=directory,
+                coordinator=coordinator,
+                scope_hash_resolver=lambda package: ScopeHashResult(HASH_A, [], []),
+            )
+            result = scheduler.dispatch(self.package(
+                status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            ))
+        plan = coordinator.start.call_args.kwargs["plan"]
+        self.assertEqual("execution-scheduled", result.outcome)
+        self.assertEqual(654, plan.timeout_seconds)
 
     def test_dispatch_is_async_and_same_terminal_key_does_not_repeat(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1013,6 +1820,161 @@ class EventDrivenSchedulerTests(unittest.TestCase):
                 initial, "start_codex_review"
             )()
         self.assertTrue(valid, reason)
+
+
+class RoundCompletionContractTests(unittest.TestCase):
+    def package(self, *, status: str, owner: str, handoff: str,
+                round_number: int, latest_review_round: int | None = None):
+        package = WorkPackage(
+            work_package_id="WP-ROUND-CONTRACT", title="round contract",
+            status=status, owner=owner, handoff_to=handoff,
+            round=round_number, max_rounds=5, scope=["src/example.py"],
+            scope_baseline_sha256=HASH_A,
+            implementation_scope_sha256=HASH_A,
+            review_started_sha256=HASH_A, review_finished_sha256=HASH_A,
+        )
+        package.latest_review_round = latest_review_round
+        return package
+
+    def validate(self, initial, current, action):
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = mock.Mock()
+            coordinator.snapshot.return_value = {}
+            scheduler = EventDrivenScheduler(
+                "source.md", Path(directory) / "runtime",
+                codex=CodexCommandAdapter(
+                    executable=sys.executable, project_root=directory, enabled=True),
+                claude=ClaudeEndpointAdapter(
+                    executable=sys.executable, project_root=directory,
+                    authenticated=True, enabled=True),
+                project_root=directory, coordinator=coordinator,
+                scope_hash_resolver=lambda package: ScopeHashResult(HASH_A, [], []),
+            )
+            parsed = mock.Mock(source_error=None, packages=[current])
+            with mock.patch.object(HandoffParser, "parse_file", return_value=parsed):
+                return scheduler._completion_validator(initial, action)()
+
+    def test_live_rework_mismatch_is_rejected_before_coordinator_start(self):
+        package = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            round_number=2, latest_review_round=1)
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = mock.Mock()
+            coordinator.snapshot.return_value = {}
+            scheduler = EventDrivenScheduler(
+                "source.md", Path(directory) / "runtime",
+                codex=CodexCommandAdapter(
+                    executable=sys.executable, project_root=directory, enabled=True),
+                claude=ClaudeEndpointAdapter(
+                    executable=sys.executable, project_root=directory,
+                    authenticated=True, enabled=True),
+                project_root=directory, coordinator=coordinator,
+                scope_hash_resolver=lambda package: ScopeHashResult(HASH_A, [], []),
+            )
+            result = scheduler.dispatch(package)
+        self.assertEqual("rejected-invalid", result.outcome)
+        coordinator.start.assert_not_called()
+
+    def test_live_rework_rejects_non_exact_latest_review_before_start(self):
+        class IntSubclass(int):
+            pass
+
+        for latest in (True, 1.0, IntSubclass(1)):
+            with self.subTest(latest=type(latest).__name__):
+                package = self.package(
+                    status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+                    round_number=1, latest_review_round=latest)
+                with tempfile.TemporaryDirectory() as directory:
+                    coordinator = mock.Mock()
+                    coordinator.snapshot.return_value = {}
+                    scheduler = EventDrivenScheduler(
+                        "source.md", Path(directory) / "runtime",
+                        codex=CodexCommandAdapter(
+                            executable=sys.executable, project_root=directory,
+                            enabled=True),
+                        claude=ClaudeEndpointAdapter(
+                            executable=sys.executable, project_root=directory,
+                            authenticated=True, enabled=True),
+                        project_root=directory, coordinator=coordinator,
+                        scope_hash_resolver=lambda package: ScopeHashResult(
+                            HASH_A, [], []),
+                    )
+                    result = scheduler.dispatch(package)
+                self.assertEqual("rejected-invalid", result.outcome)
+                coordinator.start.assert_not_called()
+
+    def test_completion_first_implementation_keeps_round(self):
+        initial = self.package(
+            status="CLAUDE_WORKING", owner="claude", handoff="claude",
+            round_number=2)
+        current = self.package(
+            status="READY_FOR_CODEX", owner="codex", handoff="codex",
+            round_number=2)
+        valid, reason = self.validate(
+            initial, current, "start_claude_implementation")
+        self.assertTrue(valid, reason)
+
+    def test_completion_rework_advances_exactly_one_round(self):
+        initial = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            round_number=2, latest_review_round=2)
+        current = self.package(
+            status="READY_FOR_CODEX", owner="codex", handoff="codex",
+            round_number=3, latest_review_round=2)
+        valid, reason = self.validate(initial, current, "start_claude_rework")
+        self.assertTrue(valid, reason)
+
+    def test_completion_rework_rejects_no_advance_and_jump(self):
+        initial = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            round_number=2, latest_review_round=2)
+        for completed_round in (2, 4):
+            with self.subTest(completed_round=completed_round):
+                current = self.package(
+                    status="READY_FOR_CODEX", owner="codex", handoff="codex",
+                    round_number=completed_round, latest_review_round=2)
+                valid, reason = self.validate(
+                    initial, current, "start_claude_rework")
+                self.assertFalse(valid)
+                self.assertIn("轮次后置条件", reason)
+
+    def test_completion_codex_review_keeps_round(self):
+        initial = self.package(
+            status="READY_FOR_CODEX", owner="codex", handoff="codex",
+            round_number=2)
+        current = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            round_number=2, latest_review_round=2)
+        valid, reason = self.validate(initial, current, "start_codex_review")
+        self.assertTrue(valid, reason)
+
+    def test_completion_codex_review_requires_latest_review_round(self):
+        initial = self.package(
+            status="READY_FOR_CODEX", owner="codex", handoff="codex",
+            round_number=2)
+        current = self.package(
+            status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+            round_number=2, latest_review_round=1)
+        valid, reason = self.validate(initial, current, "start_codex_review")
+        self.assertFalse(valid)
+        self.assertIn("最近 Codex 审核轮次", reason)
+
+    def test_completion_codex_review_rejects_non_exact_latest_round(self):
+        class IntSubclass(int):
+            pass
+
+        initial = self.package(
+            status="READY_FOR_CODEX", owner="codex", handoff="codex",
+            round_number=1)
+        for latest in (True, 1.0, IntSubclass(1)):
+            with self.subTest(latest=type(latest).__name__):
+                current = self.package(
+                    status="CHANGES_REQUESTED", owner="claude", handoff="claude",
+                    round_number=1, latest_review_round=latest)
+                valid, reason = self.validate(
+                    initial, current, "start_codex_review")
+                self.assertFalse(valid)
+                self.assertIn("exact 正 int", reason)
 
 
 class DashboardTests(unittest.TestCase):
@@ -1235,6 +2197,9 @@ class ClaudeNamingTests(unittest.TestCase):
             review_started_sha256=HASH_A, review_finished_sha256=HASH_A,
         )
         values.update(overrides)
+        if (values["status"] == "CHANGES_REQUESTED"
+                and "latest_review_round" not in overrides):
+            values["latest_review_round"] = values["round"]
         return WorkPackage(**values)
 
     def test_new_claude_working_mapping_is_valid(self):
@@ -1335,8 +2300,29 @@ class ClaudeNamingTests(unittest.TestCase):
         self.assertEqual(1, plan.command.count("--max-turns"))
         idx = plan.command.index("--max-turns")
         self.assertEqual("80", plan.command[idx + 1])
-        # 80 turns 与 1800 秒进程超时相互独立，默认超时不得随之改变。
-        self.assertEqual(1800, plan.timeout_seconds)
+        # 80 turns 与 3600 秒进程超时相互独立。
+        self.assertEqual(3600, plan.timeout_seconds)
+
+    def test_claude_execution_plan_defaults_to_sixty_minute_timeout(self):
+        adapter = ClaudeEndpointAdapter(
+            executable=sys.executable, project_root="/tmp/project", authenticated=True,
+        )
+        self.assertEqual(3600, adapter.command_for(self.package()).timeout_seconds)
+
+    def test_four_execution_limits_remain_independent(self):
+        package = self.package(max_rounds=5)
+        adapter = ClaudeEndpointAdapter(
+            executable=sys.executable, project_root="/tmp/project", authenticated=True,
+        )
+        plan = adapter.command_for(package)
+        turns_index = plan.command.index("--max-turns")
+        operations = (REPO_ROOT / "docs" / "AI_HANDOFF_OPERATIONS.md").read_text(
+            encoding="utf-8")
+        self.assertEqual("80", plan.command[turns_index + 1])
+        self.assertEqual(5, package.max_rounds)
+        self.assertEqual(3600, plan.timeout_seconds)
+        self.assertIn("Anthropic 账户订阅额度", operations)
+        self.assertIn("四个互不等价的上限", operations)
 
     def test_claude_first_run_and_rework_prompts_share_mandatory_reading_order(self):
         package = self.package()
@@ -1575,6 +2561,7 @@ class ClaudeNamingTests(unittest.TestCase):
             self.assertTrue(adapter.probe_authenticated())
         plan = run.call_args.args[0]
         self.assertEqual([sys.executable, "auth", "status"], plan.command)
+        self.assertEqual(15.0, plan.timeout_seconds)
         self.assertEqual("http://127.0.0.1:6789", plan.environment["HTTPS_PROXY"])
         failed = ProcessRunResult(
             outcome="failed", returncode=1, timed_out=False, duration_seconds=0,
