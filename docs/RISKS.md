@@ -3,6 +3,8 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
+> **Stage 2～4 Git 基线已推送（2026-08-27）**：分支 `codex/stage2-4-baseline-20260827` 与 [PR #35](https://github.com/yao501/PLC_to_Python/pull/35) 已创建，当前 OPEN / MERGEABLE、尚未合并；发布前 ParserTests 27/27、tests 2145/2145、prototype 68/68、root 2213/2213 全绿。该 Git 轴升级不降低本登记簿中的任何产品、PLC/CODESYS、数值、HAL、I/O、watchdog 或现场风险。
+
 > **Stage 3 Python strict-subset 目录级正式关闭（2026-08-26，WP-20260826-144）**：Claude 已将 WP-135～143 的 fallback 候选作为未审核实现正式回审，Codex 独立审核与宿主补充反证最终通过，用户已确认关闭。当前冻结 11 项 ST 顶层 API、4 个内部模块、8 原语 + 14/14 业务块 alias、通用库 `VAR_IN_OUT` 原子写回、四类省略策略及共享 `LicenseContext`；V0/V1/V2=10/258/802，V3 tests/prototype/root=2033/68/2101。该行政收口不降低既有风险：IEC 隐式转换、动态现场/HMI NaN/±Inf、整数原生位宽/回绕、REAL binary32、工程导入、CODESYS/PLC、HAL/真实 I/O、硬件 watchdog 与现场语义仍未证明；Git 仍未提交/未合并。
 
 > **Stage 2 CFC 目录级正式收口（2026-08-27，WP-20260826-145）**：Claude 正式回审、Codex 独立审核与宿主补充反证均已通过，用户已确认关闭；内部 `CFCModel v1`、carrier 分支定序、current/previous lowering、安全编译入口与 `src.runtime` 16 项 CFC 顶层合同现可作为 Stage 4 依赖。原有风险不因此关闭：`PLATFORM-CFC-MODEL-1` / `PLATFORM-CFC-FEEDBACK-MAP-1` 继续 in-progress，`PLATFORM-CFC-AUTOORDER-1` 继续 deferred/mitigated；未提交未合并，也不构成 CODESYS/PLC、`.export` 自动重建、反馈真机语义、HAL 或现场证明。

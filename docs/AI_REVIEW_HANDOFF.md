@@ -20065,3 +20065,42 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
 - closed_at: `2026-08-27 16:50:01+0800`
 - closed_by: `user`
 - closure_basis: `用户已授权按建议直接开展行政与 Git 收口；本包 C0 目标完成且协议定向验证通过，因此在同一授权范围内收口。`
+
+## WP-20260827-150
+
+- title: `Stage 2～4 分层 Git 基线与 PR #35 创建`
+- status: `CLOSED`
+- owner: `user`
+- handoff_to: `user`
+- round: `1`
+- max_rounds: `5`
+- handoff_protocol: `v2`
+- base_commit: `8840b2a443e466ed8d0192defa1a4545907b3039`
+- authorized_by: `user`
+- created_at: `2026-08-27 16:53:00+0800`
+- verification_profile: `C0 + release V3`
+- function_matrix_ids: `ENG-02, USR-01, USR-02, USR-03`
+- scope:
+  - `docs/AI_REVIEW_HANDOFF.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/PLATFORM_ROADMAP.md`
+  - `docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `docs/RISKS.md`
+- objective: `在不改写已审核产品内容的前提下，将累计 Stage 2 CFC、Stage 3 ST、Stage 4 编辑器子范围及协作基础设施整理为可审计提交，执行发布前全仓回归，推送独立分支并创建 GitHub PR。`
+- explicit_exclusions: `不直接推送或合并 main，不把 OPEN PR 写成已合并；不启动 Stage 4 下一产品包；不升级 PLC/CODESYS、数值、HAL、真实 I/O、watchdog 或现场验证轴。`
+
+### 主控 Git/GitHub 实施与验证
+
+- completed_at: `2026-08-27 16:57:00+0800`
+- branch: `codex/stage2-4-baseline-20260827`
+- commits: `5507ac1 Harden AI handoff and fallback workflow；ac6e773 Add Stage 2 CFC and Stage 3 ST runtime baselines；0eff86f Add Stage 4 CFC document and editing commands；2711738 Sync Stage 2 through 4 project status。`
+- pull_request: `https://github.com/yao501/PLC_to_Python/pull/35；OPEN / MERGEABLE；head=27117380ccae689f0b2f006921535edf36a27414；main/origin/main 仍为 8840b2a。`
+- verification: `ParserTests Ran 27 tests, OK；discover tests Ran 2145 tests, OK；discover prototype_05 Ran 68 tests, OK；discover root Ran 2213 tests, OK；git diff checks clean；gh auth 有效。`
+- partition_note: `Stage 2 与 Stage 3 的 src.runtime.__init__ 公开表面由冻结契约共同锁定，强拆中间提交会使 test_runtime_cfc_public_api 的 exact __all__ 计数失败，因此二者保留为同一连续可执行运行时提交；Stage 4 与流程基础设施各自独立提交。`
+- boundary: `PR 只证明 Python 基线和无界面编辑器子范围；未做 PLC/CODESYS、生产导入、整数/REAL 原生语义、HAL/真实 I/O、硬件 watchdog 或现场验证。`
+
+### 用户关闭确认
+
+- closed_at: `2026-08-27 16:57:00+0800`
+- closed_by: `user`
+- closure_basis: `用户已授权至 18:00 按约定与实际进展完成规划、实施及 Git/GitHub 收口；本包在该授权范围内完成分支推送与 PR 创建，但不越权合并 main。`

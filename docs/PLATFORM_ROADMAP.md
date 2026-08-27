@@ -1,5 +1,7 @@
 # Python 软 PLC 平台演进路线图
 
+> **Git 基线更新（2026-08-27）**：Stage 2 CFC、Stage 3 ST strict-subset 与 Stage 4 已关闭子范围已提交并推送到 `codex/stage2-4-baseline-20260827`，形成 [PR #35](https://github.com/yao501/PLC_to_Python/pull/35)；当前 PR 为 OPEN / MERGEABLE，`main` 尚未合并。最终分支验证为 ParserTests 27/27、tests 2145/2145、prototype 68/68、root 2213/2213。此状态不改变各阶段的 PLC/CODESYS、数值语义、HAL、真实 I/O 或现场验证边界。
+
 > 本文件是项目从"功能块迁移"走向"Python 原生软 PLC 平台"的**统一指导文档**。
 > 与 `docs/RISKS.md`（风险与待办登记簿）、`.cursor/rules/00a-runtime-contract.mdc`（运行契约）联合解读。
 > 阶段目标、范围、产出、验收为纲；具体每个阶段做什么，按本文件顺序展开即可。
