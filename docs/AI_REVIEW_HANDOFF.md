@@ -20086,6 +20086,13 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
   - `docs/PLATFORM_ROADMAP.md`
   - `docs/SOFT_PLC_FUNCTION_MATRIX.md`
   - `docs/RISKS.md`
+- scope_baseline_sha256: `61d302ad1ca53180eeaa31dc6516e2aef837bcb2baa0cb6fd18e89c0dedd4590`
+- scope_baseline_manifest:
+  - `4acd353e51e252df28e45a1f237c96e2b4f1c5538e12e5f30094f041fc75ecaf  docs/AI_REVIEW_HANDOFF.md`
+  - `317835a785421a2f75a5702137c096b927af75da9a5d92cab5889325cdad9546  docs/PROJECT_STATE.md`
+  - `e12227ad0b448b2542b25f77168dd4654b3b7ada6b97e37a1ac173f3fce9c0e4  docs/PLATFORM_ROADMAP.md`
+  - `e3ed09036ae38a37270f26447c1f450be0bc05ed0e9aae2bdffad8c6aa583abf  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `b10ba4b3a8f842fb8e0d327451bd40b06bfcb9e3d6cac2d038e2964f542979cf  docs/RISKS.md`
 - objective: `在不改写已审核产品内容的前提下，将累计 Stage 2 CFC、Stage 3 ST、Stage 4 编辑器子范围及协作基础设施整理为可审计提交，执行发布前全仓回归，推送独立分支并创建 GitHub PR。`
 - explicit_exclusions: `不直接推送或合并 main，不把 OPEN PR 写成已合并；不启动 Stage 4 下一产品包；不升级 PLC/CODESYS、数值、HAL、真实 I/O、watchdog 或现场验证轴。`
 
