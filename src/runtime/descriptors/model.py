@@ -23,7 +23,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional
 
 from src.runtime.ir import IEC_TYPES
@@ -62,6 +61,99 @@ class SchemaValidationError(DescriptorError):
 
 class AdapterBindingError(DescriptorError):
     """``RuntimeAdapter`` 绑定非法（cls/call_adapter/ctor_args/serializer）。"""
+
+
+# ---------------------------------------------------------------------------
+# output_access 私有只读载体
+# ---------------------------------------------------------------------------
+
+_OUTPUT_ACCESS_SNAPSHOT_ERROR = (
+    "output_access 必须是可安全快照的 Mapping[str, str]")
+
+# 默认目录中最大的 output_access 为 87 项；该上限仅限制“持续产出键”的资源
+# 消耗，不能中断一个自身阻塞、永不返回下一键的 Mapping 迭代器。
+_OUTPUT_ACCESS_MAX_ITEMS = 4096
+
+
+@dataclass(frozen=True, eq=False)
+class _OutputAccessMap(Mapping[str, str]):
+    """``BlockSchema.output_access`` 的私有、纯数据只读 Mapping。
+
+    仅保存一个 exact ``tuple``，其中每项都是 exact ``(str, str)`` 二元组；
+    不保留输入 Mapping、dict 或第二份索引。它不是通用安全 Mapping：Python
+    仍允许特权 ``object.__setattr__`` 强制篡改，后续信任边界应以纯字段验证
+    其 exact 形状后再接受。
+    """
+
+    __slots__ = ("_pairs",)
+
+    _pairs: tuple
+
+    def __post_init__(self) -> None:
+        if type(self._pairs) is not tuple:
+            raise TypeError("_pairs 必须是 exact tuple")
+        for pair in self._pairs:
+            if type(pair) is not tuple or len(pair) != 2 \
+                    or type(pair[0]) is not str or type(pair[1]) is not str:
+                raise TypeError("_pairs 必须含 exact (str, str) 二元组")
+
+    def __getitem__(self, key: str) -> str:
+        for candidate, value in self._pairs:
+            if key == candidate:
+                return value
+        raise KeyError(key)
+
+    def __iter__(self):
+        for key, _ in self._pairs:
+            yield key
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+
+def _snapshot_output_access(source: Mapping[str, str]) -> _OutputAccessMap:
+    """一次性、零格式化地把通用 ``Mapping`` 复制为私有纯数据载体。
+
+    输入只经一次迭代、每个已接受键恰一次下标取值；不依赖 ``dict``、``items``、
+    ``keys`` 或输入 Mapping 的 ``len``。任何 hostile ``BaseException``、重复键、
+    非 exact 字符串或资源上限都收束为固定 ``SchemaValidationError``。
+    """
+    pairs = None
+    seen = None
+    key = None
+    value = None
+    failed = False
+    try:
+        if not isinstance(source, Mapping):
+            raise TypeError
+        pairs = []
+        seen = set()
+        count = 0
+        for key in source:
+            if count >= _OUTPUT_ACCESS_MAX_ITEMS:
+                raise ValueError
+            if type(key) is not str or key in seen:
+                raise TypeError
+            value = source[key]
+            if type(value) is not str:
+                raise TypeError
+            seen.add(key)
+            pairs.append((key, value))
+            count += 1
+        return _OutputAccessMap(tuple(pairs))
+    except BaseException:
+        failed = True
+
+    if failed:
+        # 离开 except 后才创建替代异常，避免把 hostile BaseException 作为
+        # __context__ 保留在公开错误对象中；同时清空 traceback frame 可见的
+        # 输入和部分构造状态。
+        source = None
+        pairs = None
+        seen = None
+        key = None
+        value = None
+        raise SchemaValidationError(_OUTPUT_ACCESS_SNAPSHOT_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +342,15 @@ class BlockSchema:
 
         # output_access：键须为已声明输出管脚，规则合法，且覆盖全部输出
         out_names = {p.name for p in outputs}
-        access = dict(self.output_access)
+        source_access = self.output_access
+        object.__setattr__(self, "output_access", _OutputAccessMap(()))
+        try:
+            access = _snapshot_output_access(source_access)
+        except SchemaValidationError:
+            # 失败对象的 traceback 不保留调用方 Mapping；bare raise 保留 helper
+            # 已形成的固定错误，不在此 except 内创建替代异常。
+            source_access = None
+            raise
         for pin_name, rule in access.items():
             if pin_name not in out_names:
                 raise SchemaValidationError(
@@ -262,7 +362,7 @@ class BlockSchema:
             raise SchemaValidationError(
                 "output_access 未覆盖输出管脚：%s（输出无从回收）"
                 % sorted(missing))
-        object.__setattr__(self, "output_access", MappingProxyType(dict(access)))
+        object.__setattr__(self, "output_access", access)
 
     @staticmethod
     def _as_pins(coll, expect_kind: str) -> tuple:

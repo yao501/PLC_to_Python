@@ -276,6 +276,67 @@ class TestBasicExecution(unittest.TestCase):
             self.assertIsNotNone(cm.exception.pc)
 
 
+class TestInstructionBudget(unittest.TestCase):
+    def test_exact_boundary_succeeds_and_next_instruction_fails(self):
+        task = _task([LoadConst(1, "INT"), StoreVar("N", "INT")])
+        layout = build_runtime_store(task)
+        ex = Executor(task, layout)
+        with mock.patch("src.runtime.executor._MAX_INSTRUCTIONS_PER_EXECUTE", 2):
+            ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(layout.store.read("N"), 1)
+        task.pou_lib["Main"].code.append(Jmp("again"))
+        task.pou_lib["Main"].code.append(Label("again"))
+        with mock.patch("src.runtime.executor._MAX_INSTRUCTIONS_PER_EXECUTE", 2):
+            with self.assertRaises(IRExecutionError) as caught:
+                ex.execute_programs(layout.store.snapshot())
+        self.assertIn("指令预算已耗尽", str(caught.exception))
+
+    def test_backward_jump_is_bounded_and_budget_resets_after_failure(self):
+        task = _task([Label("loop"), Jmp("loop")])
+        layout = build_runtime_store(task)
+        ex = Executor(task, layout)
+        with mock.patch("src.runtime.executor._MAX_INSTRUCTIONS_PER_EXECUTE", 5):
+            for _ in range(2):
+                with self.assertRaises(IRExecutionError) as caught:
+                    ex.execute_programs(layout.store.snapshot())
+                self.assertIn("指令预算已耗尽", str(caught.exception))
+                self.assertIsNone(ex._instruction_budget_remaining)
+
+    def test_nested_function_consumes_the_same_entry_budget(self):
+        fn = POUDefinition(
+            name="One", pou_kind="FUNCTION", language="ST", return_type="INT",
+            code=[LoadConst(1, "INT")])
+        task = _task(
+            [LoadConst(0, "INT"), StoreVar("N", "INT"),
+             CallFunc("One", (), "INT"), StoreVar("M", "INT")], pous=[fn])
+        layout = build_runtime_store(task)
+        ex = Executor(task, layout)
+        with mock.patch("src.runtime.executor._MAX_INSTRUCTIONS_PER_EXECUTE", 3):
+            with self.assertRaises(IRExecutionError) as caught:
+                ex.execute_programs(layout.store.snapshot())
+        self.assertEqual(caught.exception.pou, "One")
+        self.assertIn("指令预算已耗尽", str(caught.exception))
+
+    def test_same_executor_reentry_fails_closed_and_clears_outer_budget(self):
+        task = _task([
+            CallStd("REENTER", StdSig((), "INT")), StoreVar("N", "INT")])
+        layout = build_runtime_store(task)
+        holder = {}
+
+        def reenter():
+            holder["executor"].execute_programs(layout.store.snapshot())
+            return 1
+
+        ex = Executor(task, layout, std_functions={"REENTER": reenter})
+        holder["executor"] = ex
+        with self.assertRaises(IRExecutionError) as caught:
+            ex.execute_programs(layout.store.snapshot())
+        self.assertIsInstance(caught.exception.cause, IRExecutionError)
+        self.assertIn("不允许在同一 Executor 上重入",
+                      str(caught.exception.cause))
+        self.assertIsNone(ex._instruction_budget_remaining)
+
+
 # ---------------------------------------------------------------------------
 # 运算与模式（要求 10–20）
 # ---------------------------------------------------------------------------

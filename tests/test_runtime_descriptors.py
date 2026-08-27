@@ -11,6 +11,9 @@ from __future__ import annotations
 import json
 import inspect
 import unittest
+from collections.abc import Mapping
+
+import src.runtime.descriptors.model as descriptor_model
 
 from src.runtime.descriptors import (
     APCHSACCUM_ADAPTER,
@@ -187,6 +190,298 @@ class TestSchemaValidation(unittest.TestCase):
         self.assertEqual(set(s.output_access), {"O"})
         with self.assertRaises(TypeError):              # output_access 只读
             s.output_access["Q"] = "attr:Q"
+
+
+# ---------------------------------------------------------------------------
+# WP-20260809-087：output_access 的可证明只读 Mapping 载体
+# ---------------------------------------------------------------------------
+
+class TestOutputAccessCarrier(unittest.TestCase):
+    """只锁定私有 carrier 的公开 Mapping 行为与纯字段可证明形状。
+
+    ``_carrier_fields_are_exact`` 是测试专用的零观察字段验证器：它不尝试
+    防止 ``object.__setattr__``，而是证明后续信任边界可只读取 carrier 的
+    固定字段来拒绝被强制篡改的实例。
+    """
+
+    _SNAPSHOT_ERROR = "output_access 必须是可安全快照的 Mapping[str, str]"
+
+    @staticmethod
+    def _schema(output_access):
+        return BlockSchema(
+            block_type="CARRIER",
+            outputs=(Pin("O", "REAL", "VAR_OUTPUT"),
+                     Pin("P", "BOOL", "VAR_OUTPUT")),
+            output_access=output_access,
+        )
+
+    @staticmethod
+    def _carrier_fields_are_exact(value):
+        """测试专用：只读 carrier 自身字段，不作 GC/backing 探测。"""
+        if type(value) is not descriptor_model._OutputAccessMap:
+            return False
+        if hasattr(value, "__dict__"):
+            return False
+        try:
+            pairs = value._pairs
+        except AttributeError:
+            return False
+        if type(pairs) is not tuple:
+            return False
+        for pair in pairs:
+            if type(pair) is not tuple or len(pair) != 2:
+                return False
+            if type(pair[0]) is not str or type(pair[1]) is not str:
+                return False
+        return True
+
+    def test_source_dict_alias_mapping_api_order_and_json_round_trip(self):
+        source = {"O": "return:O", "P": "attr:P"}
+        schema = self._schema(source)
+        access = schema.output_access
+        source["O"] = "attr:mutated"
+        source["X"] = "return:X"
+
+        self.assertIsInstance(access, Mapping)
+        self.assertEqual(access["O"], "return:O")
+        self.assertEqual(list(access), ["O", "P"])
+        self.assertEqual(len(access), 2)
+        self.assertEqual(list(access.items()),
+                         [("O", "return:O"), ("P", "attr:P")])
+        self.assertEqual(list(access.keys()), ["O", "P"])
+        self.assertEqual(access.get("P"), "attr:P")
+        self.assertIsNone(access.get("missing"))
+        self.assertEqual(access, {"O": "return:O", "P": "attr:P"})
+        self.assertEqual(dict(access), {"O": "return:O", "P": "attr:P"})
+        self.assertEqual(
+            json.loads(json.dumps(schema.to_json()))["output_access"],
+            {"O": "return:O", "P": "attr:P"})
+
+    def test_snapshot_uses_iteration_and_one_lookup_per_key_only(self):
+        class _CountingMapping(Mapping):
+            def __init__(self):
+                self.lookups = []
+                self.iterations = 0
+
+            def __iter__(self):
+                self.iterations += 1
+                return iter(("O", "P"))
+
+            def __getitem__(self, key):
+                self.lookups.append(key)
+                return {"O": "return:O", "P": "attr:P"}[key]
+
+            def __len__(self):
+                raise AssertionError("constructor must not call len")
+
+            def items(self):
+                raise AssertionError("constructor must not call items")
+
+            def keys(self):
+                raise AssertionError("constructor must not call keys")
+
+            def __repr__(self):
+                raise AssertionError("constructor must not call repr")
+
+            def __str__(self):
+                raise AssertionError("constructor must not call str")
+
+        source = _CountingMapping()
+        schema = self._schema(source)
+        self.assertEqual(source.iterations, 1)
+        self.assertEqual(source.lookups, ["O", "P"])
+        self.assertEqual(list(schema.output_access.items()),
+                         [("O", "return:O"), ("P", "attr:P")])
+
+    def test_hostile_mapping_failures_are_fixed_and_do_not_format_source(self):
+        class _Bomb(BaseException):
+            pass
+
+        class _IterBomb(Mapping):
+            def __init__(self):
+                self.bomb = _Bomb()
+
+            def __iter__(self):
+                raise self.bomb
+
+            def __getitem__(self, key):
+                raise AssertionError("must not look up after iterator failure")
+
+            def __len__(self):
+                raise AssertionError("must not call len")
+
+            def __repr__(self):
+                raise AssertionError("must not call repr")
+
+            def __str__(self):
+                raise AssertionError("must not call str")
+
+        class _LookupBomb(Mapping):
+            def __init__(self):
+                self.bomb = _Bomb()
+
+            def __iter__(self):
+                return iter(("O",))
+
+            def __getitem__(self, key):
+                raise self.bomb
+
+            def __len__(self):
+                raise AssertionError("must not call len")
+
+            def __repr__(self):
+                raise AssertionError("must not call repr")
+
+            def __str__(self):
+                raise AssertionError("must not call str")
+
+        for source in (_IterBomb(), _LookupBomb()):
+            with self.subTest(source=type(source).__name__):
+                try:
+                    descriptor_model._snapshot_output_access(source)
+                except SchemaValidationError as caught:
+                    self.assertEqual(str(caught), self._SNAPSHOT_ERROR)
+                    self.assertIsNone(caught.__cause__)
+                    self.assertIsNone(caught.__context__)
+                    traceback = caught.__traceback__
+                    while traceback.tb_frame.f_code.co_name != "_snapshot_output_access":
+                        traceback = traceback.tb_next
+                    retained = tuple(traceback.tb_frame.f_locals.values())
+                    self.assertNotIn(source, retained)
+                    self.assertNotIn(source.bomb, retained)
+                else:
+                    self.fail("hostile Mapping must fail closed")
+
+    def test_snapshot_item_cap_accepts_exact_limit_and_rejects_before_lookup(self):
+        class _BoundedMapping(Mapping):
+            def __init__(self, item_count):
+                self.item_count = item_count
+                self.lookups = []
+                self.next_calls = 0
+                self.terminal_next_calls = 0
+
+            def __iter__(self):
+                owner = self
+
+                class _Iterator:
+                    def __init__(self):
+                        self.index = 0
+
+                    def __iter__(self):
+                        return self
+
+                    def __next__(self):
+                        owner.next_calls += 1
+                        if self.index == owner.item_count:
+                            owner.terminal_next_calls += 1
+                            raise StopIteration
+                        key = "K%d" % self.index
+                        self.index += 1
+                        return key
+
+                return _Iterator()
+
+            def __getitem__(self, key):
+                self.lookups.append(key)
+                return "return:O"
+
+            def __len__(self):
+                raise AssertionError("snapshot must not call source len")
+
+        exact_limit = _BoundedMapping(4096)
+        snapshot = descriptor_model._snapshot_output_access(exact_limit)
+        self.assertEqual(len(snapshot), 4096)
+        self.assertEqual(len(exact_limit.lookups), 4096)
+        self.assertEqual(exact_limit.next_calls, 4097)
+        self.assertEqual(exact_limit.terminal_next_calls, 1)
+
+        overflow = _BoundedMapping(4097)
+        with self.assertRaises(SchemaValidationError) as caught:
+            descriptor_model._snapshot_output_access(overflow)
+        self.assertEqual(str(caught.exception), self._SNAPSHOT_ERROR)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNone(caught.exception.__context__)
+        self.assertEqual(len(overflow.lookups), 4096)
+        self.assertEqual(overflow.next_calls, 4097)
+        self.assertEqual(overflow.terminal_next_calls, 0)
+
+    def test_duplicate_and_non_exact_string_entries_fail_closed(self):
+        class _Pairs(Mapping):
+            def __init__(self, pairs):
+                self._pairs = pairs
+
+            def __iter__(self):
+                return (key for key, _ in self._pairs)
+
+            def __getitem__(self, key):
+                for candidate, value in self._pairs:
+                    if candidate == key:
+                        return value
+                raise KeyError(key)
+
+            def __len__(self):
+                return len(self._pairs)
+
+        class _StringSubclass(str):
+            pass
+
+        bad_sources = (
+            _Pairs((("O", "return:O"), ("O", "return:O"))),
+            _Pairs(((_StringSubclass("O"), "return:O"),)),
+            _Pairs((("O", _StringSubclass("return:O")),)),
+            _Pairs(((1, "return:O"),)),
+            _Pairs((("O", 1),)),
+        )
+        for source in bad_sources:
+            with self.subTest(source=type(source._pairs[0][0]).__name__):
+                with self.assertRaises(SchemaValidationError) as caught:
+                    self._schema(source)
+                self.assertEqual(str(caught.exception), self._SNAPSHOT_ERROR)
+                self.assertIsNone(caught.exception.__cause__)
+
+    def test_normal_immutability_and_pure_field_tamper_detection(self):
+        access = self._schema({"O": "return:O", "P": "attr:P"}).output_access
+        self.assertTrue(self._carrier_fields_are_exact(access))
+        self.assertFalse(hasattr(access, "__dict__"))
+        self.assertEqual(type(access).__slots__, ("_pairs",))
+        with self.assertRaises((AttributeError, TypeError)):
+            access._pairs = ()
+        with self.assertRaises((AttributeError, TypeError)):
+            del access._pairs
+        with self.assertRaises(TypeError):
+            access["O"] = "attr:O"
+        with self.assertRaises(AttributeError):
+            object.__setattr__(access, "extra", "forbidden")
+
+        object.__setattr__(access, "_pairs", (("O", "return:O"), ("P", 1)))
+        self.assertFalse(self._carrier_fields_are_exact(access))
+
+        deleted = self._schema({"O": "return:O", "P": "attr:P"}).output_access
+        object.__delattr__(deleted, "_pairs")
+        self.assertFalse(self._carrier_fields_are_exact(deleted))
+
+    def test_default_registry_all_22_keep_mapping_json_and_output_collection(self):
+        registry = build_default_registry()
+        self.assertEqual(len(registry.keys()), 22)
+        for block_type in registry.block_types():
+            with self.subTest(block_type=block_type):
+                schema, _ = registry.resolve(block_type, "engineering")
+                self.assertTrue(self._carrier_fields_are_exact(schema.output_access))
+                self.assertEqual(
+                    list(schema.output_access),
+                    [pin.name for pin in schema.outputs])
+                restored = json.loads(json.dumps(schema.to_json()))
+                self.assertEqual(list(restored["output_access"]),
+                                 [pin.name for pin in schema.outputs])
+
+        class _Instance:
+            P = True
+
+        self.assertEqual(
+            collect_outputs(
+                self._schema({"O": "return:O", "P": "attr:P"}).output_access,
+                _Instance(), {"O": 1.25}),
+            {"O": 1.25, "P": True})
 
 
 # ---------------------------------------------------------------------------

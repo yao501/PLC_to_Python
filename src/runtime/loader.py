@@ -87,6 +87,7 @@ from src.runtime.ir import (
     UnOp,
     VarDecl,
 )
+from src.runtime.standard_functions import standard_signature_error
 
 
 class IRValidationError(Exception):
@@ -206,6 +207,141 @@ def validate_task(task: Task, registry=None) -> None:
         scope = _build_scope(pou, gvl_types, registry)
         _check_code(pou, scope, task, errors)
 
+    if errors:
+        raise IRValidationError(errors)
+
+
+def validate_pou_instruction_semantics(pou: POUDefinition) -> None:
+    """受支持的内部跨组件 facade：对已通过既有信任边界的 typed POU 的整条
+    ``code`` 做**与控制流可达性无关**的组合语义验证。
+
+    这是 ``src.runtime.loader`` 子模块中的受支持内部 API（不以下划线命名）；
+    **不重导出到 ``src.runtime`` 包根或 ``__all__``**。它不是通用不可信 Python
+    对象安全入口：输入只应为已经现有信任边界形成的 typed ``POUDefinition``，本
+    facade 不复制 CFC/ST 的 exact-shell 验证。
+
+    背景：``validate_task`` 的可达性驱动 worklist 只对**控制流可达**指令做取值/
+    引用级组合校验；位于无条件 ``Jmp`` 之后、无其它入边的死指令会被跳过。ST
+    catalogue 需要在把编译好的 FUNCTION/FB 交给 Loader 前，对**整条**指令流做与
+    可达性无关的组合校验，防止伪造目录借死代码夹带「各字段各自合法、组合非法」
+    的指令。本 facade 即该 whole-stream 预检的**单一真值源**，复用 Loader 现有
+    ``_build_scope`` / ``_step`` / ``standard_signature_error``，不在 facade 或
+    ST lowering 建第二套 operator/type/signature 规则表：
+
+    - ``LoadVar/LoadPrev/StoreVar``：指令 IEC 类型合法（对共享冻结常量
+      ``IEC_TYPES`` 的集合预筛）；被引用变量已声明、指令类型等于其声明类型两项
+      **实质裁决交由 Loader 自身 ``_step`` 在同一 ``_build_scope`` 作用域上完成**，
+      facade 不手写声明表或类型比较，只把 ``_step`` 的裁决稳定收敛为诊断；
+    - ``BinOp/UnOp``：operator 属枚举、类型属 IEC 集，且 operator+type 组合经
+      Loader 自身 ``_step`` 在通配栈上判定合法（op/type 对的裁决只依赖指令本身，
+      不受栈残留或未解析引用影响）；
+    - ``Convert``：``from_type`` / ``to_type`` 的合法性裁决同样交由 Loader 自身
+      ``_step`` 在通配栈上完成（复用 ``_require_type`` 单一真值源），facade 不手写
+      IEC 集合判断，只把 ``_step`` 的裁决稳定收敛为诊断；
+    - ``CallStd``：签名各类型合法，且 name+signature 满足 ``standard_signature_error``；
+    - ``CallFunc/CallFb/CallFbInstance``：编译目录 POU 不得调用其它 FUNCTION/FB，
+      任何此类指令都是死代码违禁物，失败关闭。
+
+    合法输入无返回值；任一组合语义错误按**指令下标稳定顺序**汇总后抛现有
+    ``IRValidationError``。本 facade 只读输入：不修改 ``pou``、指令、声明容器或
+    全局目录，也不向外泄漏 ``_Scope``、合成栈或局部错误列表（三者均为函数内的
+    一次性局部对象）。
+    """
+    scope = _build_scope(pou, {}, None)
+    prefix = "POU '%s'" % pou.name
+    errors: list = []
+    for idx, ins in enumerate(pou.code):
+        kind = type(ins)
+        if kind is LoadVar or kind is LoadPrev or kind is StoreVar:
+            # 「被引用变量已声明」与「指令 IEC 类型 == 声明类型」两项实质裁决全部
+            # 委派给 Loader 自身 ``_step`` 在上面 ``_build_scope`` 造出的**同一**
+            # ``scope`` 上完成——facade 不再手写第二套声明表或类型比较，避免 Loader
+            # 日后扩展 scope / 管脚裁决时 facade 静默漂移（复用单一真值源）。``_step``
+            # 需要一个栈：LOAD 只压不弹、STORE 弹一个待写值，故按需喂通配栈种子；因
+            # 声明/类型裁决与栈残留无关，``"*"`` 待写值不会触发额外类型错。``probe`` /
+            # ``seed`` 均为一次性局部对象，``_step`` 只读 ``scope`` / ``pou``，不修改
+            # 输入对象图。
+            #
+            # 唯一保留在 facade 侧的是对 ``ins.type`` 的 IEC 集合归属预筛：它只读
+            # 共享冻结常量 ``IEC_TYPES``（``_step`` 的 ``_require_type`` 用的是同一常量，
+            # 随之同步、无漂移），仅用于把「非法 IEC 类型」与「未声明引用」两个稳定
+            # 诊断分流——二者在 ``_step`` 中都以返回 ``None`` 表达、无法仅凭返回值区分，
+            # 故需此一处粗筛路由，而非重建规则。
+            if ins.type not in IEC_TYPES:
+                errors.append(
+                    "%s 指令 #%d：compiled POU instruction type is not a "
+                    "supported IEC type" % (prefix, idx))
+                continue
+            probe: list = []
+            seed = ["*"] if kind is StoreVar else []
+            outcome = _step(pou, scope, None, idx, ins, seed, probe, prefix)
+            if not probe:
+                continue
+            # ``_step`` 判本指令非法：类型已合法且非库块管脚（registry=None）时，返回
+            # ``None`` 当且仅当被引用变量在 Loader 作用域不可解析（未声明），返回非
+            # ``None`` 但携带诊断当且仅当声明类型与指令类型不一致。facade 只据 Loader
+            # 的裁决把它稳定收敛为既有两类诊断，不复算规则本身。
+            if outcome is None:
+                errors.append(
+                    "%s 指令 #%d：compiled POU instruction references an "
+                    "undeclared variable" % (prefix, idx))
+            else:
+                errors.append(
+                    "%s 指令 #%d：compiled POU instruction type does not match "
+                    "its declared variable type" % (prefix, idx))
+        elif kind is BinOp or kind is UnOp:
+            op_set = BINOP_OPS if kind is BinOp else UNOP_OPS
+            if ins.op not in op_set or ins.type not in IEC_TYPES:
+                errors.append(
+                    "%s 指令 #%d：compiled POU instruction uses an unsupported "
+                    "operator or IEC type" % (prefix, idx))
+                continue
+            # 把指令交给 Loader 自身 ``_step``，栈按算子元数用通配值填充：不会
+            # 下溢/栈类型错，故 ``probe`` 非空当且仅当 op/type 组合非法（如对 BOOL
+            # 做算术、对无符号类型取负）。``seed`` / ``probe`` 均为一次性局部对象。
+            probe: list = []
+            seed = ["*", "*"] if kind is BinOp else ["*"]
+            _step(pou, scope, None, idx, ins, seed, probe, prefix)
+            if probe:
+                errors.append(
+                    "%s 指令 #%d：compiled POU instruction operator and IEC "
+                    "type combination is unsupported" % (prefix, idx))
+        elif kind is Convert:
+            # ``from_type`` / ``to_type`` 的合法性裁决交由 Loader 自身 ``_step``
+            # 完成（复用 ``_step`` 内 ``_require_type`` 的同一真值源），facade 不再
+            # 手写第二套 IEC 集合判断。``_step`` 的 CONVERT 分支恰弹一个源值再压
+            # 目标值，故喂单值通配栈 ``["*"]``：无栈下溢、源值 ``"*"`` 不触发额外
+            # 类型错，故 ``probe`` 非空当且仅当 from/to 有一为非法 IEC 类型。
+            # ``seed`` / ``probe`` 均为一次性局部对象，``_step`` 只读 ``scope`` /
+            # ``pou``，不修改输入对象图。
+            probe: list = []
+            seed = ["*"]
+            _step(pou, scope, None, idx, ins, seed, probe, prefix)
+            if probe:
+                errors.append(
+                    "%s 指令 #%d：compiled POU conversion uses an unsupported "
+                    "IEC type" % (prefix, idx))
+        elif kind is CallStd:
+            sig = ins.sig
+            if sig.return_type not in IEC_TYPES or \
+                    any(param not in IEC_TYPES for param in sig.param_types):
+                errors.append(
+                    "%s 指令 #%d：compiled POU CALL_STD signature uses an "
+                    "unsupported IEC type" % (prefix, idx))
+                continue
+            # name + signature 必须满足 Loader 经 ``standard_signature_error`` 施加
+            # 的同一契约（元数、参/返类型匹配、ABS 仅数值），复用该单一规则源。
+            if standard_signature_error(ins.name, sig) is not None:
+                errors.append(
+                    "%s 指令 #%d：compiled POU CALL_STD signature is invalid "
+                    "for its standard function" % (prefix, idx))
+        elif kind is CallFunc or kind is CallFb or kind is CallFbInstance:
+            errors.append(
+                "%s 指令 #%d：compiled POU catalogue must not call a function "
+                "or FB instance" % (prefix, idx))
+        # ``LoadConst`` 的值/类型已由前端 clone 阶段完全门控；``Jmp`` /
+        # ``JmpIfFalse`` / ``Label`` 的标签目标由 Loader 的标签遍历在整条流上校验，
+        # 二者本就与可达性无关，此处无需重复。
     if errors:
         raise IRValidationError(errors)
 
@@ -735,6 +871,9 @@ def _step(pou, scope, task, idx, ins, stack, errors, prefix):
                 return None
         if not _require_type(ins.sig.return_type, prefix, idx, "CALL_STD 返回", errors):
             return None
+        signature_error = standard_signature_error(ins.name, ins.sig)
+        if signature_error is not None:
+            err("CALL_STD %s" % signature_error)
         for t in reversed(ins.sig.param_types):
             if pop1(t, "CALL_STD 实参") is None:
                 return None

@@ -344,24 +344,25 @@ class APCRSFNAUTOPARA:
 
         # ---- 推荐值默认回退到当前参数（309-329）----
         if (self.HISTORY_COUNT == 0) or RESET or (not self.INIT_DONE):
-            self.TL_REC = max(TL_IN, 0)
-            self.TL1_REC = max(TL1_IN, self.TL_REC + 1)
-            self.TL2_REC = max(TL2_IN, self.TL_REC + 1)
-            self.TL3_REC = max(TL3_IN, self.TL_REC + 1)
-            self.TL4_REC = max(TL4_IN, self.TL_REC + 1)
-            self.E1_REC = max(E1_IN, 0.001)
-            self.E2_REC = max(E2_IN, self.E1_REC)
-            self.E3_REC = max(E3_IN, self.E2_REC)
-            self.E4_REC = max(E4_IN, self.E3_REC)
-            self.AO1_REC = max(AO1_IN, 0)
-            self.AO2_REC = max(AO2_IN, self.AO1_REC)
-            self.AO3_REC = max(AO3_IN, self.AO2_REC)
-            self.AO4_REC = max(AO4_IN, self.AO3_REC)
-            self.RSF_LOCK_T_REC = max(RSF_LOCK_T_IN, 0)
-            self.RSF_HYS_REC = max(min(RSF_HYS_IN, 1), 0.1)
-            self.RSF_FAST_HYS_REC = max(min(RSF_FAST_HYS_IN, self.RSF_HYS_REC), 0.01)
-            self.RSF_TLOUT_K_REC = max(min(RSF_TLOUT_K_IN, 1), 0)
-            self.ZF_K_REC = max(min(ZF_K_IN, 1), 0)
+            self.TL_REC = float(max(TL_IN, 0))
+            self.TL1_REC = float(max(TL1_IN, self.TL_REC + 1))
+            self.TL2_REC = float(max(TL2_IN, self.TL_REC + 1))
+            self.TL3_REC = float(max(TL3_IN, self.TL_REC + 1))
+            self.TL4_REC = float(max(TL4_IN, self.TL_REC + 1))
+            self.E1_REC = float(max(E1_IN, 0.001))
+            self.E2_REC = float(max(E2_IN, self.E1_REC))
+            self.E3_REC = float(max(E3_IN, self.E2_REC))
+            self.E4_REC = float(max(E4_IN, self.E3_REC))
+            self.AO1_REC = float(max(AO1_IN, 0))
+            self.AO2_REC = float(max(AO2_IN, self.AO1_REC))
+            self.AO3_REC = float(max(AO3_IN, self.AO2_REC))
+            self.AO4_REC = float(max(AO4_IN, self.AO3_REC))
+            self.RSF_LOCK_T_REC = float(max(RSF_LOCK_T_IN, 0))
+            self.RSF_HYS_REC = float(max(min(RSF_HYS_IN, 1), 0.1))
+            self.RSF_FAST_HYS_REC = float(
+                max(min(RSF_FAST_HYS_IN, self.RSF_HYS_REC), 0.01))
+            self.RSF_TLOUT_K_REC = float(max(min(RSF_TLOUT_K_IN, 1), 0))
+            self.ZF_K_REC = float(max(min(ZF_K_IN, 1), 0))
 
         # ---- 复位处理 / 冷启动初始化（331-399）----
         if RESET or (not self.INIT_DONE):
@@ -952,24 +953,24 @@ class APCRSFNAUTOPARA:
                     self.RSF_TLOUT_K_REC = self.RSF_TLOUT_K_REC / self.FUSE_SUM_W
                     self.ZF_K_REC = self.ZF_K_REC / self.FUSE_SUM_W
                 else:
-                    self.TL_REC = self.W_TL
-                    self.TL1_REC = self.W_TL1
-                    self.TL2_REC = self.W_TL2
-                    self.TL3_REC = self.W_TL3
-                    self.TL4_REC = self.W_TL4
-                    self.E1_REC = self.W_E1
-                    self.E2_REC = self.W_E2
-                    self.E3_REC = self.W_E3
-                    self.E4_REC = self.W_E4
-                    self.AO1_REC = self.W_AO1
-                    self.AO2_REC = self.W_AO2
-                    self.AO3_REC = self.W_AO3
-                    self.AO4_REC = self.W_AO4
-                    self.RSF_LOCK_T_REC = self.W_RSF_LOCK_T
-                    self.RSF_HYS_REC = self.W_RSF_HYS
-                    self.RSF_FAST_HYS_REC = self.W_RSF_FAST_HYS
-                    self.RSF_TLOUT_K_REC = self.W_RSF_TLOUT_K
-                    self.ZF_K_REC = self.W_ZF_K
+                    self.TL_REC = float(self.W_TL)
+                    self.TL1_REC = float(self.W_TL1)
+                    self.TL2_REC = float(self.W_TL2)
+                    self.TL3_REC = float(self.W_TL3)
+                    self.TL4_REC = float(self.W_TL4)
+                    self.E1_REC = float(self.W_E1)
+                    self.E2_REC = float(self.W_E2)
+                    self.E3_REC = float(self.W_E3)
+                    self.E4_REC = float(self.W_E4)
+                    self.AO1_REC = float(self.W_AO1)
+                    self.AO2_REC = float(self.W_AO2)
+                    self.AO3_REC = float(self.W_AO3)
+                    self.AO4_REC = float(self.W_AO4)
+                    self.RSF_LOCK_T_REC = float(self.W_RSF_LOCK_T)
+                    self.RSF_HYS_REC = float(self.W_RSF_HYS)
+                    self.RSF_FAST_HYS_REC = float(self.W_RSF_FAST_HYS)
+                    self.RSF_TLOUT_K_REC = float(self.W_RSF_TLOUT_K)
+                    self.ZF_K_REC = float(self.W_ZF_K)
 
                 self.FINAL_STRONG = (self.SIMILAR_COUNT >= FUSE_MIN_N) and (
                     self.FUSE_SUM_W >= FUSE_MIN_WEIGHT

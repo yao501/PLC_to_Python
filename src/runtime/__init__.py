@@ -1,8 +1,7 @@
-"""正式运行时包（阶段 1 起步）：L3 IR 内存模型 + 装载期静态校验。
+"""正式运行时包：阶段 1 IR/执行、阶段 2 CFC 与阶段 3 ST Python 合同。
 
-只导出本包稳定的 IR 模型与校验入口。**不是最终用户编程入口**——当前仅
-允许 Python 代码在引擎内部/测试中构造 IR（PLATFORM_ROADMAP 阶段 1）。
-不导出 prototype_05 任何原型模块;原型代码一次性、不复用。
+只导出已审核的内部运行时、CFC 与 ST 顶层入口；不导出 prototype_05，也不把
+Python API 冒充 CODESYS、HAL 或现场编程入口。
 """
 from src.runtime.ir import (
     # 类型与枚举常量
@@ -111,8 +110,40 @@ from src.runtime.startup import (
     ReadinessError, ReadinessConfigError, ReadinessClockError,
     StartupReadinessController, StartupReadinessError,
 )
+from src.runtime.cfc_model import (
+    SCHEMA_VERSION as CFC_MODEL_SCHEMA_VERSION,
+    CFCPin, CFCNode, CFCConnection, CFCModel,
+    load_cfc_model, dump_cfc_model,
+    CFCModelDiagnostic, CFCModelError,
+)
+from src.runtime.cfc_lowering import (
+    CFCNodeBody, CFCCompileResult, compile_cfc_task,
+    CFCLoweringDiagnostic, CFCLoweringError,
+)
+from src.runtime.cfc_order import CFCOrderDiagnostic, CFCOrderError
+from src.runtime.st_lexer import STLexDiagnostic, STLexError
+from src.runtime.st_parser import STParseDiagnostic, STParseError
+from src.runtime.st_lowering import (
+    STCompileDiagnostic, STCompileError, STCompileResult, STPOUCompileResult,
+    compile_st_task, compile_st_function, compile_st_function_block,
+)
 
 __all__ = [
+    # Stage 2 CFC provisional public contract (WP-20260810-091).  Keep order
+    # graphs and direct-lowering carriers internal to their submodules.
+    "CFC_MODEL_SCHEMA_VERSION",
+    "CFCPin", "CFCNode", "CFCConnection", "CFCModel",
+    "load_cfc_model", "dump_cfc_model",
+    "CFCModelDiagnostic", "CFCModelError",
+    "CFCNodeBody", "CFCCompileResult", "compile_cfc_task",
+    "CFCLoweringDiagnostic", "CFCLoweringError",
+    "CFCOrderDiagnostic", "CFCOrderError",
+    # Stage 3 ST compile contract (WP-20260826-144).  Direct lexer/parser
+    # functions, AST classes and library aliases remain internal.
+    "STLexDiagnostic", "STLexError", "STParseDiagnostic", "STParseError",
+    "STCompileDiagnostic", "STCompileError", "STCompileResult",
+    "STPOUCompileResult", "compile_st_task", "compile_st_function",
+    "compile_st_function_block",
     # 单任务运行栈纵向装配入口与冷启动失败关闭快照（WP-20260730-049）
     "TaskRuntimeAssembly", "build_task_runtime", "COLD_START_SAFETY",
     "ReadinessSnapshot", "StartupState", "StartupReadinessResult",

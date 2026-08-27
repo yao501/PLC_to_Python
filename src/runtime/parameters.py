@@ -48,6 +48,7 @@ from src.runtime.ir import (
 )
 from src.runtime.loader import IRValidationError, validate_task
 from src.runtime.numeric import NumericMode
+from src.runtime.standard_functions import default_standard_functions
 from src.runtime.descriptors.registry import RegistryError
 from src.runtime.store import (
     RuntimeLayout,
@@ -211,8 +212,10 @@ def build_runtime(task: Task, registry, *,
 
     # (4) 构建：布局/Store → 构造全部 library runtime → 成功后一次性返回
     layout = build_runtime_store(task, registry)
-    executor = Executor(task, layout, numeric_mode=numeric_mode,
-                        registry=registry, dependencies=deps)
+    executor = Executor(
+        task, layout, numeric_mode=numeric_mode,
+        std_functions=default_standard_functions(),
+        registry=registry, dependencies=deps)
     return RuntimeAssembly(task=task, layout=layout, executor=executor,
                            startup_inhibit_ms=inhibit,
                            warnings=tuple(warnings))

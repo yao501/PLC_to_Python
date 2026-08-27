@@ -399,6 +399,71 @@ class TestManualEvents(unittest.TestCase):
 
 
 class TestCalcAndSnapshot(unittest.TestCase):
+    def test_real_output_carrier_survives_integer_clamp_branch(self):
+        """REAL outputs must not become Python int when max selects a literal."""
+        r = APCMAUTOPARA()
+        prime(r)
+        osc_window(r, n=8, min_win_t=3.0)
+        self.assertIs(type(r.MAN_RESP_T_AUTO), float)
+
+    def test_man_resp_t_use_real_carrier_survives_sub_one_input(self):
+        """MAN_RESP_T_USE stays REAL float even when a valid MAN_RESP_T < 1
+        makes the ``max(..., 1)`` floor select the integer literal.
+
+        MAN_RESP_T is a REAL VAR_INPUT and MAN_RESP_T_USE a REAL VAR_OUTPUT; a
+        legitimate sub-second response time must never turn the output into a
+        Python ``int``, which ``Store.check_value_type`` rejects for REAL and
+        would crash the public ST runtime commit (mirrors the sibling
+        MAN_RESP_T_AUTO carrier)."""
+        # First-ever call (INIT_DONE False) hits the reset-init clamp; the main
+        # pre-window clamp runs the same step.
+        first = APCMAUTOPARA()
+        step(first, EN=True, MAN_RESP_T=0.5)
+        self.assertIs(type(first.MAN_RESP_T_USE), float)
+        # EN=True with RESET=True re-enters the reset-init clamp.
+        reset = APCMAUTOPARA()
+        step(reset, EN=True, RESET=True, MAN_RESP_T=0.5)
+        self.assertIs(type(reset.MAN_RESP_T_USE), float)
+        # Window-settled branch recomputes MAN_RESP_T_USE from the same clamp.
+        settled = APCMAUTOPARA()
+        prime(settled)
+        osc_window(settled, n=8, min_win_t=3.0, MAN_RESP_T=0.5)
+        self.assertIs(type(settled.MAN_RESP_T_USE), float)
+
+    # The 17 REAL VAR_OUTPUT recommendations whose reset-init fallback clamp is
+    # ``float(max(X_IN, 0))``.  For a legitimate negative REAL input the bare
+    # ``max`` would select the integer literal ``0`` and hand ``Store`` a Python
+    # ``int``, which ``check_value_type`` rejects for REAL and would crash the
+    # public ST runtime commit.  Each must keep an exact ``float`` carrier
+    # (Codex WP-141 Round 1 same-source exact-carrier family).
+    _REAL_REC_CLAMP_CARRIERS = (
+        ("TD_REC", "TD_IN"), ("DI_REC", "DI_IN"), ("SVH_REC", "SVH_IN"),
+        ("SVL_REC", "SVL_IN"), ("TL_REC", "TL_IN"), ("AO1_REC", "AO1_IN"),
+        ("RSF_LOCK_T_REC", "RSF_LOCK_T_IN"), ("TC_REC", "TC_IN"),
+        ("TZ_REC", "TZ_IN"), ("GC1_REC", "GC1_IN"), ("GC2_REC", "GC2_IN"),
+        ("CD_GD_REC", "CD_GD_IN"), ("CD_K_FD_REC", "CD_K_FD_IN"),
+        ("CD_K_J_REC", "CD_K_J_IN"), ("CD_K_D_REC", "CD_K_D_IN"),
+        ("TC_CD_REC", "TC_CD_IN"), ("TZ_CD_REC", "TZ_CD_IN"),
+    )
+
+    def test_reset_real_rec_carriers_survive_integer_clamp(self):
+        """Table-driven direct counter-proof for the 17 REAL ``*_REC`` clamps.
+
+        Negative and zero REAL inputs both drive ``max(X_IN, 0)`` onto the
+        integer floor; the recommendation must nevertheless be an exact ``float``
+        equal to the floored value.  A positive input keeps its own value and
+        proves the fix does not perturb the normal path.
+        """
+        self.assertEqual(len(self._REAL_REC_CLAMP_CARRIERS), 17)
+        for output, input_name in self._REAL_REC_CLAMP_CARRIERS:
+            for value in (-1.0, -0.5, 0.0, 2.0):
+                with self.subTest(output=output, value=value):
+                    r = APCMAUTOPARA()
+                    step(r, EN=True, **{input_name: value})
+                    carrier = getattr(r, output)
+                    self.assertIs(type(carrier), float)
+                    self.assertEqual(carrier, float(max(value, 0.0)))
+
     def test_calc_now_rising_edge_settles(self):
         r = APCMAUTOPARA()
         prime(r)
@@ -627,6 +692,54 @@ class TestHistoryFusion(unittest.TestCase):
         for _ in range(5):
             osc_window(r, n=8, min_win_t=2.0, HISTORY_N=3)
         self.assertEqual(r.HISTORY_COUNT, 3.0)
+
+    def test_fourth_valid_window_keeps_history_count_an_exact_float(self):
+        """The saturated ``HISTORY_N`` branch is still a REAL carrier."""
+        r = APCMAUTOPARA()
+        prime(r)
+        for _ in range(4):
+            osc_window(r, n=8, min_win_t=2.0, HISTORY_N=3)
+        self.assertIs(type(r.HISTORY_COUNT), float)
+        self.assertEqual(r.HISTORY_COUNT, 3.0)
+
+    def test_invalid_window_fuse_fallback_recommendations_are_exact_floats(self):
+        """A valid but deliberately un-stored window reaches ``FUSE_SUM_W=0``.
+
+        The expected recommendation values are literal contract values, not
+        copied from the block's ``W_*`` carrier.  This keeps the carrier check
+        independent while exercising negative inputs and all FUSE-map outputs.
+        """
+        expected = (
+            ("PT_REC", 330.0), ("TI_REC", 55.00000000000001),
+            ("TD_REC", 0.0), ("DI_REC", 5.0), ("SVH_REC", 13.0),
+            ("SVL_REC", 5.0), ("TL_REC", 10.0), ("TL1_REC", 11.0),
+            ("TL2_REC", 11.0), ("TL3_REC", 11.0), ("TL4_REC", 11.0),
+            ("E1_REC", 5.0), ("E2_REC", 10.0), ("E3_REC", 13.0),
+            ("E4_REC", 20.0), ("AO1_REC", 0.35), ("AO2_REC", 0.55),
+            ("AO3_REC", 0.77), ("AO4_REC", 1.0010000000000001),
+            ("RSF_LOCK_T_REC", 30.0), ("TC_REC", 10.0), ("TZ_REC", 5.0),
+            ("GC1_REC", 0.0), ("GC2_REC", 0.0), ("OUTH_REC", 10.0),
+            ("OUTL_REC", -10.0), ("CD_GD_REC", 22.22222222222222),
+            ("CD_K_REC", 0.3), ("CD_K_FD_REC", 0.5),
+            ("CD_K_J_REC", 1.0), ("CD_K_D_REC", 0.2), ("CDH_REC", 10.0),
+            ("CDL_REC", -10.0), ("TC_CD_REC", 10.0), ("TZ_CD_REC", 5.0),
+        )
+        negative = {
+            name: -1.0 for name in (
+                "TL_IN", "TL1_IN", "TL2_IN", "TL3_IN", "TL4_IN",
+                "E1_IN", "E2_IN", "E3_IN", "E4_IN", "AO1_IN", "AO2_IN",
+                "AO3_IN", "AO4_IN", "RSF_LOCK_T_IN", "TC_IN", "TZ_IN",
+                "GC1_IN", "GC2_IN", "OUTH_IN", "OUTL_IN", "CD_GD_IN",
+                "CD_K_IN", "CD_K_FD_IN", "CD_K_J_IN", "CD_K_D_IN", "CDH_IN",
+                "CDL_IN", "TC_CD_IN", "TZ_CD_IN")}
+        r = APCMAUTOPARA()
+        prime(r)
+        osc_window(r, n=8, min_win_t=3.0, MIN_STORE_EVENT=999.0, **negative)
+        self.assertTrue(r.WINDOW_VALID)
+        self.assertEqual(r.FUSE_SUM_W, 0.0)
+        for name, value in expected:
+            self.assertIs(type(getattr(r, name)), float, name)
+            self.assertEqual(getattr(r, name), value, name)
 
     def test_current_window_fuses_same_scan(self):
         """当前窗口先入库、同拍参与融合：单窗口即 SIMILAR_COUNT>=1。"""
