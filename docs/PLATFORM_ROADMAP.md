@@ -1,5 +1,6 @@
 # Python 软 PLC 平台演进路线图
 
+> **PR #35 恢复审计更新（2026-08-27）**：Stage 4 undo 快照信任边界恢复已形成产品提交 `1efc91d`，Claude/Codex 正式审核与宿主 V3 通过；此前 6 个提交加该产品提交及本行政同步共 8 个职责提交。最终 head 必须从 PR Git 引用读取，不在自引用提交内预写。PR 尚未合并，阶段与外部验证边界不变。
 > **Git 基线更新（2026-08-27）**：Stage 2 CFC、Stage 3 ST strict-subset 与 Stage 4 已关闭子范围已提交并推送到 `codex/stage2-4-baseline-20260827`，形成 [PR #35](https://github.com/yao501/PLC_to_Python/pull/35)；当前 PR 为 OPEN / MERGEABLE，`main` 尚未合并。最终分支验证为 ParserTests 27/27、tests 2145/2145、prototype 68/68、root 2213/2213。此状态不改变各阶段的 PLC/CODESYS、数值语义、HAL、真实 I/O 或现场验证边界。
 
 > 本文件是项目从"功能块迁移"走向"Python 原生软 PLC 平台"的**统一指导文档**。

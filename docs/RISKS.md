@@ -3,6 +3,8 @@
 本文件是项目**唯一的、正式的**待完善事项与已知风险登记簿。
 每次交付后必须同步更新此文件；严禁把风险点只写在对话里或散落在 docstring。
 
+> **PR #35 恢复提交审计（2026-08-27）**：undo 快照信任边界修复已形成产品提交 `1efc91d`，本行政同步是随后第 8 个职责提交；最终 head 以 PR Git 引用为权威，不在提交内容中自引用 SHA。PR 尚未合并，现有外部风险不变。
+
 > **PR #35 Stage 4 undo 快照信任边界已收口（2026-08-27，WP-152）**：独立 Reviewer 证明的“exact 壳体不等于 loader 已接受语义”的 P2 已通过单一冻结 `load_cfc_document` 门禁收口；命令操作及 CFCEditResult 保存前均先做零观察结构验证，再做完整语义裁决，重复节点、非法 carrier、不同非法连接/layout 与失败原子反证通过。Claude 正式回审、新 Codex 独立审核及宿主 release V3 全部通过；该窄风险在当前 PR 候选上 closed，PR 合并、完整历史栈、UI/持久化和外部验证仍分别保留。
 
 > **Stage 2～4 Git 基线已推送（2026-08-27）**：分支 `codex/stage2-4-baseline-20260827` 与 [PR #35](https://github.com/yao501/PLC_to_Python/pull/35) 已创建，当前 OPEN / MERGEABLE、尚未合并；发布前 ParserTests 27/27、tests 2145/2145、prototype 68/68、root 2213/2213 全绿。该 Git 轴升级不降低本登记簿中的任何产品、PLC/CODESYS、数值、HAL、I/O、watchdog 或现场风险。

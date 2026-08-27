@@ -20226,3 +20226,40 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
 - closed_by: `user`
 - closure_basis: `用户已授权至 18:00 按约定连续推进工作并只需汇报各包结果；WP-152 已完成 Claude 正式回审和新 Codex 独立审核，verdict=APPROVED、必须返修=无，宿主补跑 release V3 为 tests 2148/2148、prototype 68/68、root 2216/2216，故在授权范围内行政关闭。`
 - boundary: `关闭只收口 PR #35 的 Stage 4 命令/undo 快照语义信任边界及审计恢复；不自动合并 main、不启动 WP-151、不升级 PLC/CODESYS/HAL/现场轴。`
+
+## WP-20260827-153
+
+- title: `WP-152 恢复提交与 PR #35 非自引用 Git 审计同步`
+- status: `CLOSED`
+- owner: `user`
+- handoff_to: `user`
+- round: `1`
+- max_rounds: `5`
+- handoff_protocol: `v2`
+- base_commit: `1efc91de742f194f02a0b5aafb7a81c011e44ded`
+- authorized_by: `user`
+- created_at: `2026-08-27 17:49:00+0800`
+- verification_profile: `C0 + V0 protocol`
+- function_matrix_ids: `ENG-02, USR-03`
+- scope:
+  - `docs/AI_REVIEW_HANDOFF.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/PLATFORM_ROADMAP.md`
+  - `docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `docs/RISKS.md`
+- scope_baseline_sha256: `8741939e3fb87687cf3c94c5a534fb90ff0c3abff1a8af2f1e235150cab208e3`
+- scope_baseline_manifest:
+  - `ff6f89c8069e078edf017b9c3a0576d1d5c25af76379fe5e86abe7474a6b71a3  docs/AI_REVIEW_HANDOFF.md`
+  - `a1344125beb0b1612376846be669842b2fa2712879aa94323c5169d93ebbd71f  docs/PROJECT_STATE.md`
+  - `0a677cccfd574f388d194b0519a4ed58b044c69ce4710a1f44244074d9de07ae  docs/PLATFORM_ROADMAP.md`
+  - `a9a3339497497a3c7ef86f280c9cb40f9f9924859e22fcbc515feb1fa812aa70  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `74c7d5b0ce6048ca74190c38f265644cf23107526ccf033bada1c2c42a555fd7  docs/RISKS.md`
+- objective: `记录 WP-152 已正式通过并形成产品提交 1efc91d；纠正 WP-150 恢复前四提交/旧 head 投影，以“7 个已知前序提交 + 本行政同步提交、最终 head 由 PR Git 引用解析”的非自引用模型收口。`
+- verification: `宿主 release V3 tests 2148/2148、prototype 68/68、root 2216/2216；ParserTests 27/27；git diff checks clean。`
+- boundary: `不修改产品代码或审核原文，不预写本提交自身 SHA，不合并 main、不启动 WP-151、不升级外部验证轴。`
+
+### 用户关闭确认
+
+- closed_at: `2026-08-27 17:49:00+0800`
+- closed_by: `user`
+- closure_basis: `用户授权窗口内完成 WP-152 正式恢复与 PR 审计同步；C0 记录不需重复三 Agent。`
