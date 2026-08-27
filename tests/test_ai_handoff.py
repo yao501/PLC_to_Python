@@ -38,6 +38,7 @@ from tools.ai_handoff.scheduler import (
     SafeProcessRunner,
     ScopeHashResult,
     build_claude_prompt,
+    build_codex_prompt,
     calculate_scope_sha256,
 )
 from tools.ai_handoff.server import DashboardApplication, StateStore
@@ -2373,6 +2374,162 @@ class ClaudeNamingTests(unittest.TestCase):
         for command in ("shasum", "sha256sum", "管道", "命令替换", "shell 循环"):
             self.assertIn(command, prompt)
 
+    def test_claude_prompt_scopes_reading_to_current_package_and_rework_reads_latest_review(self):
+        # WP-20260808-083：阅读收口为「协议区 + 当前工作包 + 工作包明示相关文件；返修再读最新
+        # Codex 审核」，不默认整份通读、不通读无关历史工作包。安全核心（Runbook 第一必读、
+        # CODEX_GUIDE、协议区、当前 WP）保留。
+        first = build_claude_prompt("WP-READ", "start_claude_implementation")
+        rework = build_claude_prompt("WP-READ", "start_claude_rework")
+        for prompt in (first, rework):
+            with self.subTest(prompt=prompt[:24]):
+                # 安全核心保留
+                self.assertIn(CLAUDE_RUNBOOK_PATH, prompt)
+                self.assertIn("CODEX_GUIDE.md", prompt)
+                self.assertIn("协议区", prompt)
+                self.assertIn("当前工作包", prompt)
+                # 明示相关文件而非默认整份通读
+                self.assertIn("required_reading", prompt)
+                self.assertIn("scope 源码", prompt)
+                self.assertIn("不默认整份通读", prompt)
+                # 反向锁定：不得要求通读无关历史工作包或整个交接文件
+                self.assertIn("不通读无关历史工作包", prompt)
+                self.assertNotIn("完整读取整个", prompt)
+        # 返修额外读取最近一次 Codex 审核结论及其点名文件
+        self.assertIn("最近一次 Codex 审核", rework)
+
+    def test_claude_prompt_declares_verification_tiers_and_reuse_boundary(self):
+        # V0/V1/V2/V3 分层 + 按工作包声明选择层级 + 证据复用边界（复用须标注、非本轮实跑）。
+        for action in ("start_claude_implementation", "start_claude_rework"):
+            prompt = build_claude_prompt("WP-VERIFY", action)
+            with self.subTest(action=action):
+                for tier in ("V0", "V1", "V2", "V3"):
+                    self.assertIn(tier, prompt)
+                self.assertIn("verification_profile", prompt)
+                # 反向锁定：不得自行把定向层级扩成全量，也不得默认每轮全仓回归
+                self.assertIn("不得自行把 V1 扩成 V3", prompt)
+                self.assertNotIn("每轮默认全仓回归", prompt)
+                # 证据复用边界：复用须标注为「复用」而非本轮实跑，且行为变化必须重跑
+                self.assertIn("复用", prompt)
+                self.assertIn("本轮实跑", prompt)
+
+    def test_codex_prompt_scopes_reading_and_selects_tests_by_package(self):
+        # Codex prompt 不得再要求完整读取整个历史交接文件；改为协议区 + 当前 WP + 当前交接/
+        # 最近审核上下文 + 相关 scope/规格，并按本包 codex_tests_on_final_review 与风险触发器
+        # 独立选择测试，仅阶段收口/发布前才默认 V3 全量。
+        prompt = build_codex_prompt("WP-CODEX")
+        self.assertIn("WP-CODEX", prompt)
+        self.assertIn("协议区", prompt)
+        self.assertIn("当前工作包", prompt)
+        self.assertIn("codex_tests_on_final_review", prompt)
+        self.assertIn("触发器", prompt)
+        self.assertIn("独立", prompt)
+        self.assertIn("V3", prompt)
+        # 审核方仍禁止 Git 写与改 scope 外文件
+        self.assertIn("禁止 Git", prompt)
+        # 反向锁定：不得要求完整读取整个历史交接文件或逐轮全仓回归
+        self.assertNotIn("完整读取", prompt)
+        self.assertNotIn("每轮", prompt)
+
+    def test_codex_prompt_carries_v0_to_v3_and_reuse_contract(self):
+        # WP-20260809-084 合同恢复：WP-083 受限 Reviewer 因端口授权 BLOCKED，宿主未预告反证
+        # 确认真实缺口——build_codex_prompt() 只显式携带 V3，没有完整携带 V0/V1/V2/V3 的定义与
+        # 选择边界，也未把 evidence_reuse_policy 的「复用 vs 本轮实跑」区分和「实施方计数不得
+        # 代替本轮独立实跑」写进 prompt。本测试逐项锁定该合同，防止再次回归。
+        prompt = build_codex_prompt("WP-CODEX-084")
+        # ① V0～V3 四级验证定义齐全，而不只出现 V3
+        for tier in ("V0", "V1", "V2", "V3"):
+            with self.subTest(tier=tier):
+                self.assertIn(tier, prompt)
+        # ② 三个工作包测试字段：审核方据此独立选择验证层级
+        for field in (
+            "verification_profile",
+            "codex_tests_on_final_review",
+            "full_regression_trigger",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, prompt)
+        # ③ 普通包不自行升 V3，风险触发器命中时必须升级
+        self.assertIn("触发器", prompt)
+        self.assertIn("升级", prompt)
+        # ④ 证据复用边界（evidence_reuse_policy）：复用须标注为「复用」而非「本轮实跑」
+        self.assertIn("evidence_reuse_policy", prompt)
+        self.assertIn("复用", prompt)
+        self.assertIn("本轮实跑", prompt)
+        # ⑤ 产品代码/公共契约/安全链/依赖变化必须重跑相应验证
+        self.assertIn("重跑", prompt)
+        self.assertIn("依赖变化", prompt)
+        # ⑥ 实施方自报计数永远不能代替 Codex 本轮独立实跑
+        self.assertIn("实施方自报计数", prompt)
+        self.assertIn("本轮独立实跑", prompt)
+        # 反向锁定：仍不得要求完整读取整个交接文件或逐轮全仓回归
+        self.assertNotIn("完整读取", prompt)
+        self.assertNotIn("每轮", prompt)
+
+    def test_runbook_declares_reading_and_verification_tiers(self):
+        runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
+        for tier in ("V0", "V1", "V2", "V3"):
+            self.assertIn(tier, runbook)
+        self.assertIn("required_reading", runbook)
+        self.assertIn("证据复用", runbook)
+        self.assertIn("不默认整份通读", runbook)
+        # 安全核心必须保留
+        self.assertIn("第一必读", runbook)
+        # 反向锁定：不得要求完整读取整个交接文件或普通每轮默认全仓回归
+        self.assertNotIn("完整读取整个 `AI_REVIEW_HANDOFF.md`", runbook)
+        self.assertNotIn("每轮默认全仓回归", runbook)
+
+    def test_codex_guide_and_operations_declare_tiering_fields(self):
+        guide = (REPO_ROOT / "CODEX_GUIDE.md").read_text(encoding="utf-8")
+        operations = (REPO_ROOT / "docs" / "AI_HANDOFF_OPERATIONS.md").read_text(
+            encoding="utf-8"
+        )
+        for field in (
+            "required_reading",
+            "verification_profile",
+            "claude_tests_each_round",
+            "codex_tests_on_final_review",
+            "full_regression_trigger",
+            "evidence_reuse_policy",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, guide)
+                self.assertIn(field, operations)
+        for text in (guide, operations):
+            for tier in ("V0", "V1", "V2", "V3"):
+                self.assertIn(tier, text)
+            # V3 全量只在阶段收口或发布前默认，不逐轮重复
+            self.assertIn("阶段收口", text)
+
+    def test_function_matrix_registers_wp083_reading_verification_tiering(self):
+        matrix = (REPO_ROOT / "docs" / "SOFT_PLC_FUNCTION_MATRIX.md").read_text(
+            encoding="utf-8"
+        )
+        eng02 = next(line for line in matrix.splitlines() if line.startswith("| ENG-02 |"))
+        eng05 = next(line for line in matrix.splitlines() if line.startswith("| ENG-05 |"))
+        for row in (eng02, eng05):
+            with self.subTest(row=row[:10]):
+                self.assertIn("WP-20260808-083", row)
+                # 未审核候选，不得预写终态或已提交/已合并
+                self.assertNotIn("WP-20260808-083 CLOSED", row)
+                self.assertNotIn("WP-20260808-083 APPROVED", row)
+
+    def test_function_matrix_registers_wp084_closed_pending_git(self):
+        # WP-20260809-084 已经 Claude→受限 Reviewer→宿主 Codex 补充审核，
+        # 并由用户确认 CLOSED；WP-083 的 BLOCKED 历史仍保留，Git 仍未提交/合并。
+        matrix = (REPO_ROOT / "docs" / "SOFT_PLC_FUNCTION_MATRIX.md").read_text(
+            encoding="utf-8"
+        )
+        eng02 = next(line for line in matrix.splitlines() if line.startswith("| ENG-02 |"))
+        eng05 = next(line for line in matrix.splitlines() if line.startswith("| ENG-05 |"))
+        for row in (eng02, eng05):
+            with self.subTest(row=row[:10]):
+                self.assertIn("WP-20260809-084", row)
+                self.assertIn("CLOSED", row)
+                # WP-083 保留 BLOCKED 事实；WP-084 只收口审核轴，Git 轴仍待收尾。
+                self.assertIn("BLOCKED", row)
+                self.assertNotIn("WP-20260809-084 已合并", row)
+                self.assertNotIn("WP-20260809-084 已提交", row)
+
     def test_claude_runbook_contains_required_contract_sections(self):
         runbook = (REPO_ROOT / CLAUDE_RUNBOOK_PATH).read_text(encoding="utf-8")
         for required in (
@@ -2415,10 +2572,9 @@ class ClaudeNamingTests(unittest.TestCase):
         # 来源检查点保留。
         self.assertIn("WP-20260730-052", row)
         self.assertNotIn("软 PLC 产品功能", row)
-        # 反向锁定：ENG-05 不得保留 Claude 恢复前的陈旧措辞——实现轴不得与 Git 轴混淆
-        # 写成“候选未提交”，下一步不得停留在“Claude 恢复后复核全部 scope”；本轮已完成
-        # 合法 v2 自审与独立审核完成后，候选阶段措辞必须被清除。
-        self.assertNotIn("候选未提交", row)
+        # 反向锁定：WP-052 旧候选已合并，不得回退为“候选未提交”；
+        # WP-084 是后续独立候选，其审核轴已 CLOSED，Git 轴仍可如实保持待收尾。
+        self.assertNotIn("WP-20260730-052 候选未提交", row)
         self.assertNotIn("Claude 恢复后复核全部 scope", row)
         # 生命周期终态锁定：WP-052 已经 Codex APPROVED、用户 CLOSED 并通过 PR #32 合并；
         # 矩阵必须清除候选阶段措辞，且 Git 轴只能依据真实 PR/merge 更新。
@@ -2429,7 +2585,6 @@ class ClaudeNamingTests(unittest.TestCase):
         self.assertIn("1568/1568", row)
         self.assertIn("1636/1636", row)
         self.assertNotIn("READY_FOR_CODEX", row)
-        self.assertNotIn("未提交", row)
         self.assertNotIn("待 Codex", row)
 
     def test_zero_write_check_uses_state_specific_scope_basis(self):

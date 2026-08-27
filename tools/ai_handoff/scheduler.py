@@ -904,6 +904,33 @@ def _resolved_executable(explicit: str | Path | None, name: str, fallback: Path)
     return str(fallback) if fallback.is_file() and os.access(fallback, os.X_OK) else None
 
 
+def build_codex_prompt(work_package_id: str) -> str:
+    """Codex 审核方 prompt。阅读收口为「协议区 + 当前工作包 + 当前交接/最近审核上下文 +
+    明示相关 scope/规格」，不再要求逐字通读整个历史交接文件；验证显式携带 V0 机械 /
+    V1 定向 / V2 邻接或最终候选 / V3 阶段收口或发布全量四级定义，Codex 依本包
+    verification_profile、codex_tests_on_final_review 与 full_regression_trigger 独立选择层级，
+    普通工作包不自行升成 V3，风险触发器命中时必须升级；evidence_reuse_policy 只允许在相关 scope
+    与冻结依赖哈希不变且本轮不影响相关行为时明确标注「复用」而非「本轮实跑」，产品代码 / 公共契约 /
+    安全链或依赖变化必须重跑相应验证；实施方自报计数永远不能代替 Codex 本轮独立实跑。任一修改必须
+    与 CODEX_GUIDE.md、docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md 的分层纪律保持一致。"""
+    return (
+        f"审核工作包 {work_package_id}。先读取 CODEX_GUIDE.md 与 docs/AI_REVIEW_HANDOFF.md 的"
+        "协议区、当前工作包全文及当前交接/最近审核上下文，不通读整个历史交接文件或无关历史"
+        "工作包；再只读当前包明示的相关 scope 与主题规格。严格核验五字段、round/max_rounds、"
+        "scope 声明与独立 SHA-256 证据，独立复算测试与哈希。"
+        "验证分层显式携带四级定义：V0 机械（内存 compile / 语法与导入冒烟）、V1 定向契约、"
+        "V2 邻接或最终候选、V3 阶段收口或发布全量。按本包 verification_profile、"
+        "codex_tests_on_final_review 与 full_regression_trigger 独立选择验证层级："
+        "默认在最终候选跑该层级并加未预告反证，普通工作包不自行升成 V3，"
+        "风险触发器命中时必须升级，仅阶段收口或 GitHub 发布前才默认 V3 全量回归。"
+        "证据复用（evidence_reuse_policy）只允许在相关 scope 与冻结依赖哈希不变且本轮不影响相关"
+        "行为时明确标注「复用」而非「本轮实跑」；产品代码、公共契约、安全链或依赖变化必须重跑"
+        "相应验证。实施方自报计数永远不能代替 Codex 本轮独立实跑，独立复算不复用实施方计数。"
+        "只按协议执行 Codex 审核和写回审核结论；禁止 Git 暂存、提交、推送、建 PR、合并或修改 "
+        "scope 外文件。出现授权边界或证据异常时安全停止并报告。"
+    )
+
+
 class CodexCommandAdapter:
     """Codex 非交互命令契约；默认禁用，只有显式生产开关才能启用。"""
 
@@ -933,12 +960,7 @@ class CodexCommandAdapter:
     def command_for(self, package: WorkPackage, action: str = "start_codex_review") -> ExecutionPlan:
         if not self.executable:
             raise RuntimeError(self.reason)
-        prompt = (
-            f"审核工作包 {package.work_package_id}。先完整读取 CODEX_GUIDE.md 与 "
-            "docs/AI_REVIEW_HANDOFF.md，严格核验五字段、round/max_rounds、scope 声明与独立 "
-            "SHA-256 证据。只按协议执行 Codex 审核和写回审核结论；禁止 Git 暂存、提交、推送、"
-            "建 PR、合并或修改 scope 外文件。出现授权边界或证据异常时安全停止并报告。"
-        )
+        prompt = build_codex_prompt(package.work_package_id)
         return ExecutionPlan(
             actor="codex",
             action=action,
@@ -964,12 +986,29 @@ class CodexCommandAdapter:
 CLAUDE_RUNBOOK_PATH = "docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md"
 
 _CLAUDE_REQUIRED_READING = (
-    "任何写入前必须先完整读取以下必读文件（顺序即优先级）："
+    "任何写入前必须先完整读取以下安全核心（顺序即优先级）："
     "① {runbook}（实施方长期纪律，第一必读）、② CODEX_GUIDE.md、"
-    "③ docs/AI_REVIEW_HANDOFF.md 的协议区与当前工作包 {wp} 全文；"
-    "再按当前包读取 docs/AI_HANDOFF_OPERATIONS.md、docs/PROJECT_STATE.md、"
-    "docs/PLATFORM_ROADMAP.md、docs/COMPONENT_CONTRACT.md 与适用规格、scope 源码与测试；"
+    "③ docs/AI_REVIEW_HANDOFF.md 只读协议区与当前工作包 {wp} 全文，不通读无关历史工作包、"
+    "不逐字通读整份交接历史；再只读当前工作包明示的相关文件：工作包 required_reading 声明与 "
+    "scope 源码/测试为必读，docs/AI_HANDOFF_OPERATIONS.md、docs/PROJECT_STATE.md、"
+    "docs/PLATFORM_ROADMAP.md、docs/COMPONENT_CONTRACT.md、docs/RISKS.md、功能矩阵与主题规格"
+    "只在当前包声明或实际涉及相应 ID/语义时读取，不默认整份通读；"
     "必读发生在任何写入之前，不得用旧对话快照覆盖仓库实盘。"
+)
+
+# 返修额外阅读：只补最近一次 Codex 审核结论及其点名文件，据其返修，不回溯无关历史。
+_CLAUDE_REWORK_READING = (
+    "返修还须先读取最近一次 Codex 审核结论及其点名文件，只按该结论返修，不通读更早历史轮次。"
+)
+
+# 验证分层：V0 机械 / V1 定向 / V2 邻接或最终候选 / V3 阶段收口或发布全量；按工作包声明选择，
+# 不自行升级层级、不默认每轮全仓回归；证据复用须显式标注且限于哈希与冻结依赖未变、行为未受影响。
+_CLAUDE_VERIFICATION_TIER = (
+    "验证按工作包声明分层执行：V0 机械（内存 compile / 语法）、V1 定向契约、"
+    "V2 邻接或最终候选、V3 阶段收口或发布全量；只运行当前包 verification_profile 与 "
+    "claude_tests_each_round 指定的层级与用例，不得自行把 V1 扩成 V3，也不默认每轮全仓回归。"
+    "仅当文件哈希与冻结依赖未变、且本轮不影响相关行为时，才可标注复用上一轮冻结证据"
+    "（写明「复用」而非本轮实跑）；产品代码、公共契约、安全链或依赖变化必须重跑相应验证。"
 )
 
 _CLAUDE_ZERO_WRITE_CHECK = (
@@ -1020,12 +1059,17 @@ def build_claude_prompt(work_package_id: str, action: str) -> str:
     三个精确 v2 字段、`Ran N tests, OK`、真实时间、scope/规格歧义停笔、禁止 Git/GitHub 写、
     交接标题与字段）全部内联，不依赖 Runbook 单点引用。"""
     task = "按最近 Codex 审核意见返修" if action == "start_claude_rework" else "实施当前工作包"
+    required_reading = _CLAUDE_REQUIRED_READING.format(
+        runbook=CLAUDE_RUNBOOK_PATH, wp=work_package_id
+    )
+    if action == "start_claude_rework":
+        required_reading = required_reading + _CLAUDE_REWORK_READING
     return " ".join(
         [
-            f"{task} {work_package_id}。"
-            + _CLAUDE_REQUIRED_READING.format(runbook=CLAUDE_RUNBOOK_PATH, wp=work_package_id),
+            f"{task} {work_package_id}。" + required_reading,
             _CLAUDE_ZERO_WRITE_CHECK,
             _CLAUDE_COMMAND_DISCIPLINE,
+            _CLAUDE_VERIFICATION_TIER,
             _CLAUDE_V2_TEMPLATE,
             _CLAUDE_STOP_AND_HANDOFF,
             _CLAUDE_HANDOFF_TITLE,

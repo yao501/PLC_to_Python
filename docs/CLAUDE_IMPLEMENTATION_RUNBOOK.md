@@ -13,12 +13,11 @@
 
 1. **本手册** `docs/CLAUDE_IMPLEMENTATION_RUNBOOK.md`（第一必读，长期纪律）。
 2. `CODEX_GUIDE.md`（长期协作方针与角色边界）。
-3. `docs/AI_REVIEW_HANDOFF.md` 的**协议区**与**当前工作包**全文（状态机、五字段映射、写入权、硬规则、三阶段职责、九项交接门禁）。
-4. 按当前包再读：`docs/AI_HANDOFF_OPERATIONS.md`、`docs/PROJECT_STATE.md`、`docs/PLATFORM_ROADMAP.md`、`docs/COMPONENT_CONTRACT.md` 与本任务适用的主题规格（`IR_SPEC.md` / `ENGINE_SCAN_SPEC.md` / `TARGET_PROFILE.md` / `GOLDEN_TRACE_FORMAT.md` 视任务而定）。
+3. `docs/AI_REVIEW_HANDOFF.md` 的**协议区**与**当前工作包**全文（状态机、五字段映射、写入权、硬规则、三阶段职责、九项交接门禁）；**只读协议区与当前工作包，不通读无关历史工作包、不完整读取整个交接文件**。返修接手时另加读**最近一次 Codex 审核结论及其点名文件**，只按该结论返修。
+4. **只读当前工作包明示的相关文件**：工作包 `required_reading` 声明与 scope 源码/测试为必读；`docs/AI_HANDOFF_OPERATIONS.md`、`docs/PROJECT_STATE.md`、`docs/PLATFORM_ROADMAP.md`、`docs/COMPONENT_CONTRACT.md`、`docs/RISKS.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md` 与本任务适用的主题规格（`IR_SPEC.md` / `ENGINE_SCAN_SPEC.md` / `TARGET_PROFILE.md` / `GOLDEN_TRACE_FORMAT.md` 视任务而定）**只在当前包声明或实际涉及相应 ID/语义时读取，不默认整份通读**。
 5. 代码任务再读 scope 内**源码与测试**，以及适用的 `.cursor/rules/*.mdc`。
-6. 状态与功能索引：`docs/SOFT_PLC_FUNCTION_MATRIX.md`（只读涉及的 ID）与 `docs/RISKS.md` 相关条目。
 
-“读”指用 `Read` 工具读取实盘文件内容，不是凭记忆或对话摘要。
+“读”指用 `Read` 工具读取实盘文件内容，不是凭记忆或对话摘要。分层阅读只收口无关过度读取，不削弱安全核心（第 1～3 条永远必读）。
 
 ## 2. 开工零写入检查表（不符即停笔）
 
@@ -149,3 +148,20 @@ Claude 的执行计划 `--allowedTools` 只放行 `Read,Edit,Write,Glob,Grep` �
 - 仅在自审 `PASS`、且自审哈希等于实施交接 `scope_sha256`、且有真实测试计数时，才原子写 `status: READY_FOR_CODEX / owner: codex / handoff_to: codex`（一次写入，同时更新三字段），随后**立即停止修改 scope**。
 - 交接后 Claude 对 scope 保持只读，等待 Codex 独立审核；不得自行审核、关闭、提交、推送或更新矩阵的 Git 列。
 - Codex 审核是独立阶段：Claude 不冒充审核，也不据自述代替 Codex 检查。
+
+## 9. 阅读与验证分层（长期纪律，配合工作包字段）
+
+分层只清除“无关文档、完整历史、每轮跨组件大回归”式过度读取和测试，**不削弱** scope 哈希、v2 九项门禁、真实测试计数、失败关闭、Claude 自审或 Codex 独立审核。
+
+**阅读分层**：安全核心（本手册第一必读、`CODEX_GUIDE.md`、`docs/AI_REVIEW_HANDOFF.md` 协议区与当前工作包）永远必读；其余按 §1 第 4 条**只读当前包明示相关文件，不默认整份通读**、不通读无关历史工作包。返修只额外读取最近一次 Codex 审核结论及其点名文件。
+
+**验证分层（V0～V3，由每个工作包显式选择层级与用例，Claude 不自行升级）**：
+
+- **V0 机械**：内存 `compile(...)` / 语法与导入冒烟，不生成缓存文件。
+- **V1 定向**：与本轮改动直接相关的定向契约测试（如本包 `ClaudeNamingTests` / `SchedulerTests`）。
+- **V2 邻接或最终候选**：邻接组件与最终候选前的合并回归，由 Codex 在最终候选独立复跑并加未预告反证。
+- **V3 阶段收口或发布全量**：正式产品全仓回归，**只在阶段收口或 GitHub 发布前默认执行**，普通工作包不逐轮重复。
+
+工作包用 `verification_profile / claude_tests_each_round / codex_tests_on_final_review / full_regression_trigger / evidence_reuse_policy` 显式声明层级与用例；Claude 每轮只跑 `claude_tests_each_round` 指定层级，**不得自行把 V1 扩成 V3**，也不默认每轮全仓回归。这些字段是任务书契约，不改变既有状态机五字段或 v2 解析门禁。
+
+**证据复用规则**：仅当 scope 文件哈希及冻结依赖未变、且本轮不影响相关行为时，才可明确引用上一轮冻结证据，并**标注「复用」而非本轮实跑**；产品代码、公共契约、安全链或依赖变化时必须重跑相应验证。任何一轮若仅改文档且相关源码/测试哈希保持上一审核终态，仍须运行与改动直接相关的定向契约测试。
