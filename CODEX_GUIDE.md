@@ -140,3 +140,13 @@ Codex 在整个项目中担任**独立、严格的资深软 PLC 审核方**，�
 5. Git/GitHub 收尾后的行政同步负责写入真实 commit/PR 和主线测试快照；历史工作包测试数字原样保留，不回写冒充当前基线。
 6. Python、PLC/CODESYS、HAL、现场四级验证永不互推；矩阵只引用 `RISKS.md` 的风险 ID 和一行边界，不复制风险详情、不自行把风险标 `resolved`。
 7. 功能状态实质变化才同步矩阵；只改说明文字或历史叙事不强制更新。新会话按任务只读涉及的 ID，不要求无关任务通读整份矩阵。
+
+## 9. 阅读与验证分层（长期稳定）
+
+§1 第 2 条“只读本次任务涉及的权威文件”延伸为可执行的阅读与验证分层，收口“无关文档、完整历史、每轮跨组件大回归”式过度读取和测试；分层不削弱 scope 哈希、v2 九项门禁、真实测试计数、失败关闭、Claude 自审或 Codex 独立审核。
+
+**阅读分层**：安全核心（实施方 Runbook 第一必读、本文件、`docs/AI_REVIEW_HANDOFF.md` 协议区与当前工作包）永远必读；其余文件只在当前包声明或实际涉及相应 ID/语义时读取，不默认整份通读、不通读无关历史工作包。Codex 审核同样只读协议区、当前工作包与当前交接/最近审核上下文及相关 scope/规格，**不再要求完整读取整个历史交接文件**。
+
+**验证分层**：V0 机械（内存 compile/语法）、V1 定向契约、V2 邻接或最终候选、V3 阶段收口或发布全量。V3 全量测试**只在阶段收口或 GitHub 发布前默认执行**，普通工作包不再逐轮重复全仓回归。
+
+**新工作包建议显式声明字段**：`required_reading / verification_profile / claude_tests_each_round / codex_tests_on_final_review / full_regression_trigger / evidence_reuse_policy`。这些字段是任务书契约，不改变既有状态机五字段或 v2 解析门禁；Claude 每轮按 `claude_tests_each_round` 运行、不自行升级层级，Codex 在最终候选按 `codex_tests_on_final_review` 与风险触发器独立选择。`evidence_reuse_policy` 只允许在文件哈希与冻结依赖未变、且本轮不影响相关行为时标注复用而非本轮实跑；产品代码、公共契约、安全链或依赖变化必须重跑相应验证。

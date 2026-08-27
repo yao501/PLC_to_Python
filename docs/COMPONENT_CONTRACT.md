@@ -79,6 +79,26 @@ class BlockDescriptor:
 - **`RuntimeAdapter`**（进程内绑定）：`cls`/`call_adapter`/`serializer`/`ctor_args` 解析。
 - 注册表存 `(schema, adapter)` 对；文档/工具/导入导出只依赖 `BlockSchema`。本文件的 `BlockDescriptor` 视为两者的逻辑合并视图。
 
+### 3.1.1 `output_access` 的私有只读载体（WP-20260809-087 候选）
+
+`BlockSchema.output_access` 的公开合同是 `Mapping[str, str]`；实现用未导出的
+`_OutputAccessMap` 承载。它只有 `_pairs` 一个实例字段，字段为 exact
+`tuple[tuple[exact str, exact str], ...]`，不保留调用方 Mapping/dict、也不建
+第二份 dict/index。因此索引、迭代、`len`、`items/keys/get`、Mapping 相等、
+`dict(schema.output_access)` 和 `to_json()` 均保留插入顺序和既有值语义。
+
+构造 `BlockSchema` 时，输入可为一般 `Mapping`，但只按迭代顺序快照一次、对每个
+已接受键只下标取值一次；实现不调用输入的 `dict/items/keys/len/repr/str`。重复键、
+非 exact `str` 键/值或输入协议抛出的任意 `BaseException` 都失败关闭为固定
+`SchemaValidationError`，不会返回半构造 Schema。为限制持续产出键的资源消耗，
+快照最多接受 4096 项（当前 22-schema 目录最大为 87 项）；该资源上限不能中断一个
+自身阻塞、永不返回下一键的迭代器。
+
+该载体在正常 Python 路径下拒绝属性写/删和下标写，且没有 `__dict__`；但是 Python
+的特权 `object.__setattr__` / `object.__delattr__` 不可被本合同阻止。后续信任边界可
+只读取 `_pairs` 的 exact 形状来检测并拒绝强制篡改或缺字段。这是 descriptor 纯数据
+载体，不是通用安全 Mapping，也不构成 PLC/CODESYS、HAL 或现场安全证明。
+
 ### 3.2 两个 `ctor_args` 层与启动装配失败关闭（WP-20260728-041 澄清）
 
 本包起启动装配层（`src/runtime/parameters.py::build_runtime`）实际落地以下语义，做**最小契约澄清**（不改阶段路线、不改历史版本结论）：

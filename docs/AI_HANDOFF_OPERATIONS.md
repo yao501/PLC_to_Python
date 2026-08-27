@@ -182,7 +182,8 @@ Claude 完成返修、自审和实施交接时，才在同一次原子交接中�
 默认启动方式不变，仍为 dry-run。只有用户明确授权真实执行时，才使用：
 
 ```bash
-AI_HANDOFF_CLAUDE_PROXY=http://127.0.0.1:6789 \
+AI_HANDOFF_PROXY_URL=http://127.0.0.1:7897  # Clash Verge；OneBox 改为 6789
+AI_HANDOFF_CLAUDE_PROXY="$AI_HANDOFF_PROXY_URL" \
 PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff --enable-external-processes
 ```
 
@@ -301,6 +302,19 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 
 ### Claude Code 登录核验
 
+#### 本机代理客户端与端口映射（长期运维约定）
+
+| 当前启用的客户端 | Claude Code HTTP/HTTPS 代理 | 已验证事实 |
+|---|---|---|
+| Clash Verge | `http://127.0.0.1:7897` | 2026-08-08 实盘确认 `mixed-port: 7897`；扩展规则须把 `anthropic.com`、`claude.ai`、`claude.com`、`claudeusercontent.com` 置于 `rules` 前部并指向实际选中的代理组 |
+| OneBox | `http://127.0.0.1:6789` | 2026-07-15 实盘确认由 OneBox `sing-box` 提供，Claude Code 登录与非交互请求成功 |
+
+切换客户端时不得沿用旧端口猜测，也不得同时设置两个代理。启动 live 协调器前必须先确认对应端口
+确有监听或可建立 HTTP CONNECT，再分别探测 `https://api.anthropic.com/` 与
+`https://platform.claude.com/`；API 返回 `401/404`、平台返回正常 HTTP 状态都可证明链路已到服务端，
+连接拒绝、TLS 握手失败或代理端口无监听均不得启动工作包。`claude auth status` 只证明本地登录状态，
+不能替代网络探测。最终再用一次最小非交互 Claude 请求确认模型链路，之后才允许对失败幂等键做单次受控重试。
+
 Claude Code 安装在用户目录，面板使用绝对路径，不依赖 shell 的 `PATH`：
 
 ```bash
@@ -313,11 +327,12 @@ Claude Code 安装在用户目录，面板使用绝对路径，不依赖 shell �
 不支持 SOCKS 代理，且面板不会假设它会自动继承 macOS 图形界面的系统代理：
 
 ```bash
-HTTPS_PROXY=http://127.0.0.1:6789 HTTP_PROXY=http://127.0.0.1:6789 \
+AI_HANDOFF_PROXY_URL=http://127.0.0.1:7897  # Clash Verge；OneBox 改为 6789
+HTTPS_PROXY="$AI_HANDOFF_PROXY_URL" HTTP_PROXY="$AI_HANDOFF_PROXY_URL" \
   /Users/guangyaosun/.local/bin/claude auth status
 
 PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
-  --claude-proxy http://127.0.0.1:6789
+  --claude-proxy "$AI_HANDOFF_PROXY_URL"
 ```
 
 `--claude-proxy` 会进入可审计执行计划；dry-run 安全锁禁止外部进程，live 模式还会先用同一
@@ -329,8 +344,8 @@ PYTHONDONTWRITEBYTECODE=1 python -m tools.ai_handoff \
 - Claude App / 浏览器使用了 macOS 图形界面的系统代理；Claude Code CLI 没有自动继承它。
 - 终端直连 `platform.claude.com` 返回 403，直连 `api.anthropic.com` 也被边缘层拒绝；
   显式经 `http://127.0.0.1:6789` 后，平台请求返回 200，API 无凭据请求返回预期的 401。
-- DNS 解析到 Anthropic 的真实地址而非 Clash fake-IP；6789 端口实际由本机 OneBox 的
-  `sing-box` 提供。Clash Verge 的历史安装不是本次故障的直接证据。
+- DNS 解析到 Anthropic 的真实地址而非 Clash fake-IP；当时的 6789 端口实际由本机 OneBox 的
+  `sing-box` 提供。2026-08-08 又确认 Clash Verge 使用独立的 `mixed-port: 7897`，两者不得混用。
 - 显式注入 `HTTP_PROXY` / `HTTPS_PROXY` 后 OAuth 登录成功，`auth status` 显示
   `loggedIn: true`、`authMethod: claude.ai`、`subscriptionType: pro`，非交互 `-p`
   实跑也成功。因此故障点是 CLI 出站路径与图形应用路径不一致。
@@ -396,6 +411,25 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -t .
 6. 任一验证失败立即回到 dry-run，不修改权威交接文件。
 
 WP-004 的遗留阻塞已由 WP-005 收口并经用户确认关闭，协议迁移前置条件已满足。
+
+## 阅读与验证分层（工作包字段，长期稳定）
+
+Claude/Codex 两端 prompt 的阅读范围与每轮测试量按工作包字段分层，收口“无关文档、完整历史、每轮跨组件大回归”式过度读取和测试；分层不削弱 scope 哈希、v2 九项门禁、真实测试计数、失败关闭、Claude 自审或 Codex 独立审核，也不改变状态机五字段或轮次语义。
+
+**阅读分层**：安全核心（实施方 Runbook 第一必读、`CODEX_GUIDE.md`、`docs/AI_REVIEW_HANDOFF.md` 协议区与当前工作包）永远必读。`build_claude_prompt()` 要求 Claude 只读协议区、当前工作包与工作包明示相关文件（返修再读最新 Codex 审核结论及其点名文件），不默认整份通读、不通读无关历史工作包。`build_codex_prompt()` 要求 Codex 只读协议区、当前工作包、当前交接/最近审核上下文与相关 scope/规格，**不再要求完整读取整个历史交接文件**。两者一致性由 `tests.test_ai_handoff.ClaudeNamingTests` 覆盖。
+
+**验证分层**：V0 机械（内存 compile/语法）、V1 定向契约、V2 邻接或最终候选、V3 阶段收口或发布全量。Claude 每轮只跑指定层级，不自行升级；Codex 在最终候选独立复跑并加未预告反证。V3 全量测试**只在阶段收口或 GitHub 发布前默认执行**，普通工作包不逐轮重复全仓回归。
+
+**新工作包建议显式声明字段**（任务书契约，不改变 v2 解析门禁）：
+
+| 字段 | 含义 |
+|---|---|
+| `required_reading` | 当前包除安全核心外必须读取的明示文件清单 |
+| `verification_profile` | 本包验证画像（如 `V2-engineering-support`） |
+| `claude_tests_each_round` | Claude 每轮实跑的层级与用例 |
+| `codex_tests_on_final_review` | Codex 最终候选独立复跑的层级与用例 |
+| `full_regression_trigger` | 触发 V3 全量的条件（阶段收口 / 发布 / 产品代码或安全链变化） |
+| `evidence_reuse_policy` | 允许复用上一轮冻结证据的边界（哈希与冻结依赖未变、行为未受影响时标注「复用」而非本轮实跑） |
 
 ## 回退方法
 

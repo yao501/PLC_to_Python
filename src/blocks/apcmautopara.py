@@ -511,19 +511,19 @@ class APCMAUTOPARA:
             self.H_IDX = 1
         self.MAN_TH = max(MAN_AV_MIN, self.OUT_RANGE * 0.0005)
         self.MAN_RESP_T_USE = max(max(MAN_RESP_T, self.MAN_RESP_T_AUTO), 1)
-        self.MAN_RESP_T_USE = min(
+        self.MAN_RESP_T_USE = float(min(
             self.MAN_RESP_T_USE, max(max(MAN_RESP_T_MAX, MAN_RESP_T), 1)
-        )
+        ))
 
         # ---- 推荐值默认回退到当前参数（483-519）----
         if (self.HISTORY_COUNT == 0) or RESET or (not self.INIT_DONE):
             self.PT_REC = max(PT_IN, 0.001)
             self.TI_REC = max(TI_IN, 0.001)
-            self.TD_REC = max(TD_IN, 0)
-            self.DI_REC = max(DI_IN, 0)
-            self.SVH_REC = max(SVH_IN, 0)
-            self.SVL_REC = max(SVL_IN, 0)
-            self.TL_REC = max(TL_IN, 0)
+            self.TD_REC = float(max(TD_IN, 0))
+            self.DI_REC = float(max(DI_IN, 0))
+            self.SVH_REC = float(max(SVH_IN, 0))
+            self.SVL_REC = float(max(SVL_IN, 0))
+            self.TL_REC = float(max(TL_IN, 0))
             self.TL1_REC = max(TL1_IN, self.TL_REC + 1)
             self.TL2_REC = max(TL2_IN, self.TL_REC + 1)
             self.TL3_REC = max(TL3_IN, self.TL_REC + 1)
@@ -532,26 +532,26 @@ class APCMAUTOPARA:
             self.E2_REC = max(E2_IN, self.E1_REC)
             self.E3_REC = max(E3_IN, self.E2_REC)
             self.E4_REC = max(E4_IN, self.E3_REC)
-            self.AO1_REC = max(AO1_IN, 0)
+            self.AO1_REC = float(max(AO1_IN, 0))
             self.AO2_REC = max(AO2_IN, self.AO1_REC)
             self.AO3_REC = max(AO3_IN, self.AO2_REC)
             self.AO4_REC = max(AO4_IN, self.AO3_REC)
-            self.RSF_LOCK_T_REC = max(RSF_LOCK_T_IN, 0)
-            self.TC_REC = max(TC_IN, 0)
-            self.TZ_REC = max(TZ_IN, 0)
-            self.GC1_REC = max(GC1_IN, 0)
-            self.GC2_REC = max(GC2_IN, 0)
+            self.RSF_LOCK_T_REC = float(max(RSF_LOCK_T_IN, 0))
+            self.TC_REC = float(max(TC_IN, 0))
+            self.TZ_REC = float(max(TZ_IN, 0))
+            self.GC1_REC = float(max(GC1_IN, 0))
+            self.GC2_REC = float(max(GC2_IN, 0))
             self.OUTH_REC = OUTH_IN
             self.OUTL_REC = OUTL_IN
-            self.CD_GD_REC = max(CD_GD_IN, 0)
+            self.CD_GD_REC = float(max(CD_GD_IN, 0))
             self.CD_K_REC = CD_K_IN
-            self.CD_K_FD_REC = max(CD_K_FD_IN, 0)
-            self.CD_K_J_REC = max(CD_K_J_IN, 0)
-            self.CD_K_D_REC = max(CD_K_D_IN, 0)
+            self.CD_K_FD_REC = float(max(CD_K_FD_IN, 0))
+            self.CD_K_J_REC = float(max(CD_K_J_IN, 0))
+            self.CD_K_D_REC = float(max(CD_K_D_IN, 0))
             self.CDH_REC = CDH_IN
             self.CDL_REC = CDL_IN
-            self.TC_CD_REC = max(TC_CD_IN, 0)
-            self.TZ_CD_REC = max(TZ_CD_IN, 0)
+            self.TC_CD_REC = float(max(TC_CD_IN, 0))
+            self.TZ_CD_REC = float(max(TZ_CD_IN, 0))
 
         # ---- 复位全部统计和历史缓存（522-647）----
         if RESET or (not self.INIT_DONE):
@@ -669,7 +669,7 @@ class APCMAUTOPARA:
             self.MAN_EVENT_CNT = 0.0
             self.MAN_EVENT_N = 0.0
             self.MAN_RESP_T_AUTO = 0.0
-            self.MAN_RESP_T_USE = max(MAN_RESP_T, 1)
+            self.MAN_RESP_T_USE = float(max(MAN_RESP_T, 1))
             self.MAN_GAIN_SUM = 0.0
             self.MAN_GAIN_N = 0.0
             self.MAN_BAD_N = 0.0
@@ -1344,13 +1344,16 @@ class APCMAUTOPARA:
                     (self.MAN_RESP_VALID_T_SUM / self.MAN_RESP_VALID_N) * 1.5,
                 )
             self.MAN_RESP_T_AUTO = max(self.MAN_RESP_T_AUTO, self.W_TL4)
-            self.MAN_RESP_T_AUTO = min(
-                max(self.MAN_RESP_T_AUTO, 0), max(max(MAN_RESP_T_MAX, MAN_RESP_T), 1)
+            self.MAN_RESP_T_AUTO = float(
+                min(
+                    max(self.MAN_RESP_T_AUTO, 0),
+                    max(max(MAN_RESP_T_MAX, MAN_RESP_T), 1),
+                )
             )
             self.MAN_RESP_T_USE = max(max(MAN_RESP_T, self.MAN_RESP_T_AUTO), 1)
-            self.MAN_RESP_T_USE = min(
+            self.MAN_RESP_T_USE = float(min(
                 self.MAN_RESP_T_USE, max(max(MAN_RESP_T_MAX, MAN_RESP_T), 1)
-            )
+            ))
         if self.PROCESS_GAIN > 0.0001:
             self.BASE_AO = max(
                 self.W_E1 / self.PROCESS_GAIN * 0.35, self.OUT_RANGE * 0.003
@@ -1442,7 +1445,7 @@ class APCMAUTOPARA:
             for _rec, h_name, w_name in self._FUSE_MAP:
                 getattr(self, h_name)[self.H_IDX] = getattr(self, w_name)
 
-            self.HISTORY_COUNT = min(self.HISTORY_COUNT + 1, self.H_N)
+            self.HISTORY_COUNT = float(min(self.HISTORY_COUNT + 1, self.H_N))
             self.H_IDX = self.H_IDX + 1
             if self.H_IDX > self.H_N:
                 self.H_IDX = 1
@@ -1542,7 +1545,7 @@ class APCMAUTOPARA:
                 setattr(self, rec_name, getattr(self, rec_name) / self.FUSE_SUM_W)
         else:
             for rec_name, _h, w_name in self._FUSE_MAP:
-                setattr(self, rec_name, getattr(self, w_name))
+                setattr(self, rec_name, float(getattr(self, w_name)))
 
         self.FINAL_STRONG = (self.SIMILAR_COUNT >= FUSE_MIN_N) and (
             self.FUSE_SUM_W >= FUSE_MIN_WEIGHT

@@ -13,6 +13,7 @@ StackSlot.index 语义校验（重复/非连续/越界/类型经 index 核对）
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from src.runtime import (
     BinOp,
@@ -46,6 +47,11 @@ from src.runtime import (
     build_default_registry,
     validate_task,
 )
+# The Stage 3 combined-semantics facade is a supported *internal* Loader API and
+# is deliberately not re-exported to the ``src.runtime`` package root, so it is
+# imported from its submodule (WP-20260813-121).
+from src.runtime.loader import validate_pou_instruction_semantics
+import src.runtime.loader as loader_module
 
 
 def _gvl():
@@ -689,6 +695,237 @@ class TestRegistryLibraryPins(_Base):
             reg.resolve("APCM", "fidelity_f2")       # F2 缺变体不静默回退
         with self.assertRaises(UnknownBlockError):
             reg.resolve("GHOST", "engineering")
+
+
+# ---------------------------------------------------------------------------
+# WP-20260813-121：Loader 受支持内部 facade（whole-stream 组合语义预检）
+# ---------------------------------------------------------------------------
+
+def _facade_pou(code, name="ACC", pou_kind="FUNCTION_BLOCK",
+                interface=None, locals_=None, return_type=None):
+    return POUDefinition(
+        name=name, pou_kind=pou_kind, language="ST",
+        interface=interface or [], locals=locals_ or [],
+        return_type=return_type, code=code,
+    )
+
+
+class TestPouInstructionSemanticsFacade(unittest.TestCase):
+    """``validate_pou_instruction_semantics`` 直接测试：对已受信 typed POU 的整条
+    ``code`` 做与控制流可达性无关的组合语义验证，合法输入无返回值、任一组合错误
+    按指令下标稳定顺序抛 ``IRValidationError``，且只读输入。"""
+
+    def _reject(self, pou, *needles):
+        with self.assertRaises(IRValidationError) as cm:
+            validate_pou_instruction_semantics(pou)
+        text = str(cm.exception)
+        for needle in needles:
+            self.assertIn(needle, text)
+        return cm.exception
+
+    def test_legal_reachable_and_unreachable_instructions_pass(self):
+        # Whole-stream, reachability-independent: legal reachable code plus a legal
+        # *dead* instruction (after an unconditional Jmp) validates to None.
+        pou = _facade_pou(
+            interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+            code=[
+                Jmp("d"),
+                LoadVar("A", "INT"), BinOp("ADD", "INT"), Convert("INT", "REAL"),
+                CallStd("ABS", StdSig(("INT",), "INT")),
+                Label("d"),
+                LoadVar("A", "INT"), StoreVar("A", "INT"),
+            ])
+        self.assertIsNone(validate_pou_instruction_semantics(pou))
+
+    def test_load_store_declared_type_mismatch_rejected(self):
+        for ins in (LoadVar("A", "DINT"), LoadPrev("A", "REAL"),
+                    StoreVar("A", "DINT")):
+            with self.subTest(instruction=type(ins).__name__):
+                pou = _facade_pou(
+                    interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+                    code=[ins])
+                self._reject(pou, "does not match its declared variable type")
+
+    def test_load_store_bad_type_and_undeclared_rejected(self):
+        self._reject(
+            _facade_pou(interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+                        code=[LoadVar("A", "NOT_A_TYPE")]),
+            "type is not a supported IEC type")
+        self._reject(
+            _facade_pou(code=[LoadVar("MISSING", "INT")]),
+            "references an undeclared variable")
+
+    def test_operator_type_combination_rejected(self):
+        # Operator and type each in their enum, but the *combination* the Loader
+        # forbids (probed through the Loader's own ``_step``).
+        for ins in (BinOp("ADD", "BOOL"), BinOp("MOD", "REAL"),
+                    UnOp("NEG", "UINT"), UnOp("NOT", "REAL")):
+            with self.subTest(op=ins.op, type=ins.type):
+                self._reject(
+                    _facade_pou(code=[ins]),
+                    "operator and IEC type combination is unsupported")
+
+    def test_operator_or_type_not_in_enum_rejected(self):
+        self._reject(_facade_pou(code=[BinOp("NOPE", "INT")]),
+                     "unsupported operator")
+        self._reject(_facade_pou(code=[BinOp("ADD", "NOT_A_TYPE")]),
+                     "unsupported operator")
+
+    def test_convert_illegal_type_rejected(self):
+        self._reject(_facade_pou(code=[Convert("INT", "NOT_A_TYPE")]),
+                     "conversion uses an unsupported IEC type")
+        self._reject(_facade_pou(code=[Convert("NOT_A_TYPE", "INT")]),
+                     "conversion uses an unsupported IEC type")
+
+    def test_callstd_name_and_signature_rejected(self):
+        self._reject(
+            _facade_pou(code=[CallStd("ABS", StdSig(("NOT_A_TYPE",), "INT"))]),
+            "CALL_STD signature uses an unsupported IEC type")
+        for ins in (CallStd("ABS", StdSig((), "INT")),
+                    CallStd("ABS", StdSig(("INT", "INT"), "INT")),
+                    CallStd("ABS", StdSig(("INT",), "DINT")),
+                    CallStd("MIN", StdSig(("INT",), "INT"))):
+            with self.subTest(sig=repr(ins.sig)):
+                self._reject(_facade_pou(code=[ins]),
+                             "signature is invalid for its standard function")
+
+    def test_calls_to_functions_or_fb_instances_rejected(self):
+        for ins in (CallFunc("G", (), "INT"), CallFb("X"),
+                    CallFbInstance("X", ())):
+            with self.subTest(instruction=type(ins).__name__):
+                self._reject(_facade_pou(code=[ins]),
+                             "must not call a function or FB instance")
+
+    def test_diagnostic_order_is_stable_by_instruction_index(self):
+        # Independent combined-semantics violations are aggregated in
+        # instruction-index order.
+        pou = _facade_pou(
+            interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+            code=[BinOp("ADD", "BOOL"), LoadVar("A", "DINT"),
+                  CallStd("MIN", StdSig(("INT",), "INT"))])
+        exc = self._reject(pou)
+        self.assertEqual(len(exc.errors), 3)
+        self.assertIn("operator and IEC type combination is unsupported",
+                      exc.errors[0])
+        self.assertIn("does not match its declared variable type",
+                      exc.errors[1])
+        self.assertIn("signature is invalid for its standard function",
+                      exc.errors[2])
+
+    def test_input_object_graph_is_not_mutated(self):
+        interface = [VarDecl("A", "INT", section="VAR_INPUT")]
+        code = [LoadVar("A", "DINT")]  # illegal (type mismatch), but read-only pass
+        pou = _facade_pou(interface=interface, code=code)
+        before_interface = list(pou.interface)
+        before_code = list(pou.code)
+        with self.assertRaises(IRValidationError):
+            validate_pou_instruction_semantics(pou)
+        self.assertIs(pou.interface, interface)
+        self.assertIs(pou.code, code)
+        self.assertEqual(pou.interface, before_interface)
+        self.assertEqual(pou.code, before_code)
+        self.assertEqual(pou.interface[0].name, "A")
+        self.assertEqual(pou.interface[0].iec_type, "INT")
+
+    def test_repeated_calls_are_isolated_and_leak_no_state(self):
+        legal = _facade_pou(
+            interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+            code=[LoadVar("A", "INT"), StoreVar("A", "INT")])
+        bad = _facade_pou(code=[BinOp("ADD", "BOOL")])
+        # A rejecting call must not pollute a subsequent legal call, and repeated
+        # legal calls stay independent (fresh scope / stack each time).
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+        with self.assertRaises(IRValidationError):
+            validate_pou_instruction_semantics(bad)
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+
+    def test_load_store_verdict_is_delegated_to_loader_step(self):
+        # WP-20260813-121 Round 1 Codex item 1 counter-proof: the
+        # LoadVar/LoadPrev/StoreVar legality verdict (declared reference and
+        # instruction-type == declared-type) must come from the Loader's own
+        # ``_step`` truth source, not a facade-side declared/type rule table.  A
+        # legal load/store stream validates to None; but if the Loader's ``_step``
+        # is replaced by a sentinel that rejects exactly those three instruction
+        # kinds, the facade must surface that rejection -- proving it delegates
+        # rather than re-deciding.  A facade re-implementing the declared/type
+        # rules would keep accepting the legal instructions and this test would
+        # fail; the pass/reject/pass contrast is what makes it a delegation proof.
+        legal = _facade_pou(
+            interface=[VarDecl("A", "INT", section="VAR_INPUT")],
+            code=[LoadVar("A", "INT"), LoadPrev("A", "INT"),
+                  StoreVar("A", "INT")])
+        # Baseline: with the real ``_step`` the legal stream passes.
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+
+        real_step = loader_module._step
+        sentinel = "WP121-SENTINEL-STEP-REJECT"
+
+        def rejecting_step(pou, scope, task, idx, ins, stack, errors, prefix):
+            # Inject a sentinel rejection only for the three delegated LOAD/STORE
+            # kinds; every other instruction still adjudicated by the real rule.
+            if type(ins) in (LoadVar, LoadPrev, StoreVar):
+                errors.append("%s 指令 #%d：%s" % (prefix, idx, sentinel))
+                return None
+            return real_step(pou, scope, task, idx, ins, stack, errors, prefix)
+
+        with patch.object(loader_module, "_step", rejecting_step):
+            with self.assertRaises(IRValidationError) as cm:
+                validate_pou_instruction_semantics(legal)
+        # One surfaced rejection per delegated instruction, in stable order: the
+        # facade rejected the otherwise-legal stream only because ``_step`` did.
+        self.assertEqual(len(cm.exception.errors), 3)
+        # Real ``_step`` restored: the same legal stream passes again, so the patch
+        # leaked no state and the delegation carries no facade-side shadow rule.
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+
+    def test_convert_verdict_is_delegated_to_loader_step(self):
+        # WP-20260813-121 Round 2 Codex item 1 counter-proof: the Convert
+        # from_type/to_type IEC-type verdict must come from the Loader's own
+        # ``_step`` truth source, not a facade-side ``IEC_TYPES`` check.  A legal
+        # Convert stream validates to None; but if the Loader's ``_step`` is
+        # replaced by a sentinel that rejects exactly Convert instructions, the
+        # facade must surface that rejection -- proving it delegates rather than
+        # re-deciding.  A facade re-implementing the from/to IEC check would keep
+        # accepting the legal Convert (and never call ``_step`` for it), so the
+        # recorded ``_step`` calls would stay ``[]`` and this test would fail; the
+        # recorded-delegation + pass/reject/pass contrast is the delegation proof.
+        legal = _facade_pou(code=[Convert("INT", "REAL")])
+        # Baseline: with the real ``_step`` the legal Convert passes.
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+
+        real_step = loader_module._step
+        sentinel = "WP121-SENTINEL-CONVERT-REJECT"
+        calls = []
+
+        def rejecting_step(pou, scope, task, idx, ins, stack, errors, prefix):
+            # Inject a sentinel rejection only for Convert; every other
+            # instruction still adjudicated by the real rule.
+            if type(ins) is Convert:
+                calls.append(idx)
+                errors.append("%s 指令 #%d：%s" % (prefix, idx, sentinel))
+                return None
+            return real_step(pou, scope, task, idx, ins, stack, errors, prefix)
+
+        with patch.object(loader_module, "_step", rejecting_step):
+            with self.assertRaises(IRValidationError) as cm:
+                validate_pou_instruction_semantics(legal)
+        # The Convert instruction was routed through ``_step`` (recorded) and the
+        # otherwise-legal stream was rejected only because ``_step`` rejected it.
+        self.assertEqual(calls, [0])
+        self.assertEqual(len(cm.exception.errors), 1)
+        self.assertIn("conversion uses an unsupported IEC type",
+                      cm.exception.errors[0])
+        # Real ``_step`` restored: the same legal Convert passes again, so the
+        # patch leaked no state and the delegation carries no facade-side shadow.
+        self.assertIsNone(validate_pou_instruction_semantics(legal))
+
+
+class TestFacadeIsNotOnPackageRoot(unittest.TestCase):
+    def test_facade_not_reexported_to_runtime_package_root(self):
+        import src.runtime as pkg
+        self.assertNotIn("validate_pou_instruction_semantics", pkg.__all__)
+        self.assertFalse(hasattr(pkg, "validate_pou_instruction_semantics"))
 
 
 if __name__ == "__main__":

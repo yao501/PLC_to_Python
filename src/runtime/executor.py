@@ -116,6 +116,13 @@ from src.runtime.store import (
 )
 
 
+# One synchronous execute_programs entry may traverse multiple PROGRAMs and
+# nested user FUNCTION/FB frames.  A single shared budget prevents backward
+# jumps from occupying the scan thread forever.  It is deliberately internal:
+# target-specific real-time budgets require a separate deployment decision.
+_MAX_INSTRUCTIONS_PER_EXECUTE = 1_000_000
+
+
 # ---------------------------------------------------------------------------
 # 库块实例构造覆盖值的纯校验（无副作用；两个入口共用同源规则）
 # ---------------------------------------------------------------------------
@@ -488,6 +495,7 @@ class Executor:
         self._fb_paths = set(fb.path for fb in layout.fb_instances)
         self._frame_seq = 0
         self._active_frames: list = []      # 诊断用；异常路径 finally 出栈
+        self._instruction_budget_remaining = None
         # 标签表按只读代码对象缓存（POU 名 -> {label: pc}）
         self._labels: dict = {}
         for name, pou in task.pou_lib.items():
@@ -566,14 +574,22 @@ class Executor:
         if not isinstance(prev_snapshot, StoreSnapshot):
             raise IRExecutionError("<task>", "<entry>", None, None,
                                    "execute_programs 需要 StoreSnapshot 作 prev")
-        for prog in self.task.programs:
-            pou = self.task.pou_lib[prog.definition]
-            ctx = self._make_ctx(pou, prog.store_prefix, prev_snapshot)
-            self._run(ctx)
-            if ctx.stack:
-                raise IRExecutionError(
-                    pou.name, prog.store_prefix, len(pou.code or []), None,
-                    "PROGRAM 正常出口栈应为空，实为 %d 项" % len(ctx.stack))
+        if self._instruction_budget_remaining is not None:
+            raise IRExecutionError(
+                "<task>", "<entry>", None, None,
+                "execute_programs 不允许在同一 Executor 上重入")
+        self._instruction_budget_remaining = _MAX_INSTRUCTIONS_PER_EXECUTE
+        try:
+            for prog in self.task.programs:
+                pou = self.task.pou_lib[prog.definition]
+                ctx = self._make_ctx(pou, prog.store_prefix, prev_snapshot)
+                self._run(ctx)
+                if ctx.stack:
+                    raise IRExecutionError(
+                        pou.name, prog.store_prefix, len(pou.code or []), None,
+                        "PROGRAM 正常出口栈应为空，实为 %d 项" % len(ctx.stack))
+        finally:
+            self._instruction_budget_remaining = None
 
     # ------------------------------------------------------------------
     # 上下文构建
@@ -671,6 +687,16 @@ class Executor:
         n = len(code)
         while pc < n:
             ins = code[pc]
+            remaining = self._instruction_budget_remaining
+            if remaining is None:
+                raise IRExecutionError(
+                    ctx.pou.name, ctx.where, pc, ins,
+                    "IR 执行缺少 active execute_programs 指令预算")
+            if remaining <= 0:
+                raise IRExecutionError(
+                    ctx.pou.name, ctx.where, pc, ins,
+                    "单次 execute_programs 指令预算已耗尽")
+            self._instruction_budget_remaining = remaining - 1
             try:
                 nxt = self._step(ctx, ins, pc, labels)
             except IRExecutionError:

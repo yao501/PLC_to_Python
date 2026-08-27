@@ -529,6 +529,77 @@ class TestSingleWindowRec(unittest.TestCase):
         self.assertEqual(r.RSF_REASON, 5)
 
 
+# ============ REAL exact-carrier family (Codex WP-141 Round 1 §2/§3) ============
+
+
+class TestRealRecCarriers(unittest.TestCase):
+    """Every current reachable REAL ``*_REC`` recommendation keeps ``float``.
+
+    Same-source family as APCMAUTOPARA's 17: ``max(X_IN, 0)`` (and the
+    ``max(min(X_IN, 1), 0)`` variants) select a Python ``int`` for a legitimate
+    negative or out-of-band REAL input, which ``Store.check_value_type`` rejects
+    for REAL.  Both the reset-init fallback and the invalid-window direct
+    (``_REC = W_*``) settlement branch must keep an exact ``float`` carrier.
+    """
+
+    # Expected values are independently enumerated from the input contract,
+    # never derived from the product implementation.  This includes the five
+    # WP-142 clamps and WP-143's thirteen invalid-window neighbours.
+    _REAL_RECOMMENDATIONS = (
+        ("TL_REC", 0.0),
+        ("TL1_REC", 1.0), ("TL2_REC", 1.0),
+        ("TL3_REC", 1.0), ("TL4_REC", 1.0),
+        ("E1_REC", 0.001), ("E2_REC", 0.001),
+        ("E3_REC", 0.001), ("E4_REC", 0.001),
+        ("AO1_REC", 0.0), ("AO2_REC", 0.0),
+        ("AO3_REC", 0.0), ("AO4_REC", 0.0),
+        ("RSF_LOCK_T_REC", 0.0),
+        ("RSF_HYS_REC", 1.0), ("RSF_FAST_HYS_REC", 1.0),
+        ("RSF_TLOUT_K_REC", 1.0), ("ZF_K_REC", 1.0),
+    )
+    _BOUNDARY_INPUTS = {
+        "TL_IN": -1.0, "TL1_IN": -1.0, "TL2_IN": -1.0,
+        "TL3_IN": -1.0, "TL4_IN": -1.0,
+        "E1_IN": -1.0, "E2_IN": -1.0, "E3_IN": -1.0, "E4_IN": -1.0,
+        "AO1_IN": -1.0, "AO2_IN": -1.0, "AO3_IN": -1.0, "AO4_IN": -1.0,
+        "RSF_LOCK_T_IN": -1.0, "RSF_HYS_IN": 2.0,
+        "RSF_FAST_HYS_IN": 2.0, "RSF_TLOUT_K_IN": 2.0, "ZF_K_IN": 2.0,
+    }
+
+    def test_reset_default_real_rec_carriers_keep_exact_float(self):
+        self.assertEqual(len(self._REAL_RECOMMENDATIONS), 18)
+        r = APCRSFNAUTOPARA()
+        step(r, EN=True, RESET=True, **self._BOUNDARY_INPUTS)
+        for output, expected in self._REAL_RECOMMENDATIONS:
+            with self.subTest(path="reset", output=output):
+                carrier = getattr(r, output)
+                self.assertIs(type(carrier), float)
+                self.assertEqual(carrier, expected)
+
+    def test_invalid_window_direct_branch_keeps_real_rec_float(self):
+        """An invalid window settles through the direct ``_REC = W_*`` branch
+        (no history match, ``FUSE_SUM_W == 0``); the ``W_*`` scratch carriers
+        clamp on the same integer floors, so the committed recommendations must
+        still be exact ``float``.  ``RSF_TLOUT_K_IN`` / ``ZF_K_IN`` above 1 also
+        make ``max(min(.,1),0)`` pick the integer literal ``1``."""
+        r = APCRSFNAUTOPARA()
+        prime(r)
+        for _ in range(5):
+            step(r, COLLECT_MODE=0, PV=45.0, RSF_STEP=0.0, MIN_STORE_EVENT=999.0,
+                 MIN_WIN_T=3.0, **self._BOUNDARY_INPUTS)
+        step(r, COLLECT_MODE=0, PV=45.0, RSF_STEP=0.0, MIN_STORE_EVENT=999.0,
+             MIN_WIN_T=3.0, CALC_NOW=True, **self._BOUNDARY_INPUTS)
+        # Invalid window => direct (scratch ``W_*``) settlement branch, not the
+        # self-matching fusion branch whose division always yields float.
+        self.assertIs(r.WINDOW_DONE, True)
+        self.assertIs(r.WINDOW_VALID, False)
+        for name, expected in self._REAL_RECOMMENDATIONS:
+            with self.subTest(path="invalid-window", output=name):
+                carrier = getattr(r, name)
+                self.assertIs(type(carrier), float)
+                self.assertEqual(carrier, expected)
+
+
 # ============================ I. 历史写入 / H_N 变化 / 指针 ============================
 
 
