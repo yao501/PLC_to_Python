@@ -143,10 +143,11 @@
 - **依赖**：**阶段 0.5（冻结闸门通过）**。
 - **验收**：最小程序（如 TON + 逻辑）确定性跑 N 拍；安全门控 / shadow / 启动抑制 / 参数非法硬停 / OutputPolicy 分原因故障策略（`ENGINE_SCAN_SPEC §4`）均有测试。
 - **风险**：把"引擎内部 Python 构造法"误当成最终编程入口对外暴露——必须明确它只是内部/测试用。
-- **当前状态（2026-08-05，阶段 1 / M1 Python headless MVP 功能闸门已通过，待 GitHub 合并）**：L2 22/22 元数据与 adapter、L3 正式 IR、L4 Store/Executor/五步扫描、L5 OutputPolicy/故障安全提交/默认 shadow/参数与启动校验/软件 monitor 已连成同一单任务对象图；`WP-20260804-072 CLOSED` 进一步收口确定性 startup inhibit/readiness、Python 3.9 兼容、时钟回调 TOCTOU 与 scan/watchdog 锁存优先级，并以公开 API 的阶段 1 跨组件验收覆盖默认安全、shadow→实写边界、故障安全提交、monitor 一次性事件、prev 提交语义、双实例隔离和启动失败关闭。Claude 正式 v2 回审与 Codex 独立审核均已完成，用户已确认关闭 WP-072；当前文件上定向复核 71/71 通过。因此 M1 在**Python 内部无界面引擎范围**达标。本结论不包含最终 ST/CFC 用户入口、多任务/GVL、真实调度与连续 deadline miss、外部 readiness 信号源、HAL/物理 I/O、硬件 watchdog、CODESYS 对拍、持久化或现场证明；这些按后续阶段分别验收。阶段 2 CFC 的当前本地候选仍待正式回审，明确不进入本次 M1 发布。
+- **当前状态（2026-08-06，阶段 1 / M1 Python headless MVP 功能闸门已通过并经 PR #34 合并）**：L2 22/22 元数据与 adapter、L3 正式 IR、L4 Store/Executor/五步扫描、L5 OutputPolicy/故障安全提交/默认 shadow/参数与启动校验/软件 monitor 已连成同一单任务对象图；`WP-20260804-072 CLOSED` 进一步收口确定性 startup inhibit/readiness、Python 3.9 兼容、时钟回调 TOCTOU 与 scan/watchdog 锁存优先级，并以公开 API 的阶段 1 跨组件验收覆盖默认安全、shadow→实写边界、故障安全提交、monitor 一次性事件、prev 提交语义、双实例隔离和启动失败关闭。Claude 正式 v2 回审与 Codex 独立审核均已完成，用户已确认关闭 WP-072；当前文件上定向复核 71/71 通过。阶段 1 / M1 与 `WP-20260805-075` 工程支持发布候选已通过 [PR #34](https://github.com/yao501/PLC_to_Python/pull/34) 合并（merge `8840b2a…`，候选 head `3598c05…`，两者 Git tree 均为 `fd0e2817…`），`main == origin/main == HEAD == 8840b2a…`；既有 71/71 等测试事实原样保留、非合并后重跑。因此 M1 在**Python 内部无界面引擎范围**达标。本结论不包含最终 ST/CFC 用户入口、多任务/GVL、真实调度与连续 deadline miss、外部 readiness 信号源、HAL/物理 I/O、硬件 watchdog、CODESYS 对拍、持久化或现场证明；这些按后续阶段分别验收。阶段 2 CFC 的当前本地候选仍待正式回审，明确不进入本次 M1 发布。
 
 ### 阶段 2 — 数据流定序编译器（CFC 执行语义的运行时基础）
 
+- **目录级正式收口（2026-08-27，WP-20260826-145）**：Claude 已把 WP-085～091 的 CFC fallback / BLOCKED 来源链作为未审核候选正式复核，Codex 独立审核与宿主补充反证通过，用户已确认关闭。内部模型 v1、carrier 分支定序、current/previous lowering、安全编译入口与 `src.runtime` 16 项 CFC 顶层合同已形成 Stage 4 可依赖的 Python 目录合同；V0 4/4、V1 140/140、V2 476/476、V3 tests 2033/2033、`prototype_05` 68/68、根目录 2101/2101。仍未提交未合并，不构成 CODESYS/PLC、`.export` 自动重建、反馈真机语义、HAL 或现场可用。
 - **目标**：引擎能加载"连线图"并正确定序执行——这是 CFC 的运行时底座（先于任何画图界面）。
 - **范围**（按 D3 v2.2.2 载体分支裁决）：导入的 CFC **按载体分支定序**（`ENGINE_SCAN_SPEC §5.1`）——PLCopen XML 用已保存的 `executionOrderId`；.export 自动模式待重建算法（阶段 5），未就绪拒绝生成可执行 IR；反馈起点 lower 成 `LOAD_PREV`（读上一拍）；拓扑排序**仅用于平台通用的新建图定序**（无环拓扑定序，有环由用户标反馈起点打破；不改写载体显式顺序，`.export` 自动模式重建另走阶段 5 导入器算法）；CFC 模型加载器（框/管脚/连线/顺序字段（含 `order_source`/`carrier`）/反馈标记作为数据）。
 - **关键产出**：顺序编译器；CFC 模型 loader。
@@ -157,6 +158,9 @@
 ### 阶段 3 — ST 语言前端
 
 - **目标**：能像 CODESYS 一样用 ST 写 POU，平台每拍解析并执行。
+- **当前 Python 目录基线（2026-08-26，WP-144 CLOSED）**：Claude 已将 WP-135～143 的备用候选作为未审核实现正式回审，Codex 独立审核与宿主补充反证最终通过。冻结范围为 11 项 ST 顶层编译 API、4 个内部 ST 模块、8 个原语 + 14 个业务块显式 alias、通用库 `VAR_IN_OUT` 原子写回、四类省略策略与任务级共享 `LicenseContext`；严格子集继续拒绝 IEC 隐式转换、动态 `FOR`、非有限源码字面量及默认 Registry 非有限 float。最终 V0/V1/V2 为 10/258/802，V3 为 tests **2033/2033**、`prototype_05` **68/68**、根目录 **2101/2101**。这表示 Stage 3 的 **Python strict-subset 目录合同正式关闭**，但仍未提交/合并，也不表示 CODESYS/PLC、原生整数位宽/回绕、REAL binary32、动态现场 NaN/±Inf、HAL 或现场可用。
+- **历史快照（2026-08-25，WP-135～140）**：当时备用流程已达到 8 原语 + 14/14 业务块、通用库 `VAR_IN_OUT` 与目录级候选，但正式轴仍为 BLOCKED；该状态已由上方 WP-144 正式关闭记录取代，原工作包证据继续保留。
+- **当前内部候选（2026-08-10，WP-092～101，待 Claude 正式回审）**：已建立 strict lexer/parser/typed-IR lowering，覆盖声明、同类型表达式/赋值、BOOL/十进制 INTEGER/REAL/TIME/STRING 工程字面量及 `IF/CASE/有界常量 FOR`；运行时另有跨嵌套调用共享的确定性 IR 指令预算。该状态仅为备用流程候选，正式轴仍 `BLOCKED / user / user`；动态循环、控制转移、调用执行、标准函数、隐式转换、真实 POU/实例绑定与 CODESYS 对拍尚未完成。
 - **范围**：
   - ST 词法 + 语法（子集）：`VAR` 声明、赋值、`IF/CASE/FOR/WHILE`、FB 实例调用、表达式、IEC 运算符与类型、`T#`/`REAL` 字面量、`SEL/MIN/MAX/ABS/LIMIT` 等标准函数；
   - 绑定到标准库 FB 实例与 GVL，在扫描内执行；
@@ -174,6 +178,7 @@
 - **依赖**：阶段 2（运行时底座）、阶段 1（标准库元数据）。
 - **验收**：在编辑器里搭一个 CFC 程序，引擎跑通，与等价 ST 结果一致。
 - **风险**：UI 工程量大；必须建在**稳定的 IR / CFC 模型**之上，否则反复返工——故排在语言工作的最后。
+- **进度（2026-08-27，`WP-20260827-146` 正式关闭）**：Stage 4 首个无界面工程文档合同 `src/editor/cfc_document.py` 已经 Claude 与 Codex 独立审核——安全保存平台新建 CFC 图 / 节点布局（框位与注释）/ 确定性 JSON 往返，并只经冻结 `load_cfc_model` 投影为可执行 `CFCModel`（拒绝 `plcopen_xml`/`export_native` 冒充新建图）。`WP-20260827-147` 的备用候选随后由 `WP-20260827-148` 完成 Claude 正式回审与新 Codex 独立审核，Codex Round 2 verdict=`APPROVED`；用户已确认将 WP-148 行政关闭并同步收口 WP-147，两包当前均为 `CLOSED / user / user`，同时保留 WP-147 原始额度失败、BLOCKED 来源轴和 Fallback Lite 证据。已批准窄范围为 six narrow node/connection edit commands 与 `CFCEditResult` 单步 before/after 撤销基础，仍以冻结文档 loader 为唯一语义裁决并在 `to_json` 前执行 exact-shell 信任门禁。它不含 UI、拖拽/连线交互、组件面板、完整历史栈、批量事务或文件持久化，不能写成 Stage 4 完成；当前亦未提交/未合并。
 
 ### 阶段 5 — CODESYS 工程导入
 
