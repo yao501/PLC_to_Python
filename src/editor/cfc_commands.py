@@ -89,6 +89,19 @@ class CFCEditResult:
             raise CFCEditError((_edit_diag(
                 "INVALID_RESULT_SNAPSHOT",
                 "before and after must be structurally trusted exact CFCDocument"),))
+        # 结构可信只证明可以安全投影，不证明图、连接、carrier、layout 等语义已被
+        # 文档 loader 接受。直接构造 dataclass 可以绕过 load_cfc_document；若把这种
+        # 状态保存在 before/after，undo 就可能恢复一个系统从未接受过的非法文档。
+        # 因此在零观察壳体门禁之后，统一交冻结 loader 做完整语义裁决。这里只丢弃
+        # loader 返回的新对象，保留原快照 identity；不复制任何 CFC 业务规则。
+        try:
+            load_cfc_document(self.before.to_json())
+            load_cfc_document(self.after.to_json())
+        except CFCDocumentError:
+            raise CFCEditError((_edit_diag(
+                "INVALID_RESULT_SNAPSHOT",
+                "before and after must be semantically valid CFCDocument snapshots"),)) \
+                from None
 
     def undo(self) -> CFCDocument:
         return self.before
@@ -220,14 +233,17 @@ def _is_trusted_document_shell(document) -> bool:
 
 
 def _require_document(document) -> None:
-    """文档必须是结构可信的 exact :class:`CFCDocument`，否则立即失败关闭。
+    """文档必须是结构可信且经 loader 接受的 exact :class:`CFCDocument`。
 
     这是所有命令的首个门禁：只有完整的 exact document/model/node/pin/connection/layout
-    壳体都成立后，才允许调用 ``document.to_json()``。
+    壳体都成立后，才允许调用 ``document.to_json()``；投影随后立即交冻结
+    ``load_cfc_document`` 做完整语义验证，防止直接构造 dataclass 绕过 loader 后被命令
+    保存为 undo ``before``。验证结果只作证明，不替换原文档 identity。
     """
     if not _is_trusted_document_shell(document):
         raise CFCEditError(
             (_edit_diag("INVALID_DOCUMENT", "document must be an exact CFCDocument"),))
+    load_cfc_document(document.to_json())
 
 
 def _raise_edit(errors) -> None:

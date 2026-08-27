@@ -20111,3 +20111,118 @@ Claude 必须在宿主环境逐条实跑并记录真实计数：
 - closed_at: `2026-08-27 16:57:00+0800`
 - closed_by: `user`
 - closure_basis: `用户已授权至 18:00 按约定与实际进展完成规划、实施及 Git/GitHub 收口；本包在该授权范围内完成分支推送与 PR 创建，但不越权合并 main。`
+
+## WP-20260827-152
+
+- title: `PR #35 Stage 4 undo 快照语义信任边界与审计恢复`
+- status: `CLOSED`
+- owner: `user`
+- handoff_to: `user`
+- round: `1`
+- max_rounds: `5`
+- handoff_protocol: `v2`
+- base_commit: `39a29695743e9b28f5f13a1d5f43fc43e904e1a0`
+- depends_on: `PR #35 独立发布审核 CHANGES_REQUESTED；WP-151 BLOCKED / zero scope writes`
+- authorized_by: `user`
+- created_at: `2026-08-27 17:20:50+0800`
+- verification_profile: `V0 + V1 + V2 + release V3`
+- function_matrix_ids: `USR-03, ENG-02`
+- scope:
+  - `src/editor/cfc_commands.py`
+  - `tests/test_editor_cfc_commands.py`
+  - `docs/PROJECT_STATE.md`
+  - `docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `docs/RISKS.md`
+- scope_baseline_sha256: `109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39`
+- scope_baseline_manifest:
+  - `6f2bcfbb722f4c763a69537eb57e53fecacf2dfb8d5b496107a26cba92436ac0  src/editor/cfc_commands.py`
+  - `d2c36b46879eba5e8569cbb8ec4af64a962fd34dce9e7140790b3481d7480bd5  tests/test_editor_cfc_commands.py`
+  - `952f2acd6c7be31cc2119a96477722b2a4efd7ff94205e240a8f6645d4cc1179  docs/PROJECT_STATE.md`
+  - `4ff1b331b9051e6d61412fe3d272b92aff96a218732db863072c16e6fab30844  docs/SOFT_PLC_FUNCTION_MATRIX.md`
+  - `75580883c716bc5ca887f6c10898df7c0bc7bf80ee10db9873620f107d0ba4a8  docs/RISKS.md`
+- frozen_dependencies_sha256: `e678998864a3f8ec09759c93766079d556863322783246f582cf1834038aa980`
+- frozen_dependencies_manifest:
+  - `c2dc59359ac345f2fb96b34bf7c9fbb8b4d6305dcaa6763519358e519611b584  src/editor/cfc_document.py`
+  - `ff387d709a4b35bbb5d092c85f680a7e509f14061cc353946e1eb08d22f367c8  tests/test_editor_cfc_document.py`
+  - `29e8c7490456278c23769deff2e2752f90ce38df620b373207be43c7d62cf38d  src/runtime/cfc_model.py`
+  - `da05fbb0d8520ca4073ae0ccc75c51f3cb046c8f3b5f2b1c106dd0cc2ae0e7f8  src/runtime/cfc_order.py`
+  - `e08508ddb4a0fb7690f6055a3cae465c6c3f3971c1c3d3f684c93db0ea506d0f  src/runtime/cfc_lowering.py`
+  - `86003d37193dd8f5ea3d4f2ff979830fd52d9bf81b64b5ec372b418312a3dd88  tests/test_runtime_cfc_model.py`
+  - `614a3ca1bd229ceb423a6b2da7bb3738dac0ec96d85b027fd9442474f883ad61  tests/test_runtime_cfc_order.py`
+  - `a1ed6f3e20dd0b8e021e3af4d7b3ef680372a0df8af66c7956aea54c91d700ed  tests/test_runtime_cfc_lowering.py`
+  - `1a877277621a4a7a4b53899ccd7e22857d030d4c6b64959572eb93e399ef0b8f  tests/test_runtime_cfc_compile.py`
+  - `c482651bb496f082a0441297597c32d7b646ac25fba46c9adf8c5055306eadca  tests/test_runtime_cfc_feedback.py`
+  - `85cce7824ff512972242219956b656d5ca673da867d94af692ced6be3f749725  tests/test_runtime_cfc_vertical.py`
+  - `57bd7c443aa0587768c78e227776e0273aaa73434397b809a62061079d922a87  tests/test_runtime_cfc_public_api.py`
+- objective: `把本地窄修候选作为未审核实现交 Claude 正式复核：exact-shell 只建立零观察安全，随后必须统一委托冻结 load_cfc_document 证明命令输入及 CFCEditResult before/after 的完整语义有效性；同时更正 WP-150 的恢复前旧 head/提交计数投影。`
+- acceptance:
+  1. `所有六命令在观察安全壳体后、任何目标操作前，真实调用 load_cfc_document(document.to_json())；重复 node id、非法 carrier/连接/layout 的直接构造输入失败关闭，原对象不变。`
+  2. `CFCEditResult before/after 同样经冻结 loader 验证；结构恶意仍固定 INVALID_RESULT_SNAPSHOT 且零观察，语义非法快照也不得构造成功或被 undo/redo 返回。`
+  3. `不得在 cfc_commands 复制节点唯一性、carrier、连接、layout 等业务规则；有效命令保持 before identity 与现有六命令行为。`
+  4. `持久测试至少覆盖重复 node id、非法 carrier、结果构造、remove/move 命令、失败原子；Codex 另用不同非法连接/layout 做未预告反证。`
+  5. `状态文档明确 PR #35 head 39a2969 的发布审核为 CHANGES_REQUESTED、恢复候选待正式回审；旧四提交/head=2711738 只作历史快照。最终通过后另以 Git 实盘记录完整提交序列，不在自引用提交内伪造固定 final head。`
+- claude_tests_each_round: `V0 内存 compile cfc_commands.py/test 文件；V1 tests.test_editor_cfc_commands；V2 V1 + tests.test_editor_cfc_document 和 7 个 CFC runtime 邻接；最终三组 V3；另跑 ParserTests、manifest、git diff --check。`
+- codex_tests_on_final_review: `新独立 Codex 复算 scope/frozen，逐文件审核；以不同重复/非法 carrier/连接/layout 直接构造、恶意壳体、结果失败原子做未预告反证；复跑 V1/V2/三组 V3、ParserTests 和 diff-check。`
+- explicit_exclusions: `不启动 WP-151 历史栈，不改 frozen、公开 API、命令语义、持久化/UI/容量；不合并 main，不做 PLC/CODESYS/HAL/现场。`
+- stop_conditions: `需改 frozen/扩大第 6 个产品 scope；单一 loader 无法裁决；base/scope/frozen 漂移；额度/代理/认证/真实测试失败无法定位；命中安全停止。`
+
+### Claude 交接前自审（Round 1）
+
+- self_review_started_at: 2026-08-27 17:28:39+0800
+- self_review_finished_at: 2026-08-27 17:29:02+0800
+- self_review_verdict: PASS
+- self_review_round: 1
+- 实际测试命令与结果:
+  - python3 -c "import pathlib; mods=['src/editor/cfc_commands.py','tests/test_editor_cfc_commands.py']; [compile(pathlib.Path(p).read_bytes(), p, 'exec') for p in mods]; print(...)" —— V0 in-memory compile OK 2/2
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_editor_cfc_commands —— Ran 70 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_editor_cfc_commands tests.test_editor_cfc_document tests.test_runtime_cfc_model tests.test_runtime_cfc_order tests.test_runtime_cfc_lowering tests.test_runtime_cfc_compile tests.test_runtime_cfc_feedback tests.test_runtime_cfc_vertical tests.test_runtime_cfc_public_api —— Ran 255 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -t . —— Ran 2148 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s prototype_05 -t prototype_05 —— Ran 68 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s . -t . —— Ran 2216 tests, OK
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_ai_handoff.ParserTests —— Ran 27 tests, OK
+- self_review_scope_sha256: 109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39
+- self_review_manifest:
+  - 6f2bcfbb722f4c763a69537eb57e53fecacf2dfb8d5b496107a26cba92436ac0  src/editor/cfc_commands.py
+  - d2c36b46879eba5e8569cbb8ec4af64a962fd34dce9e7140790b3481d7480bd5  tests/test_editor_cfc_commands.py
+  - 952f2acd6c7be31cc2119a96477722b2a4efd7ff94205e240a8f6645d4cc1179  docs/PROJECT_STATE.md
+  - 4ff1b331b9051e6d61412fe3d272b92aff96a218732db863072c16e6fab30844  docs/SOFT_PLC_FUNCTION_MATRIX.md
+  - 75580883c716bc5ca887f6c10898df7c0bc7bf80ee10db9873620f107d0ba4a8  docs/RISKS.md
+- 首次失败: 无（正式回审未发现须在 scope 内修改的缺陷，全部指定测试一次通过）。
+- 失败根因: 不适用（无首次失败）。
+- 修复内容: 不适用（无首次失败）；本轮为对未审核窄修候选的正式回审，未在 scope 内修改任何产品/测试/文档文件，五文件哈希保持 scope_baseline 终态。
+- 修复后重跑结果: 不适用（无首次失败）。
+- 已知疑问: `git diff --check` 属 git 命令，Claude allowlist 禁用 git，本轮未运行，按 codex_tests_on_final_review 交 Codex 最终复核执行，不阻塞本次交接。
+- 未验证边界: 本包仅验证无界面 CFC 编辑命令与撤销快照的 Python 语义信任边界；不构成 CODESYS/PLC、`.export` 自动重建、反馈真机语义、HAL、真实 I/O、硬件 watchdog 或现场安全证明；PR #35 暂不合并，仍未提交未合并。
+- 是否满足交接条件: 是
+
+### Claude 实施交接（Round 1）
+
+- 完成内容: 对 WP-20260827-152 承接的本地未审核窄修候选完成 Claude 正式回审，逐条核对 acceptance 1–5——① `_require_document` 在 `_is_trusted_document_shell` 零观察结构门禁通过后，统一调用冻结 `load_cfc_document(document.to_json())`，六命令（add_node/remove_node/move_node/set_node_comment/add_connection/remove_connection）在任何目标操作前先证明输入文档语义有效，直接构造的重复 node id / 非法 carrier / 非法连接 / 非法 layout 由冻结 loader 失败关闭且原对象不变（acceptance 1）；② `CFCEditResult.__post_init__` 在同一零观察壳体门禁后对 before/after 均调用冻结 loader，结构恶意固定 `INVALID_RESULT_SNAPSHOT` 且零观察，语义非法快照抛 `INVALID_RESULT_SNAPSHOT`、无法构造成功，undo/redo 不返回未被 loader 接受的文档（acceptance 2）；③ 命令层只做命令边界（参数类型、目标存在性）判定，节点唯一性 / carrier / 连接 / layout 等业务规则仍只由冻结 `load_cfc_document` 裁决，有效命令保持 before identity 与既有六命令行为（acceptance 3）；④ 持久反证已覆盖重复 node id、非法 carrier、结果构造、remove/move 命令与失败原子（acceptance 4）；⑤ `docs/PROJECT_STATE.md` / `docs/SOFT_PLC_FUNCTION_MATRIX.md` / `docs/RISKS.md` 页首已把 PR #35 head `39a2969` 的发布审核明确为 `CHANGES_REQUESTED`、恢复候选待正式回审，并将旧四提交 / `head=2711738` 降为恢复前历史快照（acceptance 5）。本轮亲自实跑 V0（compile 2/2）、V1 `tests.test_editor_cfc_commands` 70/70、V2（+`test_editor_cfc_document` 与 7 个 CFC runtime 邻接）255/255、V3 三组（`discover -s tests` 2148/2148、`prototype_05` 68/68、根目录 2216/2216）、`ParserTests` 27/27，全部 `OK`；回审未发现须在 scope 内修改的缺陷。
+- 修改文件: 无（本轮未修改任何 scope 文件；五文件逐文件哈希与 `scope_baseline_sha256` 逐字节一致）。
+- 明确未修改: `src/editor/cfc_commands.py`、`tests/test_editor_cfc_commands.py`、`docs/PROJECT_STATE.md`、`docs/SOFT_PLC_FUNCTION_MATRIX.md`、`docs/RISKS.md` 全部保持 baseline 终态；未改 frozen 依赖、公开 API、命令语义、持久化 / UI / 容量；未启动 WP-151 历史栈；未做任何 Git/GitHub 操作、未合并 main。
+- scope_sha256: 109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39
+- implementation_finished_at: 2026-08-27 17:29:48+0800
+- handoff_to: codex
+
+### Codex 审核结论（Round 1）
+
+- verdict: APPROVED
+- 已验证事实: `接手五字段为 WP-20260827-152 / READY_FOR_CODEX / codex / codex / round=1，且 1 <= max_rounds=5、handoff_protocol=v2；审核期间按协议原子转为 CODEX_REVIEWING / codex / codex。仓库只读解析器独立返回 package_valid=true、errors=[]、warnings=[]、self_review_state=v2-ok、handoff_gate_ok=true、handoff_gate_reason=None；Claude 自审与实施交接均为 Round 1、记录顺序正确，aware 时间戳、PASS、实际命令/成功标记/真实计数、同序 manifest、聚合哈希与交接条件九项门禁有效。HEAD == base_commit == 39a29695743e9b28f5f13a1d5f43fc43e904e1a0，main == origin/main == 8840b2a443e466ed8d0192defa1a4545907b3039。按任务书顺序独立复算 5 文件 scope 开始/结束聚合均为 109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39，逐文件 SHA-256 与 scope_baseline/self_review_manifest 全等；12 文件 frozen 开始/结束聚合均为 e678998864a3f8ec09759c93766079d556863322783246f582cf1834038aa980，逐项与 frozen_dependencies_manifest 全等，无 scope/frozen 漂移。`
+- 产品审核结论: `src/editor/cfc_commands.py 的六命令均先经唯一 _require_document：_is_trusted_document_shell 仅建立 exact document/model/node/pin/connection/layout 零观察结构信任，随后在任何目标定位/候选修改前调用冻结 load_cfc_document(document.to_json()) 完成语义裁决；验证返回值丢弃，原 before identity 保留。CFCEditResult.__post_init__ 对 before/after 同样先结构门禁、再分别交 loader；结构恶意与语义非法快照都稳定收敛为 INVALID_RESULT_SNAPSHOT，undo/redo 不会返回 loader 未接受的文档。命令层未复制 node 唯一性、carrier、connection、layout、read_mode 或定序业务规则；有效命令的新文档、before identity、删除级联与失败原子合同保持。逐文件检查当前 scope 与相关冻结 loader 合同后，未发现必须返修项。`
+- 状态与范围审核: `docs/PROJECT_STATE.md、docs/SOFT_PLC_FUNCTION_MATRIX.md、docs/RISKS.md 页首均明确 PR #35 head 39a2969 的独立发布审核为 CHANGES_REQUESTED、PR 暂不合并，并将旧四提交/head=2711738 限定为恢复前历史快照；USR-03/ENG-02、PLATFORM-CFC-MODEL-1 及 Python/PLC·CODESYS/HAL/现场状态轴未被提前升级。本包未启动 WP-151 完整历史栈，未改 frozen/公开 API/UI/持久化/容量，未做 Git/GitHub 写操作或合并 main。`
+- 项目工程约定: `直接构造的 exact dataclass 仍视为不可信；exact-shell 只负责零观察安全，完整 CFC 语义只由冻结 load_cfc_document -> load_cfc_model 裁决。这是当前 Python 编辑器信任边界的项目工程约定，不是 IEC/CODESYS 官方语义。`
+- 待真机验证假设: `本结论只证明 Stage 4 无界面六个原子编辑命令与单步 before/after 快照的 Python 信任边界；不证明 CODESYS/PLC、.export 自动重建、反馈映射、数值保真、HAL/真实 I/O、硬件 watchdog 或现场安全，也不表示 Stage 4 完成。`
+- 必须返修: 无。
+- 非阻塞建议: `本包未显式填写建议字段 full_regression_trigger / evidence_reuse_policy；但 verification_profile 已明示 release V3，codex_tests_on_final_review 也明示三组 V3，故本轮未因缺字段降级。后续工作包建议显式填写两字段；用户关闭/后续 Git·GitHub 行政同步时，应据实更新 WP-152 结论、完整提交序列与实际 final head，不在自引用提交中预写 final head。`
+- 审核证据: `全部产品/契约计数为 Codex 本轮独立实跑，未用 Claude 自报计数替代：V0 内存 compile 2/2 + src.editor.cfc_commands 导入及 exact __all__ 冒烟 1/1；V1 tests.test_editor_cfc_commands 70/70；V2 命令+文档+7 个 CFC runtime 邻接 255/255；未预告反证 7/7（六命令对悬空连接 before 共同首门禁、重复 layout、重复 pin、model 合法但 editor 禁止的 plcopen_xml carrier、连接实例恶意 extra 字段零观察、结果构造失败原子），blind_observations=0；ParserTests 27/27；git diff --check 通过。release V3 完整命令本轮真实运行：tests 共 2148 项中仅既登记的 9 项 Dashboard 端口测试在创建本地 TCP 监听时报 PermissionError: [Errno 1] Operation not permitted，prototype_05 68/68 OK，root 共 2216 项中同样仅该 9 项环境错误；独立 127.0.0.1:0 bind 探针同样 errno=1，确认为受限环境而非产品断言失败。明确排除这 9 项后的可执行 V3 子集本轮重跑 tests 2139/2139、root 2207/2207 均 OK。【复用，非本轮实跑】仅对上述 9 项端口测试复用 WP-150 宿主发布回归 2145/2145 的已有独立证据；复用前独立确认 tools/ai_handoff/parser.py=012b8ac6…、server.py=19b25de4…、watcher.py=20ec082e…、tests/test_ai_handoff.py=33b57852… 从 WP-150 head 到当前工作树逐字节不变，当前 editor 产品变更不影响其行为；未将该复用冒充为本轮实跑。协调器在接手、审核中与结束写回前均 coordinator_live=true / state=live / 心跳未过期 / legacy_polling_resume_authorized=false。`
+- review_started_sha256: 109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39
+- review_finished_sha256: 109217feda08a88772da3d4515abedd2b646ea211781390658f501a2e3c91c39
+- handoff_to: user
+- reviewed_at: 2026-08-27 17:41:07+0800
+
+### 用户关闭确认
+
+- closed_at: `2026-08-27 17:47:00+0800`
+- closed_by: `user`
+- closure_basis: `用户已授权至 18:00 按约定连续推进工作并只需汇报各包结果；WP-152 已完成 Claude 正式回审和新 Codex 独立审核，verdict=APPROVED、必须返修=无，宿主补跑 release V3 为 tests 2148/2148、prototype 68/68、root 2216/2216，故在授权范围内行政关闭。`
+- boundary: `关闭只收口 PR #35 的 Stage 4 命令/undo 快照语义信任边界及审计恢复；不自动合并 main、不启动 WP-151、不升级 PLC/CODESYS/HAL/现场轴。`

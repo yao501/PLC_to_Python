@@ -737,6 +737,55 @@ class DirectConstructionTrustBoundaryTests(unittest.TestCase):
             CFCEditResult(doc, _load_empty())
         self.assertEqual(_ecodes(ctx.exception), ["INVALID_RESULT_SNAPSHOT"])
 
+    def test_result_rejects_semantically_invalid_duplicate_node_snapshot(self):
+        valid = _load_auto()
+        first = valid.graph.nodes[0]
+        invalid_graph = CFCModel(
+            valid.graph.schema_version,
+            valid.graph.carrier,
+            valid.graph.execution_order_mode,
+            valid.graph.order_source,
+            (first, first),
+            (),
+        )
+        invalid = self._direct_document_with_graph(
+            invalid_graph, (valid.layout[0],))
+        with self.assertRaises(CFCEditError) as ctx:
+            CFCEditResult(invalid, invalid)
+        self.assertEqual(_ecodes(ctx.exception), ["INVALID_RESULT_SNAPSHOT"])
+
+    def test_command_rejects_semantically_invalid_direct_document_before_edit(self):
+        valid = _load_auto()
+        first = valid.graph.nodes[0]
+        invalid_graph = CFCModel(
+            valid.graph.schema_version,
+            valid.graph.carrier,
+            valid.graph.execution_order_mode,
+            valid.graph.order_source,
+            (first, first),
+            (),
+        )
+        invalid = self._direct_document_with_graph(
+            invalid_graph, (valid.layout[0],))
+        before = dump_cfc_document(invalid)
+        with self.assertRaises(CFCDocumentError):
+            remove_node(invalid, first.node_id)
+        self.assertEqual(dump_cfc_document(invalid), before)
+
+    def test_result_and_command_reject_invalid_direct_carrier(self):
+        valid = _load_empty()
+        invalid_graph = CFCModel(
+            valid.graph.schema_version, "invalid_carrier",
+            valid.graph.execution_order_mode, valid.graph.order_source,
+            valid.graph.nodes, valid.graph.connections,
+        )
+        invalid = self._direct_document_with_graph(invalid_graph, valid.layout)
+        with self.assertRaises(CFCEditError) as ctx:
+            CFCEditResult(invalid, invalid)
+        self.assertEqual(_ecodes(ctx.exception), ["INVALID_RESULT_SNAPSHOT"])
+        with self.assertRaises(CFCDocumentError):
+            move_node(invalid, "ghost", 1, 2)
+
 
 # ---------------------------------------------------------------------------
 # 输入 / 输出容器篡改
